@@ -22,12 +22,15 @@ WORKDIR /app
 
 # 安装 Python 依赖
 COPY backend/pyproject.toml ./
-RUN pip install --no-cache-dir -e ".[all]" 2>/dev/null || \
-    pip install --no-cache-dir \
+RUN pip install --no-cache-dir \
     fastapi[standard] uvicorn[standard] \
-    sqlalchemy[asyncio] aiosqlite passlib[bcrypt] \
-    python-jose[cryptography] python-multipart \
-    pyyaml apscheduler httpx
+    sqlalchemy[asyncio] aiosqlite \
+    "passlib[bcrypt]" "bcrypt<4.1" \
+    python-jose[cryptography] \
+    python-multipart pydantic-settings \
+    pyyaml apscheduler httpx psutil \
+    docker websockets python-dateutil \
+    requests feedparser alembic
 
 # 复制后端代码（保持 backend/ 目录结构，与本地一致）
 COPY backend/ ./backend/

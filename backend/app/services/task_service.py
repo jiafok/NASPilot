@@ -58,4 +58,4 @@ async def run_task(db: AsyncSession, task: Task, triggered_by: str = "manual") -
         execution.duration_ms = int((end - start).total_seconds() * 1000)
         task.last_run_at = end
         await db.commit()
-        return execution
+    return execution

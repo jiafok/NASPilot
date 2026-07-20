@@ -27,9 +27,8 @@ def get_scheduler() -> AsyncIOScheduler:
     if scheduler is None:
         scheduler = AsyncIOScheduler(
             executors={"default": {"type": "threadpool", "max_workers": settings.SCHEDULER_THREADPOOL}},
-            timezone=settings.APP_NAME,  # placeholder, replaced below
+            timezone="Asia/Shanghai",
         )
-        scheduler.timezone = "Asia/Shanghai"
     return scheduler
 
 
