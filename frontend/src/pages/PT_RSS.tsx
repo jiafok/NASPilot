@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Descriptions, Divider, Form, Input, InputNumber, message, Space, Spin, Switch, Typography } from 'antd';
+import { Alert, Button, Card, Descriptions, Divider, Form, Input, message, Space, Spin, Switch, Typography } from 'antd';
 import { CloudUploadOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons';
 import api from '../utils/api';
 
@@ -170,7 +170,7 @@ export default function PT_RSS() {
             <Switch />
           </Form.Item>
 
-          <Divider orientation="left">运行配置</Divider>
+          <Divider>运行配置</Divider>
 
           <Alert
             style={{ marginBottom: 16 }}

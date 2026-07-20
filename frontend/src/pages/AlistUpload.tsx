@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Button, Card, Descriptions, Divider, Form, Input, InputNumber,
+  Alert, Button, Card, Descriptions, Divider, Form, Input,
   message, Space, Spin, Switch, Table, Tag, Typography,
 } from 'antd';
-import { CloudUploadOutlined, PlayCircleOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons';
 import api from '../utils/api';
 
-const { Title, Paragraph, Text } = Typography;
+const { Title, Paragraph } = Typography;
 
 interface PluginInfo { id: number; slug: string; name: string; version: string; enabled: boolean; }
 interface PluginInstance { id: number; plugin_id: number; name: string; config: Record<string, any>; enabled: boolean; }
@@ -135,7 +135,7 @@ export default function AlistUpload() {
             <Input />
           </Form.Item>
           <Form.Item name="enabled" label="启用" valuePropName="checked"><Switch /></Form.Item>
-          <Divider orientation="left">运行配置</Divider>
+          <Divider>运行配置</Divider>
           <Alert style={{ marginBottom: 16 }} type={parsedConfig ? 'info' : 'error'} showIcon
             message={parsedConfig ? 'JSON 格式正确' : 'JSON 存在语法错误'} />
           <Form.Item name="configText" label="实例配置 JSON" rules={[{ required: true }]}>
