@@ -35,11 +35,13 @@ NASPilot 是一个面向 **NAS 用户** 和 **HomeLab 用户** 的自动化运�
 
 ## 🚀 快速开始
 
-### 一键 Docker 部署（推荐）
+### 一键 Docker 部署（免 clone，推荐）
 
 ```bash
-git clone https://github.com/your-org/NASPilot.git
-cd NASPilot
+mkdir -p naspilot && cd naspilot
+curl -fsSL https://raw.githubusercontent.com/jiafok/NASPilot/main/docker-compose.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/jiafok/NASPilot/main/.env.example -o .env
+# 修改 .env 中 SECRET_KEY 和 ADMIN_PASSWORD
 docker compose up -d
 ```
 
