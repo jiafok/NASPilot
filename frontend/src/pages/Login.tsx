@@ -18,8 +18,14 @@ export default function LoginPage() {
       message.success('登录成功');
       navigate('/', { replace: true });
     } catch (err: any) {
-      const detail = err?.response?.data?.detail || '登录失败，请检查用户名和密码';
-      message.error(detail);
+      const detail = err?.response?.data?.detail;
+      if (typeof detail === 'string') {
+        message.error(detail);
+      } else if (Array.isArray(detail)) {
+        message.error(detail.map((d: any) => d.msg).join('; '));
+      } else {
+        message.error('登录失败，请检查用户名和密码');
+      }
     } finally {
       setLoading(false);
     }
