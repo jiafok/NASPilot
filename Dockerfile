@@ -33,7 +33,7 @@ RUN pip install --no-cache-dir -e ".[all]" 2>/dev/null || \
 COPY backend/ ./backend/
 
 # 复制前端构建产物
-COPY --from=frontend-builder /frontend/dist/ ./frontend/dist/
+COPY --from=frontend-builder /frontend/dist/ ./backend/frontend/dist/
 
 # 创建数据目录
 RUN mkdir -p /app/data /app/logs
@@ -41,9 +41,10 @@ RUN mkdir -p /app/data /app/logs
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8000/api/health || exit 1
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONPATH=/app/backend
 
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
