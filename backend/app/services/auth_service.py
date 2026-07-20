@@ -30,16 +30,22 @@ async def authenticate(db: AsyncSession, creds: LoginRequest) -> TokenResponse |
 
 
 async def bootstrap_admin(db: AsyncSession) -> None:
-    """Create initial admin user if no users exist (first run)."""
-    result = await db.execute(select(User).limit(1))
-    if result.scalar_one_or_none():
-        return
-    admin = User(
-        username=settings.INITIAL_ADMIN_USER,
-        hashed_password=hash_password(settings.INITIAL_ADMIN_PASSWORD),
-        is_active=True,
-        is_admin=True,
-        display_name="Administrator",
-    )
-    db.add(admin)
-    await db.commit()
+    """Create or sync initial admin user on every startup."""
+    result = await db.execute(select(User).where(User.username == settings.INITIAL_ADMIN_USER))
+    admin = result.scalar_one_or_none()
+
+    if admin is None:
+        # First run — create admin
+        admin = User(
+            username=settings.INITIAL_ADMIN_USER,
+            hashed_password=hash_password(settings.INITIAL_ADMIN_PASSWORD),
+            is_active=True,
+            is_admin=True,
+            display_name="Administrator",
+        )
+        db.add(admin)
+        await db.commit()
+    elif not verify_password(settings.INITIAL_ADMIN_PASSWORD, admin.hashed_password):
+        # ADMIN_PASSWORD changed in env — sync it
+        admin.hashed_password = hash_password(settings.INITIAL_ADMIN_PASSWORD)
+        await db.commit()
