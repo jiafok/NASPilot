@@ -1,13 +1,18 @@
 """NASPilot — FastAPI application entry point."""
 
-from fastapi import FastAPI
+import logging
+import os
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.lifespan import lifespan
-import os
+
+logger = logging.getLogger("naspilot")
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -31,13 +36,26 @@ app.add_middleware(
 app.include_router(api_router)
 
 
-# ── Static frontend (if built) ──────────────────────────────────────────
-_frontend_dist = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
-if os.path.isdir(_frontend_dist):
-    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="frontend")
-
-
 @app.get("/api/health", tags=["health"])
 async def health():
     """Liveness probe."""
     return {"status": "ok", "app": settings.APP_NAME, "version": settings.APP_VERSION}
+
+
+# ── Static frontend + SPA fallback ──────────────────────────────────────
+_frontend_dist = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+_index_html = os.path.join(_frontend_dist, "index.html")
+
+if os.path.isfile(_index_html):
+    logger.info(f"Frontend dist found: {_frontend_dist}")
+
+    # Serve static assets (js, css, images, etc.)
+    app.mount("/assets", StaticFiles(directory=os.path.join(_frontend_dist, "assets")), name="assets")
+
+    @app.get("/{full_path:path}", response_class=HTMLResponse)
+    async def spa_fallback(full_path: str):
+        """Catch-all: serve index.html for all non-API, non-asset routes (SPA routing)."""
+        return FileResponse(_index_html)
+
+else:
+    logger.warning(f"Frontend dist NOT found at {_frontend_dist} — SPA disabled")
