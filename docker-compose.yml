@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+  naspilot:
+    build: .
+    container_name: naspilot
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    volumes:
+      # 持久化数据（SQLite 数据库 + 日志）
+      - ./data:/app/data
+      - ./logs:/app/logs
+      # Docker 套接字（监控容器状态、执行 Docker 任务）
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 挂载你的脚本目录，让 NASPilot 可以执行现有脚本
+      - /volume1/scripts:/scripts:ro
+      # 挂载下载目录（空间检测用）
+      - /volume1/QBDownload:/downloads:ro
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
+      - SECRET_KEY=${SECRET_KEY:-change-me-to-a-random-string}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - TZ=Asia/Shanghai
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - naspilot_net
+
+networks:
+  naspilot_net:
+    driver: bridge

@@ -1,0 +1,52 @@
+[project]
+name = "naspilot"
+version = "1.0.0"
+description = "All-in-One NAS Automation Platform"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "NASPilot Contributors" }]
+keywords = ["nas", "automation", "docker", "pt", "rss", "qbittorrent", "alist", "cloudflare", "ddns", "homenlab"]
+
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "aiosqlite>=0.20.0",
+    "alembic>=1.13.0",
+    "apscheduler>=3.10.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "python-multipart>=0.0.9",
+    "feedparser>=6.0.11",
+    "requests>=2.32.0",
+    "httpx>=0.27.0",
+    "pyyaml>=6.0.1",
+    "psutil>=5.9.0",
+    "docker>=7.1.0",
+    "python-dateutil>=2.9.0",
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "httpx>=0.27.0",
+    "ruff>=0.5.0",
+    "mypy>=1.10.0",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "A", "C4", "SIM"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
