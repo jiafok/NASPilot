@@ -51,22 +51,17 @@
 }
 
 #root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
+  width: 100%;
+  min-height: 100vh;
 }
 
 body {
   margin: 0;
+  padding: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: #f5f5f5;
 }
 
 h1,
@@ -123,7 +118,20 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: #f5f5f5;
 }
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Ant Design overrides for professional look */
+.ant-layout { background: #f5f5f5 !important; }
+.ant-card { border-radius: 12px; }
+.ant-table-wrapper .ant-table-thead > tr > th { background: #fafafa; font-weight: 600; }
+.ant-modal-header { border-radius: 12px 12px 0 0; }
+.ant-btn-primary { box-shadow: 0 2px 6px rgba(102, 126, 234, 0.35); }
 
 .ant-menu-item-selected {
   background: linear-gradient(90deg, #667eea33 0%, transparent 100%) !important;

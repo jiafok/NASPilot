@@ -105,7 +105,7 @@ export default function MainLayout() {
             </div>
           </div>
         )}
-        <Content style={{ margin: isMobile ? 8 : 16, minHeight: 280 }}>
+        <Content style={{ padding: isMobile ? 12 : 24, minHeight: 280, background: '#f5f5f5' }}>
           <Outlet />
         </Content>
       </Layout>

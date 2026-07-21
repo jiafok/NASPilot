@@ -108,6 +108,9 @@ class PluginRegistry:
             "app.plugins.builtin.cloudflare_ddns",
             "app.plugins.builtin.docker_backup",
             "app.plugins.builtin.log_cleanup",
+            "app.plugins.builtin.btrfs_cleanup",
+            "app.plugins.builtin.rclone_mount",
+            "app.plugins.builtin.cf_pages",
         ]
         for mod_path in builtin_modules:
             try:

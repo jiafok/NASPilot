@@ -20,6 +20,38 @@ from app.services.task_service import run_task
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
+@router.get("/executions", response_model=list[dict], summary="Recent executions across all tasks")
+async def list_recent_executions(
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(10, ge=1, le=100),
+):
+    """Return recent task executions for the Dashboard, including task_name."""
+    from sqlalchemy.orm import joinedload
+
+    result = await db.execute(
+        select(TaskExecution)
+        .options(joinedload(TaskExecution.task))
+        .order_by(TaskExecution.id.desc())
+        .limit(limit)
+    )
+    executions = result.scalars().all()
+    return [
+        {
+            "id": e.id,
+            "task_id": e.task_id,
+            "task_name": e.task.name if e.task else "Unknown",
+            "status": e.status,
+            "start_time": e.start_time.isoformat() if e.start_time else None,
+            "duration_ms": e.duration_ms,
+            "exit_code": e.exit_code,
+            "triggered_by": e.triggered_by,
+            "error_message": e.error_message,
+        }
+        for e in executions
+    ]
+
+
 @router.get("", response_model=list[TaskOut], summary="List all tasks")
 async def list_tasks(
     user: CurrentUser,
