@@ -59,7 +59,10 @@ class Settings(BaseSettings):
     @field_validator("DATA_DIR", "LOG_DIR", "PLUGIN_DIR", mode="after")
     @classmethod
     def _ensure_dirs(cls, v: Path) -> Path:
-        v.mkdir(parents=True, exist_ok=True)
+        try:
+            v.mkdir(parents=True, exist_ok=True)
+        except PermissionError:
+            pass  # volume mount may restrict write; handled in lifespan
         return v
 
 
