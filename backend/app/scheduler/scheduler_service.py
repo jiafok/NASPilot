@@ -100,11 +100,12 @@ async def sync_all_tasks() -> int:
 
 
 async def start_scheduler() -> None:
-    """Initialize and start the scheduler + sync tasks."""
+    """Initialize and start the scheduler + sync tasks + sync plugin schedules."""
     sched = get_scheduler()
     if not sched.running:
         sched.start()
     await sync_all_tasks()
+    await sync_plugin_schedules()
 
 
 async def shutdown_scheduler() -> None:
@@ -113,3 +114,98 @@ async def shutdown_scheduler() -> None:
     if scheduler and scheduler.running:
         scheduler.shutdown(wait=False)
         scheduler = None
+
+
+# ── Plugin scheduled runs ─────────────────────────────────────────────
+
+def _plugin_job_id(plugin_id: int, instance_id: int) -> str:
+    return f"plugin-{plugin_id}-{instance_id}"
+
+
+async def _execute_plugin(plugin_id: int, instance_id: int) -> None:
+    """Internal callback — loads a PluginInstance from DB and runs it."""
+    from app.models import Plugin, PluginInstance
+    from app.plugins.registry import registry
+    from sqlalchemy import select
+
+    async with async_session_factory() as db:
+        # Load instance
+        r = await db.execute(select(PluginInstance).where(PluginInstance.id == instance_id))
+        inst = r.scalar_one_or_none()
+        if not inst or not inst.enabled:
+            return
+
+        # Load plugin metadata
+        r2 = await db.execute(select(Plugin).where(Plugin.id == plugin_id))
+        p = r2.scalar_one_or_none()
+        if not p:
+            return
+
+        # Find runtime class
+        plugin_cls = None
+        for slug, cls in registry.list_all():
+            if slug == p.slug:
+                plugin_cls = cls
+                break
+        if plugin_cls is None:
+            return
+
+        # Check schedule enabled in config
+        cfg = inst.config or {}
+        if not cfg.get("schedule_enabled"):
+            return
+
+        logger.info(f"Scheduled plugin run: {p.name} ({inst.name})")
+        runtime = plugin_cls(cfg)
+        await runtime.run()
+
+
+def upsert_plugin_schedule(sched: AsyncIOScheduler, plugin_id: int, instance_id: int, config: dict) -> bool:
+    """Add, update, or remove a plugin schedule based on config."""
+    job_id = _plugin_job_id(plugin_id, instance_id)
+    cron_expr = config.get("schedule_cron", "")
+    enabled = config.get("schedule_enabled", False)
+
+    # Remove existing job
+    try:
+        sched.remove_job(job_id)
+    except Exception:
+        pass
+
+    if not enabled or not cron_expr:
+        return False
+
+    try:
+        trigger = CronTrigger.from_crontab(cron_expr, timezone="Asia/Shanghai")
+        sched.add_job(
+            _execute_plugin,
+            trigger=trigger,
+            args=[plugin_id, instance_id],
+            id=job_id,
+            name=f"plugin-{plugin_id}-{instance_id}",
+            replace_existing=True,
+            misfire_grace_time=120,
+        )
+        logger.info(f"Registered plugin schedule: id={job_id} cron={cron_expr}")
+        return True
+    except Exception:
+        logger.exception(f"Invalid cron for plugin schedule: {cron_expr}")
+        return False
+
+
+async def sync_plugin_schedules() -> int:
+    """Load all plugin instances with schedule_cron and register them."""
+    from app.models import PluginInstance
+    from sqlalchemy import select
+
+    sched = get_scheduler()
+    count = 0
+    async with async_session_factory() as db:
+        result = await db.execute(select(PluginInstance).where(PluginInstance.enabled.is_(True)))
+        instances = result.scalars().all()
+        for inst in instances:
+            cfg = inst.config or {}
+            if upsert_plugin_schedule(sched, inst.plugin_id, inst.id, cfg):
+                count += 1
+    logger.info(f"Synced {count} plugin schedules")
+    return count

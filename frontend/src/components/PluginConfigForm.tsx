@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Form, Input, Select, Switch, InputNumber, Button, Card, Space, Typography, message, Spin, Tag } from 'antd';
-import { SaveOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Form, Input, Select, Switch, InputNumber, Button, Card, Space, Typography, message, Spin, Tag, Divider } from 'antd';
+import { SaveOutlined, PlayCircleOutlined, ReloadOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import api from '../utils/api';
 
 const { Title, Paragraph } = Typography;
@@ -131,6 +131,23 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
           </Form.Item>
           <Form.Item name="_enabled" label="Enabled" valuePropName="checked"><Switch /></Form.Item>
           {fields.map(renderField)}
+
+          <Divider>
+            <Space><ClockCircleOutlined /> Schedule (Optional)</Space>
+          </Divider>
+
+          <Form.Item name="schedule_enabled" label="Enable Schedule" valuePropName="checked"
+            tooltip="开启后按 Cron 表达式定时自动执行此插件">
+            <Switch />
+          </Form.Item>
+
+          <Form.Item name="schedule_cron" label="Cron Expression"
+            tooltip="分 时 日 月 周。留空则只手动执行。例如 */30 * * * * 每30分钟，0 3 * * * 每天凌晨3点">
+            <Input placeholder="*/30 * * * *" style={{ width: 220 }} />
+          </Form.Item>
+
+          <Divider />
+
           <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}>Save Configuration</Button>
         </Form>
       </Card>

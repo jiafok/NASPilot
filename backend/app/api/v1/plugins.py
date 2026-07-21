@@ -126,6 +126,11 @@ async def update_instance(
         setattr(inst, k, v)
     await db.commit()
     await db.refresh(inst)
+
+    # Reschedule plugin if config contains schedule settings
+    from app.scheduler.scheduler_service import get_scheduler, upsert_plugin_schedule
+    upsert_plugin_schedule(get_scheduler(), inst.plugin_id, inst.id, inst.config or {})
+
     return inst
 
 
