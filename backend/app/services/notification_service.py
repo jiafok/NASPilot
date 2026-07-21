@@ -1,6 +1,10 @@
 """Notification service — send messages to various channels."""
 
+import base64
+import hashlib
+import hmac
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -20,20 +24,46 @@ def _safe_json(resp: httpx.Response) -> dict[str, Any]:
         return {}
 
 
+def _feishu_sign(timestamp: str, secret: str) -> str:
+    """Generate Feishu webhook signature (HMAC-SHA256, base64)."""
+    string_to_sign = f"{timestamp}\n{secret}"
+    hmac_code = hmac.new(
+        string_to_sign.encode("utf-8"),
+        digestmod=hashlib.sha256,
+    ).digest()
+    return base64.b64encode(hmac_code).decode("utf-8")
+
+
 async def _send_feishu(config: dict[str, Any], title: str, message: str) -> tuple[bool, str | None]:
     webhook = config.get("webhook", "")
     if not webhook:
         return False, "No webhook configured"
-    body = {
+
+    body: dict[str, Any] = {
         "msg_type": "text",
         "content": {"text": f"{title}\n\n{message}"},
     }
+
+    # Sign if secret is configured
+    secret = config.get("secret", "")
+    if secret:
+        ts = str(int(time.time()))
+        body["timestamp"] = ts
+        body["sign"] = _feishu_sign(ts, secret)
+
     async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.post(webhook, json=body)
-        data = resp.json()
-        if data.get("code", 0) != 0:
-            return False, data.get("msg", "Unknown error")
-        return True, None
+        try:
+            resp = await client.post(webhook, json=body)
+            resp.raise_for_status()
+            data = resp.json()
+            code = data.get("code", -1)
+            if code != 0:
+                return False, data.get("msg", f"Feishu returned code={code}")
+            return True, None
+        except httpx.HTTPStatusError as e:
+            return False, f"HTTP {e.response.status_code}: {e.response.text[:200]}"
+        except Exception as e:
+            return False, str(e)
 
 
 async def _send_wechat_work(config: dict[str, Any], title: str, message: str) -> tuple[bool, str | None]:

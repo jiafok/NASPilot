@@ -14,6 +14,7 @@ interface NotificationChannel {
   channel_type: string;
   enabled: boolean;
   is_default: boolean;
+  config: Record<string, unknown>;
 }
 
 export default function NotificationCenter() {
@@ -104,7 +105,7 @@ export default function NotificationCenter() {
         <Space>
           <Button size="small" icon={<SendOutlined />} loading={testing === record.id}
             onClick={() => handleTest(record.id)}>测试</Button>
-          <Button size="small" onClick={() => { setEditing(record); form.setFieldsValue(record); setModalOpen(true); }}>编辑</Button>
+          <Button size="small" onClick={() => handleEdit(record)}>编辑</Button>
           <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
@@ -113,13 +114,32 @@ export default function NotificationCenter() {
     },
   ];
 
+  const handleEdit = (record: NotificationChannel) => {
+    setEditing(record);
+    form.setFieldsValue({
+      name: record.name,
+      channel_type: record.channel_type,
+      is_default: record.is_default,
+      enabled: record.enabled,
+      config: record.config || {},
+    });
+    setModalOpen(true);
+  };
+
+  const handleNew = () => {
+    setEditing(null);
+    form.resetFields();
+    form.setFieldsValue({ channel_type: 'feishu', enabled: true, is_default: false, config: {} });
+    setModalOpen(true);
+  };
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>通知中心</Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={fetchChannels}>刷新</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModalOpen(true); }}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleNew}>
             新建渠道
           </Button>
         </Space>
