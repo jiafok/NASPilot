@@ -1,12 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Button, Dropdown, Avatar, theme } from 'antd';
+import { Layout, Menu, Button, Dropdown, Avatar, theme, Select, Grid } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   DashboardOutlined,
   ThunderboltOutlined,
-  CloudUploadOutlined,
-  GlobalOutlined,
   ToolOutlined,
   BellOutlined,
   AppstoreOutlined,
@@ -17,123 +15,97 @@ import {
   UserOutlined,
   LogoutOutlined,
   RobotOutlined,
+  MenuOutlined,
 } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../hooks/useAuth';
 
 const { Header, Sider, Content } = Layout;
+const { useBreakpoint } = Grid;
 
-const menuItems: MenuProps['items'] = [
-  { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
-  { key: '/tasks', icon: <ThunderboltOutlined />, label: '任务中心' },
-  {
-    key: '/tools',
-    icon: <ToolOutlined />,
-    label: '集成工具',
-    children: [
-      { key: '/tools/pt-rss', icon: <CloudUploadOutlined />, label: 'PT RSS' },
-      { key: '/tools/alist', icon: <CloudUploadOutlined />, label: 'AList 上传' },
-      { key: '/tools/cloudflare', icon: <GlobalOutlined />, label: 'DDNS' },
-      { key: '/tools/docker-backup', icon: <ToolOutlined />, label: 'Docker 备份' },
-    ],
-  },
-  { key: '/plugins', icon: <AppstoreOutlined />, label: '插件中心' },
-  { key: '/notifications', icon: <BellOutlined />, label: '通知中心' },
-  { key: '/logs', icon: <FileTextOutlined />, label: '日志' },
-  { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
-  { key: '/ai', icon: <RobotOutlined />, label: 'AI 助手' },
+const locales = [
+  { value: 'zh-CN', label: '中文' },
+  { value: 'en-US', label: 'English' },
 ];
 
 export default function MainLayout() {
+  const { t, i18n } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
-  const { token: { colorBgContainer, borderRadiusLG } } = theme.useToken();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+  const { token: { colorBgContainer } } = theme.useToken();
+
+  useEffect(() => { setMobileOpen(false); }, [location.pathname]);
+
+  const menuItems: MenuProps['items'] = [
+    { key: '/', icon: <DashboardOutlined />, label: t('nav.dashboard') },
+    { key: '/tasks', icon: <ThunderboltOutlined />, label: t('nav.tasks') },
+    { key: '/tools', icon: <ToolOutlined />, label: t('nav.tools'), children: [
+      { key: '/tools/pt-rss', label: t('nav.ptRss') },
+      { key: '/tools/alist', label: t('nav.alistUpload') },
+      { key: '/tools/cloudflare', label: t('nav.ddns') },
+      { key: '/tools/docker-backup', label: t('nav.dockerBackup') },
+    ]},
+    { key: '/plugins', icon: <AppstoreOutlined />, label: t('nav.plugins') },
+    { key: '/notifications', icon: <BellOutlined />, label: t('nav.notifications') },
+    { key: '/logs', icon: <FileTextOutlined />, label: t('nav.logs') },
+    { key: '/settings', icon: <SettingOutlined />, label: t('nav.settings') },
+    { key: '/ai', icon: <RobotOutlined />, label: t('nav.aiAssistant') },
+  ];
 
   const userMenuItems: MenuProps['items'] = [
     { key: 'user', label: user?.username || 'Admin', disabled: true },
     { type: 'divider' },
-    {
-      key: 'logout',
-      icon: <LogoutOutlined />,
-      label: '退出登录',
-      onClick: logout,
-    },
+    { key: 'logout', icon: <LogoutOutlined />, label: t('auth.logout'), onClick: logout },
   ];
 
-  // 查找当前匹配的菜单 key
-  const findSelectedKey = () => {
-    const path = location.pathname;
-    const match = (menuItems ?? []).find((item: any) => {
-      if (item.key === path) return true;
-      if (item.children) {
-        return item.children.some((child: any) => child.key === path);
-      }
-      return false;
-    });
-    return match ? match.key as string : '/';
-  };
+  const selectedKey = (() => {
+    const p = location.pathname;
+    const m = menuItems.find((x: any) => x.key === p || x.children?.some((c: any) => c.key === p));
+    return (m as any)?.key || '/';
+  })();
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider
-        trigger={null}
-        collapsible
-        collapsed={collapsed}
-        style={{ background: 'linear-gradient(180deg, #1a1a2e 0%, #16213e 100%)' }}
-        theme="dark"
-      >
-        <div style={{
-          height: 64,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#fff',
-          fontSize: collapsed ? 14 : 20,
-          fontWeight: 700,
-          letterSpacing: 1,
-        }}>
-          {collapsed ? '🚀' : '🚀 NASPilot'}
-        </div>
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[findSelectedKey()]}
-          defaultOpenKeys={['/tools']}
-          items={menuItems}
-          onClick={({ key }) => navigate(key)}
-          style={{ background: 'transparent' }}
-        />
-      </Sider>
+      {!isMobile && (
+        <Sider trigger={null} collapsible collapsed={collapsed} theme="dark"
+          style={{ background: 'linear-gradient(180deg, #1a1a2e 0%, #16213e 100%)' }}>
+          <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: collapsed ? 16 : 20, fontWeight: 700 }}>
+            {collapsed ? '🚀' : '🚀 NASPilot'}
+          </div>
+          <Menu theme="dark" mode="inline" selectedKeys={[selectedKey]} defaultOpenKeys={['/tools']}
+            items={menuItems} onClick={({ key }) => navigate(key)} style={{ background: 'transparent' }} />
+        </Sider>
+      )}
       <Layout>
-        <Header style={{
-          padding: '0 24px',
-          background: colorBgContainer,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-        }}>
-          <Button
-            type="text"
-            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={() => setCollapsed(!collapsed)}
-            style={{ fontSize: 16, width: 48, height: 48 }}
-          />
-          <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
-            <Avatar
-              style={{ cursor: 'pointer', backgroundColor: '#667eea' }}
-              icon={<UserOutlined />}
-            />
-          </Dropdown>
+        <Header style={{ padding: '0 16px', background: colorBgContainer, display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', position: 'sticky', top: 0, zIndex: 100 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {isMobile && <Button type="text" icon={<MenuOutlined />} onClick={() => setMobileOpen(true)} />}
+            {!isMobile && <Button type="text" icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)} />}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Select size="small" value={i18n.language} onChange={(v) => { i18n.changeLanguage(v); localStorage.setItem('lang', v); }}
+              options={locales} style={{ width: 90 }} popupMatchSelectWidth={false} />
+            <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
+              <Avatar style={{ cursor: 'pointer', backgroundColor: '#667eea' }} icon={<UserOutlined />} />
+            </Dropdown>
+          </div>
         </Header>
-        <Content style={{
-          margin: 24,
-          padding: 24,
-          background: colorBgContainer,
-          borderRadius: borderRadiusLG,
-          minHeight: 280,
-        }}>
+        {isMobile && (
+          <div style={{ display: mobileOpen ? 'block' : 'none', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 200 }}>
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} onClick={() => setMobileOpen(false)} />
+            <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: 260, background: 'linear-gradient(180deg, #1a1a2e 0%, #16213e 100%)', overflow: 'auto' }}>
+              <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 20, fontWeight: 700 }}>🚀 NASPilot</div>
+              <Menu theme="dark" mode="inline" selectedKeys={[selectedKey]} defaultOpenKeys={['/tools']}
+                items={menuItems} onClick={({ key }) => { navigate(key); setMobileOpen(false); }} style={{ background: 'transparent' }} />
+            </div>
+          </div>
+        )}
+        <Content style={{ margin: isMobile ? 8 : 16, minHeight: 280 }}>
           <Outlet />
         </Content>
       </Layout>
