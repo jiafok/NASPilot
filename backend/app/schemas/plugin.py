@@ -21,6 +21,7 @@ class PluginOut(BaseModel):
     enabled: bool
     installed_at: datetime | None = None
     config_schema: dict[str, Any] | None = None
+    instance_count: int = 0
 
     model_config = {"from_attributes": True}
 

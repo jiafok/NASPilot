@@ -17,16 +17,28 @@ router = APIRouter(prefix="/plugins", tags=["plugins"])
 
 @router.get("", response_model=list[PluginOut], summary="List all plugins")
 async def list_plugins(user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    result = await db.execute(select(Plugin).order_by(Plugin.category, Plugin.name))
-    return result.scalars().all()
+    from sqlalchemy.orm import joinedload
+
+    result = await db.execute(
+        select(Plugin).options(joinedload(Plugin.instances)).order_by(Plugin.category, Plugin.name)
+    )
+    plugins = result.unique().scalars().all()
+    for p in plugins:
+        count = len(p.instances) if p.instances else 0
+        setattr(p, 'instance_count', count)
+    return plugins
 
 
 @router.get("/{plugin_id}", response_model=PluginOut, summary="Get plugin")
 async def get_plugin(plugin_id: int, user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    result = await db.execute(select(Plugin).where(Plugin.id == plugin_id))
-    plugin = result.scalar_one_or_none()
+    from sqlalchemy.orm import joinedload
+    result = await db.execute(
+        select(Plugin).where(Plugin.id == plugin_id).options(joinedload(Plugin.instances))
+    )
+    plugin = result.unique().scalar_one_or_none()
     if not plugin:
         raise HTTPException(status_code=404, detail="Plugin not found")
+    setattr(plugin, 'instance_count', len(plugin.instances) if plugin.instances else 0)
     return plugin
 
 
