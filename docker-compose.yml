@@ -21,6 +21,12 @@ services:
       # 例如：创建任务 command=/scripts/backup.sh 即可执行你的脚本
       - /volume1/scripts:/scripts:ro
 
+      # === Docker 备份插件目录（端口 backup_docker_all_core.sh） ===
+      # 读取：扫描 /volume1/docker 下的应用目录
+      - /volume1/docker:/volume1/docker:ro
+      # 写入：备份文件输出到 USB 存储
+      - /volumeUSB1/usbshare/docker_backup:/volumeUSB1/usbshare/docker_backup:rw
+
       # === Rclone 挂载需要（如使用 rclone_mount_simple.sh） ===
       # 如果你需要 NASPilot 管理 rclone 挂载，取消下面注释：
       # - /volume1/docker/Alist/media:/mnt/alist:shared
