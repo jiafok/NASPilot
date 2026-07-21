@@ -11,10 +11,10 @@ services:
       - "8080:8000"
 
     volumes:
-      # Persistent data (SQLite + configs)
+      # Persistent data (SQLite + logs + configs)
       - ./data:/app/data
-      # Persistent logs
-      - ./logs:/app/logs
+      # Optional: separate logs directory (logs now go to /app/data/logs/)
+      # - ./logs:/app/logs
       # Docker socket (manage containers)
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # Your scripts directory

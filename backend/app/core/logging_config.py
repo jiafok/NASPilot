@@ -23,15 +23,19 @@ def setup_logging() -> None:
     console.setFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT))
     root.addHandler(console)
 
-    # file
-    file_handler = RotatingFileHandler(
-        settings.LOG_DIR / "naspilot.log",
-        maxBytes=10 * 1024 * 1024,  # 10 MB
-        backupCount=5,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT))
-    root.addHandler(file_handler)
+    # file — fallback gracefully if dir is not writable
+    try:
+        settings.LOG_DIR.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            settings.LOG_DIR / "naspilot.log",
+            maxBytes=10 * 1024 * 1024,  # 10 MB
+            backupCount=5,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT))
+        root.addHandler(file_handler)
+    except PermissionError:
+        root.warning(f"Cannot write log file at {settings.LOG_DIR} — logging to stdout only")
 
 
 logger = logging.getLogger("naspilot")

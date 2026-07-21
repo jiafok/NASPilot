@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # ── Paths ──────────────────────────────────────────────────────────
     DATA_DIR: Path = Path("./data")
-    LOG_DIR: Path = Path("./logs")
+    LOG_DIR: Path = Path("./data/logs")
     PLUGIN_DIR: Path = Path("./plugins")
 
     # ── CORS ────────────────────────────────────────────────────────────
