@@ -46,7 +46,14 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
       const inst = (instRes.data as any[])[0] || null;
       setInstance(inst);
       const values: Record<string, any> = {};
-      fields.forEach((f) => { values[f.key] = inst?.config?.[f.key] ?? f.default; });
+      fields.forEach((f) => {
+        if (f.type === 'object' && f.fields) {
+          // Convert nested config to form field format
+          values[f.key] = inst?.config?.[f.key] ?? {};
+        } else {
+          values[f.key] = inst?.config?.[f.key] ?? f.default;
+        }
+      });
       form.setFieldsValue({ ...values, _name: inst?.name || title, _enabled: inst ? inst.enabled : true });
     } catch { message.error('Failed to load plugin'); }
     finally { setLoading(false); }
@@ -90,7 +97,20 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
     if (field.type === 'object' && field.fields) {
       return (
         <Card size="small" title={field.label} style={{ marginBottom: 16 }} key={field.key}>
-          {field.fields.map(renderField)}
+          {field.fields.map((sf) => {
+            const nestedCommon = {
+              label: sf.label,
+              name: [field.key, sf.key],
+              tooltip: sf.help,
+              rules: sf.required ? [{ required: true }] : undefined,
+            };
+            if (sf.type === 'boolean') return <Form.Item {...nestedCommon} valuePropName="checked"><Switch /></Form.Item>;
+            if (sf.type === 'number') return <Form.Item {...nestedCommon}><InputNumber style={{ width: '100%' }} placeholder={sf.placeholder} /></Form.Item>;
+            if (sf.type === 'password') return <Form.Item {...nestedCommon}><Input.Password placeholder={sf.placeholder} /></Form.Item>;
+            if (sf.type === 'textarea') return <Form.Item {...nestedCommon}><Input.TextArea rows={2} placeholder={sf.placeholder} /></Form.Item>;
+            if (sf.type === 'select' && sf.options) return <Form.Item {...nestedCommon}><Select options={sf.options} placeholder={sf.placeholder} /></Form.Item>;
+            return <Form.Item {...nestedCommon}><Input placeholder={sf.placeholder} /></Form.Item>;
+          })}
         </Card>
       );
     }
