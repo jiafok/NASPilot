@@ -6,53 +6,52 @@ services:
     pull_policy: always
     container_name: naspilot
     restart: unless-stopped
+
     ports:
       - "8080:8000"
+
     volumes:
-      # === 持久化数据 ===
+      # Persistent data (SQLite + configs)
       - ./data:/app/data
+      # Persistent logs
       - ./logs:/app/logs
-
-      # === Docker 管理 ===
-      - /var/run/docker.sock:/var/run/docker.sock
-
-      # === 你的脚本目录（供 NASPilot 任务中心调用） ===
-      # 容器内路径：/scripts
-      # 例如：创建任务 command=/scripts/backup.sh 即可执行你的脚本
-      - /volume1/scripts:/scripts:ro
-
-      # === Docker 备份插件目录（端口 backup_docker_all_core.sh） ===
-      # 读取：扫描 /volume1/docker 下的应用目录
+      # Docker socket (manage containers)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Your scripts directory
+      - ./scripts:/scripts:ro
+      # Docker app backup (read)
       - /volume1/docker:/volume1/docker:ro
-      # 写入：备份文件输出到 USB 存储
+      # Docker app backup (write)
       - /volumeUSB1/usbshare/docker_backup:/volumeUSB1/usbshare/docker_backup:rw
 
-      # === Rclone 挂载需要（如使用 rclone_mount_simple.sh） ===
-      # 如果你需要 NASPilot 管理 rclone 挂载，取消下面注释：
-      # - /volume1/docker/Alist/media:/mnt/alist:shared
-      # - /root/.config/rclone/rclone.conf:/root/.config/rclone/rclone.conf:ro
-
-    # === Rclone 挂载需要 FUSE，取消下面注释 ===
-    # privileged: true
-    # 或者更安全的方式：
+    # Optional: rclone mount requires FUSE
     # cap_add:
     #   - SYS_ADMIN
     # devices:
     #   - /dev/fuse:/dev/fuse
-    # security_opt:
-    #   - apparmor:unconfined
+    # volumes:
+    #   - /path/to/rclone.conf:/app/.config/rclone/rclone.conf:ro
 
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
-      - SECRET_KEY=${SECRET_KEY:-change-me-to-a-random-string}
+      - SECRET_KEY=${SECRET_KEY:-change-me-to-a-random-string-at-least-32-chars}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
       - TZ=Asia/Shanghai
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
     networks:
       - naspilot_net
 

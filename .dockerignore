@@ -1,0 +1,53 @@
+# ============================================================
+# .dockerignore — Minimize Docker build context
+# Prevents COPY from pulling local artifacts into the image
+# ============================================================
+
+# ── Git ────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# ── Python ─────────────────────────────────────────────
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+**/*.egg-info/
+**/.eggs/
+**/.mypy_cache/
+**/.pytest_cache/
+**/.ruff_cache/
+*.egg
+.venv/
+venv/
+env/
+
+# ── Backend ────────────────────────────────────────────
+backend/data/
+backend/logs/
+backend/test_*.db
+backend/*.db
+backend/*.db-journal
+backend/*.db-wal
+backend/.env
+
+# ── Frontend ───────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+
+# ── IDE / Editor ───────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Docker ─────────────────────────────────────────────
+docker-compose.override.yml
+.env
