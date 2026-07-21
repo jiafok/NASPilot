@@ -63,6 +63,36 @@ class PluginBase(ABC):
         """Default entry point for ad-hoc plugin actions."""
         return None
 
+    async def notify(self, title: str, message: str, level: str = "info") -> bool:
+        """Send a notification through the Notification Center's default channel.
+        
+        Plugins call this instead of configuring their own webhook.
+        Configure channels once in Notification Center UI.
+        """
+        try:
+            from app.core.database import async_session_factory
+            from app.models.notification import NotificationChannel
+            from app.services.notification_service import send_notification
+            from sqlalchemy import select
+
+            async with async_session_factory() as db:
+                result = await db.execute(
+                    select(NotificationChannel).where(
+                        NotificationChannel.enabled.is_(True),
+                        NotificationChannel.is_default.is_(True),
+                    )
+                )
+                channels = result.scalars().all()
+                if not channels:
+                    return False
+                for ch in channels:
+                    await send_notification(db, ch, title, message, level, event_type="plugin")
+                return True
+        except Exception:
+            logger = logging.getLogger("naspilot.plugins")
+            logger.exception("Failed to send plugin notification")
+            return False
+
 
 class PluginRegistry:
     """Central registry for all plugins — builtin and user-installed."""

@@ -5,8 +5,7 @@ import api from '../utils/api';
 
 const FIELDS: PluginField[] = [
   { key: 'backup_dir', label: 'Backup Directory', type: 'string', default: '/app/data/docker_backup', required: true, help: '备份文件存放目录' },
-  { key: 'containers', label: 'Containers', type: 'array', placeholder: 'naspilot, qbittorrent', help: '逗号分隔的容器名。留空则备份所有。' },
-  { key: 'volumes', label: 'Volumes', type: 'array', placeholder: 'volume1, volume2', help: '额外需要备份的卷路径' },
+  { key: 'containers', label: 'Containers', type: 'array', placeholder: 'naspilot, qbittorrent', help: '逗号分隔的容器名。留空则备份所有运行中的容器。' },
   { key: 'compress', label: 'Compress', type: 'boolean', default: true, help: '使用 .tgz 压缩备份' },
   { key: 'keep_days', label: 'Keep Days', type: 'number', default: 7, help: '保留最近 N 天的备份，自动清理旧文件' },
 ];
@@ -31,7 +30,7 @@ export default function DockerBackup() {
     <PluginConfigForm
       slug="docker_backup"
       title="Docker Backup"
-      description="Backup container configs + volumes with auto-cleanup. Web UI for backup_docker_all_core.sh."
+      description="Export container inspect JSON and archive to .tgz — config only, no volumes. Matches backup_docker_all_core.sh behavior."
       fields={FIELDS}
       onRun={handleRun}
       running={running}

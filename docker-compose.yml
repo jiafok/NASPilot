@@ -9,13 +9,33 @@ services:
     ports:
       - "8080:8000"
     volumes:
-      # 持久化数据（SQLite 数据库 + 日志）
+      # === 持久化数据 ===
       - ./data:/app/data
       - ./logs:/app/logs
-      # Docker 套接字（监控容器状态、执行 Docker 任务）
+
+      # === Docker 管理 ===
       - /var/run/docker.sock:/var/run/docker.sock
-      # 挂载你的脚本目录，让 NASPilot 可以执行现有脚本
+
+      # === 你的脚本目录（供 NASPilot 任务中心调用） ===
+      # 容器内路径：/scripts
+      # 例如：创建任务 command=/scripts/backup.sh 即可执行你的脚本
       - /volume1/scripts:/scripts:ro
+
+      # === Rclone 挂载需要（如使用 rclone_mount_simple.sh） ===
+      # 如果你需要 NASPilot 管理 rclone 挂载，取消下面注释：
+      # - /volume1/docker/Alist/media:/mnt/alist:shared
+      # - /root/.config/rclone/rclone.conf:/root/.config/rclone/rclone.conf:ro
+
+    # === Rclone 挂载需要 FUSE，取消下面注释 ===
+    # privileged: true
+    # 或者更安全的方式：
+    # cap_add:
+    #   - SYS_ADMIN
+    # devices:
+    #   - /dev/fuse:/dev/fuse
+    # security_opt:
+    #   - apparmor:unconfined
+
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
       - SECRET_KEY=${SECRET_KEY:-change-me-to-a-random-string}
