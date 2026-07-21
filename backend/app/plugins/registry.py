@@ -157,6 +157,40 @@ class PluginRegistry:
             except Exception:
                 logger.exception(f"Failed to load builtin plugin module: {mod_path}")
 
+    async def sync_builtin_to_db(self) -> None:
+        """Ensure all registered builtin plugins have a DB row in the plugins table."""
+        from app.core.database import async_session_factory
+        from app.models import Plugin
+        from sqlalchemy import select
+
+        async with async_session_factory() as db:
+            for slug, cls in self._metadata.items():
+                meta = cls.META
+                result = await db.execute(select(Plugin).where(Plugin.slug == slug))
+                existing = result.scalar_one_or_none()
+                if existing:
+                    # Update name/version/description if changed
+                    dirty = False
+                    if existing.name != meta.name: existing.name = meta.name; dirty = True
+                    if existing.version != meta.version: existing.version = meta.version; dirty = True
+                    if existing.description != meta.description: existing.description = meta.description; dirty = True
+                    if dirty: await db.commit()
+                else:
+                    p = Plugin(
+                        slug=meta.slug,
+                        name=meta.name,
+                        description=meta.description,
+                        version=meta.version,
+                        author=meta.author,
+                        category=meta.category,
+                        entrypoint=meta.entrypoint or f"app.plugins.builtin.{slug}",
+                        is_builtin=True,
+                        enabled=True,
+                    )
+                    db.add(p)
+                    await db.commit()
+                    logger.info(f"Created builtin plugin row: {slug}")
+
 
 # Global registry instance
 registry = PluginRegistry()

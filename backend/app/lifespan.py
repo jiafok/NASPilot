@@ -29,6 +29,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Register builtin plugins
     registry.load_builtin()
 
+    # Sync builtin plugins to database (so API /plugins returns them)
+    await registry.sync_builtin_to_db()
+
     # Start scheduler
     await start_scheduler()
 
