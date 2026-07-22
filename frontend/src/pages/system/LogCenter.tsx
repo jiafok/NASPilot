@@ -12,7 +12,7 @@ interface LogEntry {
   level: string;
   source: string;
   message: string;
-  created_at: string;
+  timestamp: string;
 }
 
 const levelColors: Record<string, string> = {
@@ -22,6 +22,16 @@ const levelColors: Record<string, string> = {
   ERROR: 'red',
   CRITICAL: 'magenta',
 };
+
+const SOURCE_OPTIONS = [
+  { label: '系统', value: 'system' },
+  { label: '调度器', value: 'scheduler' },
+  { label: '任务', value: 'task' },
+  { label: '插件:pt_rss', value: 'plugin:pt_rss' },
+  { label: '插件:ddns', value: 'plugin:cloudflare_ddns' },
+  { label: '插件:备份', value: 'plugin:docker_backup' },
+  { label: '插件:alist', value: 'plugin:alist_upload' },
+];
 
 export default function LogCenter() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -43,6 +53,12 @@ export default function LogCenter() {
   }, [level, source]);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
+
+  // Auto-refresh every 5s
+  useEffect(() => {
+    const t = setInterval(() => fetchLogs(), 5000);
+    return () => clearInterval(t);
+  }, [fetchLogs]);
 
   const filtered = search
     ? logs.filter((l) => l.message.toLowerCase().includes(search.toLowerCase()))
@@ -72,10 +88,10 @@ export default function LogCenter() {
           <Select
             placeholder="来源"
             allowClear
-            style={{ width: 110 }}
+            style={{ width: 140 }}
             value={source}
             onChange={setSource}
-            options={['system', 'scheduler', 'plugin', 'task'].map((s) => ({ label: s, value: s }))}
+            options={SOURCE_OPTIONS}
           />
           <Button icon={<ReloadOutlined />} onClick={fetchLogs}>刷新</Button>
         </Space>
@@ -89,15 +105,15 @@ export default function LogCenter() {
         pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
         columns={[
           {
-            title: '时间', dataIndex: 'created_at', key: 'created_at', width: 170,
+            title: '时间', dataIndex: 'timestamp', key: 'timestamp', width: 170,
             render: (t: string) => new Date(t).toLocaleString(),
           },
           {
             title: '级别', dataIndex: 'level', key: 'level', width: 80,
             render: (l: string) => <Tag color={levelColors[l] || 'default'}>{l}</Tag>,
           },
-          { title: '来源', dataIndex: 'source', key: 'source', width: 80 },
-          { title: 'Logger', dataIndex: 'logger', key: 'logger', width: 120, ellipsis: true },
+          { title: '来源', dataIndex: 'source', key: 'source', width: 120 },
+          { title: 'Logger', dataIndex: 'logger', key: 'logger', width: 140, ellipsis: true },
           { title: '消息', dataIndex: 'message', key: 'message', ellipsis: true },
         ]}
       />

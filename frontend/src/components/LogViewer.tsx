@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Button, Space, Typography, Switch, Spin } from 'antd';
-import { PauseCircleOutlined, PlayCircleOutlined, ClearOutlined, WifiOutlined } from '@ant-design/icons';
+import { Button, Space, Typography, Switch, Spin, Collapse } from 'antd';
+import { PauseCircleOutlined, PlayCircleOutlined, ClearOutlined, WifiOutlined, CodeOutlined } from '@ant-design/icons';
 import { getToken } from '../utils/auth';
 
 const { Text } = Typography;
@@ -24,9 +24,15 @@ interface Props {
   autoScroll?: boolean;
   /** Show when there are no logs yet */
   placeholder?: string;
+  /** Wrap in a collapsible panel. Default false. */
+  collapsible?: boolean;
+  /** When collapsible, whether panel starts open. */
+  defaultOpen?: boolean;
+  /** Label for collapsible panel header. */
+  label?: string;
 }
 
-export default function LogViewer({ source, maxHeight = 350, maxLines = 1000, autoScroll = true, placeholder = '暂无日志' }: Props) {
+export default function LogViewer({ source, maxHeight = 350, maxLines = 1000, autoScroll = true, placeholder = '暂无日志', collapsible = false, defaultOpen = false, label = '📋 运行日志' }: Props) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [paused, setPaused] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -112,7 +118,7 @@ export default function LogViewer({ source, maxHeight = 350, maxLines = 1000, au
     };
   }, [connect]);
 
-  return (
+  const body = (
     <div style={{ border: '1px solid #d9d9d9', borderRadius: 8, overflow: 'hidden' }}>
       {/* Toolbar */}
       <div style={{
@@ -180,4 +186,18 @@ export default function LogViewer({ source, maxHeight = 350, maxLines = 1000, au
       </div>
     </div>
   );
+
+  if (collapsible) {
+    return (
+      <Collapse defaultActiveKey={defaultOpen ? ['log'] : []}
+        items={[{
+          key: 'log',
+          label: <span><CodeOutlined /> {label} · {lines.length} 行</span>,
+          children: body,
+        }]}>
+      </Collapse>
+    );
+  }
+
+  return body;
 }

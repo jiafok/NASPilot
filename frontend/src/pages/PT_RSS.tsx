@@ -159,7 +159,7 @@ export default function PT_RSS() {
 
       <div style={{ marginTop: 16 }}>
         <Typography.Title level={5} style={{ marginBottom: 8 }}>📋 实时运行日志</Typography.Title>
-        <LogViewer source="plugin:pt_rss" maxHeight={400} placeholder="等待运行... 点击 Run Now 查看实时日志" />
+        <LogViewer source="plugin:pt_rss" maxHeight={400} placeholder="等待运行... 点击 Run Now 查看实时日志" collapsible defaultOpen={false} label="运行日志" />
       </div>
 
       <Collapse

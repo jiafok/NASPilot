@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import PluginConfigForm from '../components/PluginConfigForm';
+import LogViewer from '../components/LogViewer';
 import type { PluginField } from '../components/PluginConfigForm';
 import api from '../utils/api';
 
@@ -33,15 +34,20 @@ export default function AlistUpload() {
   };
 
   return (
-    <PluginConfigForm
-      slug="alist_upload"
-      title="AList Auto Upload"
-      description="Scan local directories and auto-upload files to AList with verification and retry. Web UI for alist_upload.py."
-      fields={FIELDS}
-      onRun={handleRun}
-      running={running}
-      runResult={runResult}
-      resultRenderer={(r) => <pre style={{ fontSize: 12 }}>{JSON.stringify(r, null, 2)}</pre>}
-    />
+    <>
+      <PluginConfigForm
+        slug="alist_upload"
+        title="AList Auto Upload"
+        description="Scan local directories and auto-upload files to AList with verification and retry. Web UI for alist_upload.py."
+        fields={FIELDS}
+        onRun={handleRun}
+        running={running}
+        runResult={runResult}
+        resultRenderer={(r) => <pre style={{ fontSize: 12 }}>{JSON.stringify(r, null, 2)}</pre>}
+      />
+      <div style={{ marginTop: 16 }}>
+        <LogViewer source="plugin:alist_upload" maxHeight={300} placeholder="等待运行..." collapsible defaultOpen={false} label="运行日志" />
+      </div>
+    </>
   );
 }

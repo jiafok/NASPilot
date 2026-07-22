@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import PluginConfigForm from '../components/PluginConfigForm';
+import LogViewer from '../components/LogViewer';
 import type { PluginField } from '../components/PluginConfigForm';
 import api from '../utils/api';
 
@@ -27,15 +28,20 @@ export default function DockerBackup() {
   };
 
   return (
-    <PluginConfigForm
-      slug="docker_backup"
-      title="Docker App Backup"
-      description="备份 /volume1/docker 下每个应用的配置和数据目录（排除 media/downloads/cache/logs）。v2raya 采用白名单备份。完全对应 backup_docker_all_core.sh 的行为。"
-      fields={FIELDS}
-      onRun={handleRun}
-      running={running}
-      runResult={runResult}
-      resultRenderer={(r) => <pre style={{ fontSize: 12 }}>{JSON.stringify(r, null, 2)}</pre>}
-    />
+    <>
+      <PluginConfigForm
+        slug="docker_backup"
+        title="Docker App Backup"
+        description="备份 /volume1/docker 下每个应用的配置和数据目录（排除 media/downloads/cache/logs）。v2raya 采用白名单备份。完全对应 backup_docker_all_core.sh 的行为。"
+        fields={FIELDS}
+        onRun={handleRun}
+        running={running}
+        runResult={runResult}
+        resultRenderer={(r) => <pre style={{ fontSize: 12 }}>{JSON.stringify(r, null, 2)}</pre>}
+      />
+      <div style={{ marginTop: 16 }}>
+        <LogViewer source="plugin:docker_backup" maxHeight={300} placeholder="等待运行..." collapsible defaultOpen={false} label="运行日志" />
+      </div>
+    </>
   );
 }

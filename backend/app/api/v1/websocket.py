@@ -73,9 +73,17 @@ class ConnectionManager:
                         await self.broadcast({"type": "log", **entry})
                     # Persist to DB
                     try:
+                        from datetime import datetime as dt
                         async with async_session_factory() as db:
                             for entry in batch:
+                                ts = entry.get("timestamp")
+                                if isinstance(ts, str):
+                                    try:
+                                        ts = dt.fromisoformat(ts)
+                                    except (ValueError, TypeError):
+                                        ts = dt.utcnow()
                                 db.add(LogEntry(
+                                    timestamp=ts,
                                     logger=entry["logger"],
                                     level=entry["level"],
                                     source=entry.get("source", "system"),

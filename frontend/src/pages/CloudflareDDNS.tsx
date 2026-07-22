@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import PluginConfigForm from '../components/PluginConfigForm';
+import LogViewer from '../components/LogViewer';
 import type { PluginField } from '../components/PluginConfigForm';
 import api from '../utils/api';
 
@@ -26,15 +27,20 @@ export default function CloudflareDDNS() {
   };
 
   return (
-    <PluginConfigForm
-      slug="cloudflare_ddns"
-      title="Cloudflare DDNS"
-      description="Auto-update IPv4/IPv6 DNS records on Cloudflare. Web UI for update_cloudflare.sh."
-      fields={FIELDS}
-      onRun={handleRun}
-      running={running}
-      runResult={runResult}
-      resultRenderer={(r) => <pre style={{ fontSize: 12 }}>{JSON.stringify(r, null, 2)}</pre>}
-    />
+    <>
+      <PluginConfigForm
+        slug="cloudflare_ddns"
+        title="Cloudflare DDNS"
+        description="Auto-update IPv4/IPv6 DNS records on Cloudflare. Web UI for update_cloudflare.sh."
+        fields={FIELDS}
+        onRun={handleRun}
+        running={running}
+        runResult={runResult}
+        resultRenderer={(r) => <pre style={{ fontSize: 12 }}>{JSON.stringify(r, null, 2)}</pre>}
+      />
+      <div style={{ marginTop: 16 }}>
+        <LogViewer source="plugin:cloudflare_ddns" maxHeight={300} placeholder="等待运行..." collapsible defaultOpen={false} label="运行日志" />
+      </div>
+    </>
   );
 }
