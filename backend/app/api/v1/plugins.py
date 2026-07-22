@@ -94,7 +94,7 @@ async def run_plugin(plugin_id: int, user: CurrentUser, db: Annotated[AsyncSessi
 
     # Save plugin config + run history back to DB
     if instance:
-        now_iso = timezone.now().isoformat()
+        now_iso = datetime.now(timezone.utc).isoformat()
         state = runtime.config.setdefault("state", {})
         history: list = state.setdefault("run_history", [])
         history.insert(0, {

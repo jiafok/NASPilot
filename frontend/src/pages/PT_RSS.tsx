@@ -60,7 +60,10 @@ export default function PT_RSS() {
       // Reload processed after run
       await loadProcessed();
     } catch (err: any) {
-      setRunResult({ status: 'error', error: err?.response?.data?.detail || err?.message || 'Unknown error' });
+      // Try to extract error: priority → response body detail → response body result.error → axios message
+      const body = err?.response?.data;
+      const detail = typeof body === 'string' ? body : body?.detail || body?.result?.error || err?.message || 'Unknown error';
+      setRunResult({ status: 'error', error: detail });
     }
     finally { setRunning(false); }
   };

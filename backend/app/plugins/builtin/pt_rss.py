@@ -801,4 +801,17 @@ class PTRSSPlugin(PluginBase):
 
     async def run(self, **kwargs: Any) -> dict[str, Any]:
         async with self._lock:
-            return await self._run_cycle()
+            try:
+                return await self._run_cycle()
+            except Exception as exc:
+                import traceback
+                logger.exception("PT RSS run failed")
+                return {
+                    "status": "error",
+                    "error": str(exc)[:500],
+                    "added": 0,
+                    "added_messages": [],
+                    "deleted_messages": [],
+                    "failed_messages": [],
+                    "skipped_messages": [],
+                }
