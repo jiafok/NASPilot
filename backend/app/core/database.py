@@ -52,11 +52,11 @@ async def init_db() -> None:
 
 
 async def _migrate_sqlite_autoincrement(table: str, columns: str) -> None:
-    """Recreate a SQLite table with INTEGER PRIMARY KEY AUTOINCREMENT if needed.
+    """Fix SQLite tables where ``id`` is ``BIGINT`` (does not auto-increment).
 
-    SQLite only auto-increments ``INTEGER PRIMARY KEY`` / ``INTEGER PRIMARY KEY AUTOINCREMENT``.
-    Tables created by the old ``BigInteger`` model lack autoincrement, causing
-    ``NOT NULL constraint failed: <table>.id`` on every INSERT.
+    SQLite auto-increments only ``INTEGER PRIMARY KEY`` columns, not ``BIGINT``.
+    If the ``id`` column is ``BIGINT``, drop & recreate the table with correct type.
+    Tables already using ``INTEGER`` are left untouched.
     """
     import sqlalchemy as sa
     import re
@@ -67,28 +67,47 @@ async def _migrate_sqlite_autoincrement(table: str, columns: str) -> None:
     logger = logging.getLogger("naspilot.db")
     try:
         async with engine.begin() as conn:
+            # Check if table exists
             result = await conn.execute(
-                sa.text(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table}'")
+                sa.text(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'")
             )
-            row = result.fetchone()
-            if not row:
-                return  # table doesn't exist yet
-            ddl = row[0] or ""
-            if "AUTOINCREMENT" in ddl:
+            if not result.fetchone():
+                return
+
+            # Check id column type via PRAGMA
+            info = await conn.execute(sa.text(f"PRAGMA table_info('{table}')"))
+            id_col = None
+            for row in info:
+                if row[1] == 'id':  # row[1] = column name
+                    id_col = {'type': (row[2] or '').upper(), 'pk': bool(row[5])}
+                    break
+
+            if not id_col:
+                return
+
+            # SQLite auto-increments INTEGER PRIMARY KEY automatically
+            if id_col['type'] == 'INTEGER' and id_col['pk']:
                 return  # already correct
 
-            logger.warning("%s has non-autoincrement PK — migrating...", table)
+            logger.warning("%s has id=%s (pk=%s) — migrating...", table, id_col['type'], id_col['pk'])
 
-            # Fix: replace ONLY the id column, not any other INTEGER column.
-            # Old DDL:  id BIGINT NOT NULL, <other cols>, PRIMARY KEY (id), ...
-            # New DDL:  id INTEGER PRIMARY KEY AUTOINCREMENT, <other cols>, ...
-            new_ddl = re.sub(r'\bid\s+BIGINT\s+NOT\s+NULL\b', 'id INTEGER PRIMARY KEY AUTOINCREMENT', ddl, count=1)
-            # Also handle case where it's "id INTEGER NOT NULL" (non-BigInteger but still no autoincrement)
-            if "AUTOINCREMENT" not in new_ddl:
-                new_ddl = re.sub(r'\bid\s+INTEGER\s+NOT\s+NULL\b', 'id INTEGER PRIMARY KEY AUTOINCREMENT', ddl, count=1)
-            # Remove the now-redundant table-level PRIMARY KEY (id) constraint
+            # Build CREATE TABLE with correct id type from sqlite_master
+            raw = await conn.execute(
+                sa.text(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table}'")
+            )
+            ddl = raw.fetchone()[0] or ""
+
+            # Replace id column definition: id BIGINT NOT NULL → id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT
+            new_ddl = re.sub(r'"id"\s+BIGINT\s+NOT\s+NULL', '"id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT', ddl, count=1)
+            new_ddl = re.sub(r'\bid\s+BIGINT\s+NOT\s+NULL', 'id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT', new_ddl, count=1)
+            # Remove the old table-level PRIMARY KEY(id) constraint (handles both quoted & unquoted)
+            new_ddl = re.sub(r',\s*PRIMARY KEY\s*\("id"\)', '', new_ddl)
             new_ddl = re.sub(r',\s*PRIMARY KEY\s*\(id\)', '', new_ddl)
+            new_ddl = re.sub(r'PRIMARY KEY\s*\("id"\)\s*,?\s*', '', new_ddl)
             new_ddl = re.sub(r'PRIMARY KEY\s*\(id\)\s*,?\s*', '', new_ddl)
+
+            # Rename table in DDL
+            new_ddl = new_ddl.replace(f'CREATE TABLE "{table}"', f'CREATE TABLE "{table}_new"')
             new_ddl = new_ddl.replace(f"CREATE TABLE {table}", f"CREATE TABLE {table}_new")
 
             await conn.execute(sa.text(f"DROP TABLE IF EXISTS {table}_new"))
