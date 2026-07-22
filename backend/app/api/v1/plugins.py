@@ -1,5 +1,7 @@
 """Plugin endpoints — list, enable/disable, instance CRUD."""
 
+import json
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,6 +13,8 @@ from app.core.deps import CurrentUser
 from app.models import Plugin, PluginInstance
 from app.schemas.plugin import PluginInstanceCreate, PluginInstanceOut, PluginInstanceUpdate, PluginOut
 from app.plugins.registry import registry
+
+logger = logging.getLogger("naspilot")
 
 router = APIRouter(prefix="/plugins", tags=["plugins"])
 
@@ -88,6 +92,15 @@ async def run_plugin(plugin_id: int, user: CurrentUser, db: Annotated[AsyncSessi
 
     runtime = plugin_cls(instance.config if instance else None)
     result_payload = await runtime.run()
+
+    # Save plugin config back to DB — state (processed items, history) must persist
+    if instance:
+        instance.config = runtime.config
+        await db.commit()
+
+    # Log execution result
+    logger.info(f"Plugin [{plugin.slug}] run result: {json.dumps({k: str(v)[:200] for k, v in result_payload.items() if k != 'added_messages' and k != 'failed_messages' and k != 'deleted_messages' and k != 'skipped_messages'}, ensure_ascii=False)}")
+
     return {"message": "run started", "result": result_payload}
 
 
