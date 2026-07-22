@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PluginConfigForm from '../components/PluginConfigForm';
 import type { PluginField } from '../components/PluginConfigForm';
 import api from '../utils/api';
-import { Tag, Descriptions, List, Typography } from 'antd';
-import { CheckCircleOutlined, CloseCircleOutlined, ExclamationCircleOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { Tag, Descriptions, List, Typography, Collapse, Table, Spin } from 'antd';
+import { CheckCircleOutlined, CloseCircleOutlined, ExclamationCircleOutlined, InfoCircleOutlined, UnorderedListOutlined } from '@ant-design/icons';
 
 const FIELDS: PluginField[] = [
   { key: 'rss_urls', label: 'RSS URLs', type: 'textarea', placeholder: 'https://example.com/rss.xml', required: true, help: '每行一个 RSS 地址。支持 M-Team 等 PT 站 RSS 链接。' },
@@ -28,6 +28,25 @@ const FIELDS: PluginField[] = [
 export default function PT_RSS() {
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState<any>(null);
+  const [processed, setProcessed] = useState<Record<string, any>>({});
+  const [processedLoading, setProcessedLoading] = useState(false);
+
+  const loadProcessed = async () => {
+    setProcessedLoading(true);
+    try {
+      const pluginsRes = await api.get('/plugins');
+      const pt = (pluginsRes.data as any[]).find((x: any) => x.slug === 'pt_rss');
+      if (!pt) return;
+      const instRes = await api.get(`/plugins/${pt.id}/instances`);
+      const inst = (instRes.data as any[])[0];
+      if (inst?.config?.state?.processed) {
+        setProcessed(inst.config.state.processed);
+      }
+    } catch {}
+    finally { setProcessedLoading(false); }
+  };
+
+  useEffect(() => { loadProcessed(); }, []);
 
   const handleRun = async () => {
     setRunning(true);
@@ -37,6 +56,8 @@ export default function PT_RSS() {
       if (!pt) return;
       const res = await api.post(`/plugins/${pt.id}/run`);
       setRunResult(res.data?.result || res.data);
+      // Reload processed after run
+      await loadProcessed();
     } catch (err: any) {
       setRunResult({ status: 'error', error: err?.response?.data?.detail || err?.message || 'Unknown error' });
     }
@@ -91,16 +112,65 @@ export default function PT_RSS() {
     );
   };
 
+  const processedEntries = Object.entries(processed).map(([tid, rec]: [string, any]) => ({
+    key: tid,
+    tid,
+    title: rec.title || '-',
+    status: rec.status || '-',
+    firstSeen: rec.first_seen,
+    missingCount: rec.rss_missing_count || 0,
+    addedTime: rec.added_time,
+    completedTime: rec.completed_time,
+    evictedTime: rec.evicted_time,
+    evictedReason: rec.evicted_reason,
+  }));
+
+  const processedColumns = [
+    { title: 'TID', dataIndex: 'tid', width: 80, ellipsis: true },
+    { title: 'Title', dataIndex: 'title', ellipsis: true },
+    { title: 'Status', dataIndex: 'status', width: 110,
+      render: (s: string) => {
+        const color = s === 'added' ? 'blue' : s === 'completed' ? 'green' : s === 'evicted' ? 'red' : s === 'expired_free' ? 'orange' : 'default';
+        return <Tag color={color}>{s}</Tag>;
+      },
+    },
+    { title: 'Missing', dataIndex: 'missingCount', width: 70 },
+    { title: 'First Seen', dataIndex: 'firstSeen', width: 160, render: (v: string) => v ? new Date(v).toLocaleString() : '-' },
+    { title: 'Added', dataIndex: 'addedTime', width: 160, render: (v: string) => v ? new Date(v).toLocaleString() : '-' },
+    { title: 'Evicted Reason', dataIndex: 'evictedReason', width: 160, ellipsis: true, render: (v: string) => v || '-' },
+  ];
+
   return (
-    <PluginConfigForm
-      slug="pt_rss"
-      title="PT RSS Auto Download"
-      description="Monitor RSS feeds, auto-add torrents to qBittorrent, manage disk space and seeding."
-      fields={FIELDS}
-      onRun={handleRun}
-      running={running}
-      runResult={runResult}
-      resultRenderer={resultRenderer}
-    />
+    <>
+      <PluginConfigForm
+        slug="pt_rss"
+        title="PT RSS Auto Download"
+        description="Monitor RSS feeds, auto-add torrents to qBittorrent, manage disk space and seeding."
+        fields={FIELDS}
+        onRun={handleRun}
+        running={running}
+        runResult={runResult}
+        resultRenderer={resultRenderer}
+      />
+
+      <Collapse
+        style={{ marginTop: 16 }}
+        items={[{
+          key: 'processed',
+          label: <span><UnorderedListOutlined /> Processed Items ({processedEntries.length})</span>,
+          children: processedLoading
+            ? <Spin style={{ display: 'block', margin: '20px auto' }} />
+            : processedEntries.length === 0
+              ? <Typography.Text type="secondary">No items processed yet. Run the plugin once to populate this table.</Typography.Text>
+              : <Table
+                  dataSource={processedEntries}
+                  columns={processedColumns}
+                  size="small"
+                  rowKey="tid"
+                  pagination={{ pageSize: 15, showSizeChanger: true, showTotal: (t: number) => `${t} items` }}
+                />,
+        }]}>
+      </Collapse>
+    </>
   );
 }
