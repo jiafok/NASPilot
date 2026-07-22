@@ -2,9 +2,11 @@ import { useState } from 'react';
 import PluginConfigForm from '../components/PluginConfigForm';
 import type { PluginField } from '../components/PluginConfigForm';
 import api from '../utils/api';
+import { Tag, Descriptions, List, Typography } from 'antd';
+import { CheckCircleOutlined, CloseCircleOutlined, ExclamationCircleOutlined, InfoCircleOutlined } from '@ant-design/icons';
 
 const FIELDS: PluginField[] = [
-  { key: 'rss_urls', label: 'RSS URLs', type: 'textarea', placeholder: 'https://example.com/rss.xml', required: true, help: '一行一个 RSS 订阅地址' },
+  { key: 'rss_urls', label: 'RSS URLs', type: 'textarea', placeholder: 'https://example.com/rss.xml', required: true, help: '每行一个 RSS 地址。支持 M-Team 等 PT 站 RSS 链接。' },
   { key: 'qbittorrent', label: 'qBittorrent', type: 'object', fields: [
     { key: 'url', label: 'URL', type: 'string', placeholder: 'http://10.0.0.5:8080', required: true, help: 'qBittorrent Web UI 地址' },
     { key: 'username', label: 'Username', type: 'string', default: 'admin' },
@@ -34,21 +36,71 @@ export default function PT_RSS() {
       const pt = (pluginsRes.data as any[]).find((x: any) => x.slug === 'pt_rss');
       if (!pt) return;
       const res = await api.post(`/plugins/${pt.id}/run`);
-      setRunResult(res.data?.result);
-    } catch {}
+      setRunResult(res.data?.result || res.data);
+    } catch (err: any) {
+      setRunResult({ status: 'error', error: err?.response?.data?.detail || err?.message || 'Unknown error' });
+    }
     finally { setRunning(false); }
+  };
+
+  const resultRenderer = (r: any) => {
+    if (!r) return <Typography.Text type="secondary">No result</Typography.Text>;
+    if (r.status === 'error' || r.status === 'failed') {
+      return (
+        <Descriptions bordered size="small" column={1}>
+          <Descriptions.Item label="Status"><Tag color="red">Failed</Tag></Descriptions.Item>
+          <Descriptions.Item label="Error">{r.error}</Descriptions.Item>
+        </Descriptions>
+      );
+    }
+    return (
+      <div>
+        <Descriptions bordered size="small" column={4}>
+          <Descriptions.Item label="Status"><Tag color={r.status === 'ok' ? 'green' : 'red'}>{r.status}</Tag></Descriptions.Item>
+          <Descriptions.Item label="RSS Sources">{r.rss_sources ?? '-'}</Descriptions.Item>
+          <Descriptions.Item label="Items Found">{r.rss_items_found ?? '-'}</Descriptions.Item>
+          <Descriptions.Item label="Added">{r.added ?? '-'}</Descriptions.Item>
+          {r.rss_failed_sources?.length > 0 && (
+            <Descriptions.Item label="Failed Sources" span={4}>{r.rss_failed_sources.join(', ')}</Descriptions.Item>
+          )}
+        </Descriptions>
+        {r.added_messages?.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <Typography.Title level={5}><CheckCircleOutlined style={{ color: 'green' }} /> Added ({r.added_messages.length})</Typography.Title>
+            <List size="small" dataSource={r.added_messages} renderItem={(m: string) => <List.Item style={{ fontSize: 12 }}>{m}</List.Item>} />
+          </div>
+        )}
+        {r.failed_messages?.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <Typography.Title level={5}><CloseCircleOutlined style={{ color: 'red' }} /> Failed ({r.failed_messages.length})</Typography.Title>
+            <List size="small" dataSource={r.failed_messages} renderItem={(m: string) => <List.Item style={{ fontSize: 12 }}>{m}</List.Item>} />
+          </div>
+        )}
+        {r.deleted_messages?.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <Typography.Title level={5}><ExclamationCircleOutlined style={{ color: 'orange' }} /> Deleted ({r.deleted_messages.length})</Typography.Title>
+            <List size="small" dataSource={r.deleted_messages} renderItem={(m: string) => <List.Item style={{ fontSize: 12 }}>{m}</List.Item>} />
+          </div>
+        )}
+        {!r.added_messages?.length && !r.failed_messages?.length && (
+          <div style={{ marginTop: 12, padding: 16, textAlign: 'center', color: '#888' }}>
+            <InfoCircleOutlined /> No new items in RSS. Everything is up to date.
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
     <PluginConfigForm
       slug="pt_rss"
       title="PT RSS Auto Download"
-      description="Monitor RSS feeds, auto-add torrents to qBittorrent, manage disk space and seeding. This is the Web UI for your pt_rss_auto.py script."
+      description="Monitor RSS feeds, auto-add torrents to qBittorrent, manage disk space and seeding."
       fields={FIELDS}
       onRun={handleRun}
       running={running}
       runResult={runResult}
-      resultRenderer={(r) => <pre style={{ fontSize: 12 }}>{JSON.stringify(r, null, 2)}</pre>}
+      resultRenderer={resultRenderer}
     />
   );
 }

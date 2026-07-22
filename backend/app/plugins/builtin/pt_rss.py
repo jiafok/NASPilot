@@ -537,7 +537,13 @@ class PTRSSPlugin(PluginBase):
     def _rss_sources(self) -> list[str]:
         sources: list[str] = []
         raw_list = self.config.get("rss_urls")
-        if isinstance(raw_list, list):
+        if isinstance(raw_list, str):
+            # Form textarea saves as a single string — split by newline
+            for line in raw_list.strip().split("\n"):
+                line = line.strip()
+                if line and line.startswith("http"):
+                    sources.append(line)
+        elif isinstance(raw_list, list):
             for item in raw_list:
                 if isinstance(item, str) and item.strip():
                     sources.append(item.strip())
@@ -783,6 +789,9 @@ class PTRSSPlugin(PluginBase):
 
         return {
             "status": "ok",
+            "rss_sources": len(self._rss_sources()),
+            "rss_items_found": len(rss_items),
+            "rss_failed_sources": list(failed_sources),
             "added": daily["stats"].get("added", 0),
             "added_messages": notify_added,
             "deleted_messages": notify_evicted,
