@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -23,28 +23,42 @@ router = APIRouter(prefix="/plugins", tags=["plugins"])
 
 @router.get("", response_model=list[PluginOut], summary="List all plugins")
 async def list_plugins(user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    from sqlalchemy.orm import joinedload
+    from sqlalchemy import func
 
     result = await db.execute(
-        select(Plugin).options(joinedload(Plugin.instances)).order_by(Plugin.category, Plugin.name)
+        select(
+            Plugin,
+            func.count(PluginInstance.id).label("instance_count"),
+        )
+        .outerjoin(PluginInstance, PluginInstance.plugin_id == Plugin.id)
+        .group_by(Plugin.id)
+        .order_by(Plugin.category, Plugin.name)
     )
-    plugins = result.unique().scalars().all()
-    for p in plugins:
-        count = len(p.instances) if p.instances else 0
+    plugins = []
+    for p, count in result.all():
         setattr(p, 'instance_count', count)
+        plugins.append(p)
     return plugins
 
 
 @router.get("/{plugin_id}", response_model=PluginOut, summary="Get plugin")
 async def get_plugin(plugin_id: int, user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
-    from sqlalchemy.orm import joinedload
+    from sqlalchemy import func
+
     result = await db.execute(
-        select(Plugin).where(Plugin.id == plugin_id).options(joinedload(Plugin.instances))
+        select(
+            Plugin,
+            func.count(PluginInstance.id).label("instance_count"),
+        )
+        .outerjoin(PluginInstance, PluginInstance.plugin_id == Plugin.id)
+        .where(Plugin.id == plugin_id)
+        .group_by(Plugin.id)
     )
-    plugin = result.unique().scalar_one_or_none()
-    if not plugin:
+    row = result.first()
+    if not row:
         raise HTTPException(status_code=404, detail="Plugin not found")
-    setattr(plugin, 'instance_count', len(plugin.instances) if plugin.instances else 0)
+    plugin, count = row
+    setattr(plugin, 'instance_count', count)
     return plugin
 
 
