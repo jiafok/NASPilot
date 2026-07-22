@@ -59,7 +59,7 @@ export default function LogViewer({ source, maxHeight = 350, maxLines = 1000, au
     if (!token) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    let wsUrl = `${protocol}//${window.location.host}/ws/logs?token=${encodeURIComponent(token)}`;
+    let wsUrl = `${protocol}//${window.location.host}/api/v1/ws/logs?token=${encodeURIComponent(token)}`;
     if (source) wsUrl += `&source=${encodeURIComponent(source)}`;
 
     const ws = new WebSocket(wsUrl);

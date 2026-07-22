@@ -136,7 +136,7 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
           <Space>
             <Tag color={instance?.enabled ? 'green' : 'default'}>{instance?.enabled ? 'Active' : 'Disabled'}</Tag>
             <Button icon={<ReloadOutlined />} onClick={load}>Refresh</Button>
-            {onRun && <Button type="primary" icon={<PlayCircleOutlined />} onClick={onRun} loading={running}>Run Now</Button>}
+            {onRun && <Button type="primary" icon={<PlayCircleOutlined />} onClick={async () => { await onRun(); await load(); }} loading={running}>Run Now</Button>}
           </Space>
         </Space>
       </Card>
@@ -165,7 +165,6 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
       )}
 
       <Collapse
-        defaultActiveKey={['config']}
         items={[{
           key: 'config',
           label: <span><SettingOutlined /> 插件配置</span>,

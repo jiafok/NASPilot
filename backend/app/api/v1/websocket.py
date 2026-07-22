@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import queue as std_queue
 from collections import deque
 from typing import Any
@@ -23,6 +24,7 @@ class ConnectionManager:
         self.active: list[WebSocket] = []
         self._log_buffer: deque[dict[str, Any]] = deque(maxlen=500)
         self._drain_task: asyncio.Task | None = None
+        self._drain_logger = logging.getLogger("naspilot.drainer")
 
     async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
@@ -81,7 +83,9 @@ class ConnectionManager:
                                     try:
                                         ts = dt.fromisoformat(ts)
                                     except (ValueError, TypeError):
-                                        ts = dt.utcnow()
+                                        ts = dt.now(dt.UTC if hasattr(dt, 'UTC') else None)
+                                if ts is None:
+                                    ts = dt.now()
                                 db.add(LogEntry(
                                     timestamp=ts,
                                     logger=entry["logger"],
@@ -91,9 +95,9 @@ class ConnectionManager:
                                 ))
                             await db.commit()
                     except Exception:
-                        pass
+                        self._drain_logger.exception("Failed to persist log entries to DB")
             except Exception:
-                pass
+                self._drain_logger.exception("Drainer loop error")
             await asyncio.sleep(0.5)
 
     def ensure_draining(self) -> None:

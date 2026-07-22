@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
@@ -108,6 +109,7 @@ async def run_plugin(plugin_id: int, user: CurrentUser, db: Annotated[AsyncSessi
         })
         state["run_history"] = history[:50]  # keep last 50 runs
         instance.config = runtime.config
+        flag_modified(instance, "config")  # SQLAlchemy JSON column needs explicit dirty flag
         await db.commit()
 
     # Log execution result
@@ -167,6 +169,7 @@ async def update_instance(
             # Nested merge for "state" key to avoid losing runtime data
             if "state" in existing and "state" in v:
                 inst.config["state"] = {**existing["state"], **v["state"]}
+            flag_modified(inst, "config")  # SQLAlchemy JSON column needs explicit dirty flag
         else:
             setattr(inst, k, v)
     await db.commit()
