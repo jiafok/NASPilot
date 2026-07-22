@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Form, Input, Select, Switch, InputNumber, Button, Card, Space, Typography, message, Spin, Tag, Divider } from 'antd';
+import { Form, Input, Select, Switch, InputNumber, Button, Card, Space, Typography, message, Spin, Tag, Divider, Table } from 'antd';
 import { SaveOutlined, PlayCircleOutlined, ReloadOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import api from '../utils/api';
 
@@ -141,6 +141,23 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
       {runResult && (
         <Card title="Run Result" style={{ marginBottom: 16 }}>
           {resultRenderer ? resultRenderer(runResult) : <pre style={{ fontFamily: 'monospace', fontSize: 12, maxHeight: 300, overflow: 'auto' }}>{JSON.stringify(runResult, null, 2)}</pre>}
+        </Card>
+      )}
+
+      {instance?.config?.state?.run_history?.length > 0 && (
+        <Card title="Run History" style={{ marginBottom: 16 }}>
+          <Table
+            dataSource={instance.config.state.run_history}
+            rowKey="time"
+            size="small"
+            pagination={{ pageSize: 5 }}
+            columns={[
+              { title: 'Time', dataIndex: 'time', width: 170, render: (v: string) => new Date(v).toLocaleString() },
+              { title: 'Status', dataIndex: 'status', width: 80, render: (s: string) => <Tag color={s === 'ok' ? 'green' : 'red'}>{s}</Tag> },
+              { title: 'Added', dataIndex: 'added', width: 70 },
+              { title: 'Summary', dataIndex: 'summary', ellipsis: true },
+            ]}
+          />
         </Card>
       )}
 

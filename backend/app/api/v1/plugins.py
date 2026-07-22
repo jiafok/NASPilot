@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -54,7 +55,6 @@ async def enable_plugin(plugin_id: int, user: CurrentUser, db: Annotated[AsyncSe
         raise HTTPException(status_code=404, detail="Plugin not found")
     plugin.enabled = True
     await db.commit()
-    registry.enable(plugin.slug)
     return {"message": "enabled"}
 
 
@@ -66,7 +66,6 @@ async def disable_plugin(plugin_id: int, user: CurrentUser, db: Annotated[AsyncS
         raise HTTPException(status_code=404, detail="Plugin not found")
     plugin.enabled = False
     await db.commit()
-    registry.disable(plugin.slug)
     return {"message": "disabled"}
 
 
@@ -93,8 +92,21 @@ async def run_plugin(plugin_id: int, user: CurrentUser, db: Annotated[AsyncSessi
     runtime = plugin_cls(instance.config if instance else None)
     result_payload = await runtime.run()
 
-    # Save plugin config back to DB — state (processed items, history) must persist
+    # Save plugin config + run history back to DB
     if instance:
+        now_iso = timezone.now().isoformat()
+        state = runtime.config.setdefault("state", {})
+        history: list = state.setdefault("run_history", [])
+        history.insert(0, {
+            "time": now_iso,
+            "status": result_payload.get("status", "ok"),
+            "added": result_payload.get("added", 0),
+            "error": result_payload.get("error", ""),
+            "summary": json.dumps({k: v for k, v in result_payload.items()
+                if k not in ("added_messages", "failed_messages", "deleted_messages", "skipped_messages")},
+                ensure_ascii=False, default=str),
+        })
+        state["run_history"] = history[:50]  # keep last 50 runs
         instance.config = runtime.config
         await db.commit()
 
