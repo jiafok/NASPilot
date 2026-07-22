@@ -37,8 +37,8 @@ export default function LogCenter() {
   const [search, setSearch] = useState('');
   const [limit, setLimit] = useState(200);
 
-  const fetchLogs = useCallback(async () => {
-    setLoading(true);
+  const fetchLogs = useCallback(async (showSpinner = false) => {
+    if (showSpinner) setLoading(true);
     try {
       const params: any = { limit };
       if (level) params.level = level;
@@ -50,12 +50,7 @@ export default function LogCenter() {
     finally { setLoading(false); }
   }, [level, source, search, limit]);
 
-  useEffect(() => { fetchLogs(); }, [fetchLogs]);
-
-  useEffect(() => {
-    const t = setInterval(() => fetchLogs(), 5000);
-    return () => clearInterval(t);
-  }, [fetchLogs]);
+  useEffect(() => { fetchLogs(true); }, []); // Initial load only
 
   return (
     <div>
@@ -93,7 +88,7 @@ export default function LogCenter() {
             style={{ width: 90 }} value={limit} onChange={setLimit}
             options={[50, 100, 200, 500, 1000].map(n => ({ label: `${n} 条`, value: n }))}
           />
-          <Button icon={<ReloadOutlined />} onClick={fetchLogs}>刷新</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => fetchLogs(true)}>刷新</Button>
           <Button icon={<ExportOutlined />}
             onClick={() => window.open('/logs/full', '_blank', 'width=1100,height=800')}>
             全屏日志
