@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Tag, Button, Space, Typography, Switch, Spin } from 'antd';
-import { PauseCircleOutlined, PlayCircleOutlined, ClearOutlined, ReloadOutlined, WifiOutlined } from '@ant-design/icons';
+import { Button, Space, Typography, Switch, Spin } from 'antd';
+import { PauseCircleOutlined, PlayCircleOutlined, ClearOutlined, WifiOutlined } from '@ant-design/icons';
 import { getToken } from '../utils/auth';
 
 const { Text } = Typography;
@@ -25,14 +25,6 @@ interface Props {
   /** Show when there are no logs yet */
   placeholder?: string;
 }
-
-const LEVEL_COLORS: Record<string, string> = {
-  DEBUG: 'default',
-  INFO: 'blue',
-  WARNING: 'orange',
-  ERROR: 'red',
-  CRITICAL: 'magenta',
-};
 
 export default function LogViewer({ source, maxHeight = 350, maxLines = 1000, autoScroll = true, placeholder = '暂无日志' }: Props) {
   const [lines, setLines] = useState<LogLine[]>([]);
@@ -119,12 +111,6 @@ export default function LogViewer({ source, maxHeight = 350, maxLines = 1000, au
       wsRef.current?.close();
     };
   }, [connect]);
-
-  const levelTag = (level: string) => (
-    <Tag color={LEVEL_COLORS[level] || 'default'} style={{ fontSize: 11, lineHeight: '16px', marginRight: 4 }}>
-      {level}
-    </Tag>
-  );
 
   return (
     <div style={{ border: '1px solid #d9d9d9', borderRadius: 8, overflow: 'hidden' }}>
