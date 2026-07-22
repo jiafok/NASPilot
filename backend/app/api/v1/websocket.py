@@ -24,7 +24,15 @@ class ConnectionManager:
         self.active: list[WebSocket] = []
         self._log_buffer: deque[dict[str, Any]] = deque(maxlen=500)
         self._drain_task: asyncio.Task | None = None
+        # Critical: drainer errors MUST NOT go back through DBLogHandler.
+        # If they do: drain error → DBLogHandler → log queue → drain → error → ∞ loop.
+        # Set propagate=False + attach a console-only handler.
         self._drain_logger = logging.getLogger("naspilot.drainer")
+        self._drain_logger.propagate = False
+        if not self._drain_logger.handlers:
+            h = logging.StreamHandler()
+            h.setFormatter(logging.Formatter("%(asctime)s [%(levelname)-8s] %(name)s — %(message)s", "%Y-%m-%d %H:%M:%S"))
+            self._drain_logger.addHandler(h)
 
     async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
