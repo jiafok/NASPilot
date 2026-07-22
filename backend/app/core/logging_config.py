@@ -83,6 +83,11 @@ def setup_logging() -> None:
     except Exception:
         pass  # Don't let log handler init break startup
 
+    # ── Per-subsystem log levels: DEBUG for plugins/tasks/scheduler ──
+    # These go to console + DB + file (via root handlers) even when global level is INFO.
+    for name in ("naspilot.plugin", "naspilot.plugin.pt_rss", "naspilot.task", "naspilot.scheduler", "naspilot.notification"):
+        logging.getLogger(name).setLevel(logging.DEBUG)
+
 
 logger = logging.getLogger("naspilot")
 

@@ -582,6 +582,8 @@ class PTRSSPlugin(PluginBase):
                 failed_sources.add(src)
                 continue
 
+            logger.debug("RSS source ok: %s..., entries=%d",
+                         src[:80] if len(src) > 80 else src, len(entries))
             for entry in entries:
                 tid = extract_tid(entry["url"])
                 if not tid or tid in seen_tid:
@@ -653,6 +655,8 @@ class PTRSSPlugin(PluginBase):
         processed = _processed(self.config)
         _ensure_daily_defaults(self.config)
         daily = _daily(self.config)
+        logger.info("启动")
+        logger.debug("processed loaded: %d items", len(processed))
         for rec in processed.values():
             _migrate_old_status(rec)
             rec.setdefault("rss_missing_count", 0)
@@ -668,9 +672,12 @@ class PTRSSPlugin(PluginBase):
             fallback_download_dir=self.config.get("download_dir") or None,
             fallback_local_dir=self.config.get("space_fallback_dir") or None,
         ) as qb:
+            logger.debug("qB login OK")
             emergency_result = await self._cleanup_for_new_task(qb)
             rss_items, failed_sources = await self._collect_rss_items()
             rss_tid_set = {item.tid for item in rss_items}
+            logger.debug("RSS sources=%d, parsed=%d, unique_tids=%d",
+                         len(self._rss_sources()), len(rss_items), len(rss_tid_set))
 
             added = 0
             max_active = int(self.config.get("max_active_downloads", 0) or 0)
@@ -687,15 +694,18 @@ class PTRSSPlugin(PluginBase):
                 })
 
                 if is_final_status(rec.get("status", "")):
+                    logger.debug("  skip: tid=%s, status=%s (final)", item.tid, rec.get("status"))
                     continue
 
                 free_ttl_hours = float(self.config.get("free_ttl_hours", 48))
                 if rec.get("status") == STATUS_PENDING_FREE and hours_since_iso(rec.get("first_seen", "")) > free_ttl_hours:
                     rec["status"] = STATUS_EXPIRED_FREE
                     daily["stats"]["expired_free"] += 1
+                    logger.debug("  expired free: tid=%s", item.tid)
                     continue
 
                 if rec.get("status") != STATUS_PENDING_FREE:
+                    logger.debug("  skip: tid=%s, status=%s", item.tid, rec.get("status"))
                     continue
 
                 tag = f"rss_tid:{item.tid}"
@@ -714,9 +724,11 @@ class PTRSSPlugin(PluginBase):
                     if matched.get("progress", 0) >= 1:
                         rec["status"] = STATUS_COMPLETED
                         rec.setdefault("completed_time", utc_now_iso())
+                        logger.info("  completed: tid=%s, title=%s", item.tid, item.title[:50])
                     else:
                         rec["status"] = STATUS_ADDED
                         rec.setdefault("added_time", utc_now_iso())
+                        logger.info("  already in qB: tid=%s, title=%s", item.tid, item.title[:50])
                     notify_added.append(f"♻️ 已存在：{item.title[:50]}")
                     continue
 
@@ -747,15 +759,19 @@ class PTRSSPlugin(PluginBase):
                 if not added_ok:
                     rec["last_add_error"] = last_error
                     rec["last_add_error_time"] = utc_now_iso()
+                    logger.warning("  add failed: tid=%s, title=%s, error=%s", item.tid, item.title[:40], last_error[:120])
                     notify_failed.append(f"{item.tid} | {item.title[:40]} | {last_error[:180]}")
                     continue
 
                 rec.update({"status": STATUS_ADDED, "added_time": utc_now_iso(), "tag": tag, "title": item.title})
                 daily["stats"]["added"] += 1
                 _append_limited(daily["details"]["added_items"], {"time": rec["added_time"], "tid": item.tid, "title": item.title, "tag": tag})
+                logger.info("  ✅ 新增下载: tid=%s, title=%s", item.tid, item.title[:50])
                 notify_added.append(f"✅ 新增下载：{item.title[:50]}")
                 added += 1
 
+            logger.debug("[RSS] Eviction check, RSS has %d tids, %d source(s) failed",
+                         len(rss_tid_set), len(failed_sources))
             for tid, rec in processed.items():
                 if is_final_status(rec.get("status", "")) or rec.get("status") != STATUS_ADDED:
                     continue
@@ -785,7 +801,10 @@ class PTRSSPlugin(PluginBase):
                 rec["rss_missing_count"] = 0
                 daily["stats"]["deleted_rss_missing"] += 1
                 _append_limited(daily["details"]["deleted_items"], {"time": utc_now_iso(), "tid": tid, "name": torrent.get("name", "unknown"), "reason": "rss"})
+                logger.info("  evicted: tid=%s, name=%s (RSS缺席)", tid, torrent.get("name", "")[:50])
                 notify_evicted.append(f"{tid} | {torrent.get('name', '')[:50]} | RSS缺席")
+
+        logger.info("[DONE] Run complete")
 
         return {
             "status": "ok",

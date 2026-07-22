@@ -59,6 +59,7 @@ async def _migrate_sqlite_autoincrement(table: str, columns: str) -> None:
     ``NOT NULL constraint failed: <table>.id`` on every INSERT.
     """
     import sqlalchemy as sa
+    import re
 
     if "sqlite" not in settings.DATABASE_URL:
         return
@@ -77,10 +78,20 @@ async def _migrate_sqlite_autoincrement(table: str, columns: str) -> None:
                 return  # already correct
 
             logger.warning("%s has non-autoincrement PK — migrating...", table)
-            await conn.execute(sa.text(f"DROP TABLE IF EXISTS {table}_new"))
-            # Build CREATE TABLE from existing schema, add AUTOINCREMENT
-            new_ddl = ddl.replace("INTEGER NOT NULL", "INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT", 1)
+
+            # Fix: replace ONLY the id column, not any other INTEGER column.
+            # Old DDL:  id BIGINT NOT NULL, <other cols>, PRIMARY KEY (id), ...
+            # New DDL:  id INTEGER PRIMARY KEY AUTOINCREMENT, <other cols>, ...
+            new_ddl = re.sub(r'\bid\s+BIGINT\s+NOT\s+NULL\b', 'id INTEGER PRIMARY KEY AUTOINCREMENT', ddl, count=1)
+            # Also handle case where it's "id INTEGER NOT NULL" (non-BigInteger but still no autoincrement)
+            if "AUTOINCREMENT" not in new_ddl:
+                new_ddl = re.sub(r'\bid\s+INTEGER\s+NOT\s+NULL\b', 'id INTEGER PRIMARY KEY AUTOINCREMENT', ddl, count=1)
+            # Remove the now-redundant table-level PRIMARY KEY (id) constraint
+            new_ddl = re.sub(r',\s*PRIMARY KEY\s*\(id\)', '', new_ddl)
+            new_ddl = re.sub(r'PRIMARY KEY\s*\(id\)\s*,?\s*', '', new_ddl)
             new_ddl = new_ddl.replace(f"CREATE TABLE {table}", f"CREATE TABLE {table}_new")
+
+            await conn.execute(sa.text(f"DROP TABLE IF EXISTS {table}_new"))
             await conn.execute(sa.text(new_ddl))
             try:
                 await conn.execute(sa.text(f"INSERT INTO {table}_new SELECT {columns} FROM {table}"))
