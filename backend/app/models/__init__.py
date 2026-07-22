@@ -18,7 +18,7 @@ ER Diagram (simplified):
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -113,7 +113,7 @@ class TaskExecution(Base):
 
     __tablename__ = "task_executions"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True)
     start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -194,7 +194,7 @@ class NotificationRecord(Base):
 
     __tablename__ = "notification_records"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     channel_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("notification_channels.id", ondelete="SET NULL"), index=True
     )
@@ -218,7 +218,7 @@ class LogEntry(Base):
 
     __tablename__ = "log_entries"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     logger: Mapped[str] = mapped_column(String(128), default="root", index=True)
     level: Mapped[str] = mapped_column(String(16), default="INFO", index=True)
