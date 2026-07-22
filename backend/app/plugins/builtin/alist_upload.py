@@ -298,6 +298,14 @@ class AListUploadPlugin(PluginBase):
         logger.info("AList Upload plugin disabled")
 
     async def run(self, **kwargs: Any) -> dict[str, Any]:
+        import traceback
+        try:
+            return await self._run_impl(**kwargs)
+        except Exception as exc:
+            logger.exception("AList Upload run failed")
+            return {"status": "error", "error": str(exc)[:500], "scanned": 0, "uploaded": 0, "skipped": 0, "failed": 0, "deleted": 0}
+
+    async def _run_impl(self, **kwargs: Any) -> dict[str, Any]:
         cfg = self.config
         alist_url = cfg.get("alist_url", "").strip()
         if not alist_url:

@@ -138,6 +138,11 @@ class LogCleanupPlugin(PluginBase):
         logger.info("Log Cleanup plugin disabled")
 
     async def run(self, **kwargs: Any) -> dict[str, Any]:
-        file_result = await asyncio.to_thread(_cleanup_sync, self.config)
-        db_deleted = await _purge_db_logs(int(self.config.get("db_keep_rows", 10000)))
-        return {**file_result, "db_deleted": db_deleted}
+        import traceback
+        try:
+            file_result = await asyncio.to_thread(_cleanup_sync, self.config)
+            db_deleted = await _purge_db_logs(int(self.config.get("db_keep_rows", 10000)))
+            return {**file_result, "db_deleted": db_deleted}
+        except Exception as exc:
+            logger.exception("Log Cleanup run failed")
+            return {"status": "error", "error": str(exc)[:500], "deleted": 0, "truncated": 0, "errors": [], "db_deleted": 0}

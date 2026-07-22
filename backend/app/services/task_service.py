@@ -12,6 +12,7 @@ import os
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+import shutil
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,12 +32,15 @@ def _build_cmd(task: Task) -> list[str]:
     extra_args = json.loads(task.args) if task.args else []
 
     if task.task_type == "shell":
-        # Simulate cron_run.sh pattern: /bin/sh -c "command with args"
+        # Prefer bash if available, fallback to sh
+        shell = "bash" if shutil.which("bash") else "sh"
         cmd_parts = [task.command, *extra_args]
-        return ["/bin/sh", "-c", " ".join(cmd_parts)]
+        return [shell, "-e", "-c", " ".join(cmd_parts)]
 
     elif task.task_type == "python":
-        return ["python3", task.command, *extra_args]
+        # Try python3 first, fallback to python
+        py = "python3" if shutil.which("python3") else "python"
+        return [py, task.command, *extra_args]
 
     elif task.task_type == "docker":
         # docker exec <container> <cmd> or docker run ... <cmd>

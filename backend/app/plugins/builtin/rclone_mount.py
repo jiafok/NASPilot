@@ -26,6 +26,16 @@ class RcloneMountPlugin(PluginBase):
 
     async def run(self, **kwargs: Any) -> Any:
         """Check rclone mount status or perform mount/unmount."""
+        import traceback
+
+        try:
+            return await self._run_impl(**kwargs)
+        except Exception as exc:
+            logger.exception("Rclone Mount run failed")
+            return {"status": "error", "error": str(exc)[:500], "action": kwargs.get("action", "unknown")}
+
+    async def _run_impl(self, **kwargs: Any) -> Any:
+        """Check rclone mount status or perform mount/unmount."""
         mount_point = self.config.get("mount_point", "/volume1/docker/Alist/media")
         remote = self.config.get("remote", "alist:/")
         action = kwargs.get("action", "status")

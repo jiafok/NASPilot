@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import logging
 import time
+import json
 from typing import Any
 
 import httpx
@@ -55,13 +56,17 @@ async def _send_feishu(config: dict[str, Any], title: str, message: str) -> tupl
         try:
             resp = await client.post(webhook, json=body)
             resp.raise_for_status()
-            data = resp.json()
-            code = data.get("code", -1)
+            data = resp.json() if resp.text else {}
+            if not isinstance(data, dict):
+                return False, f"Unexpected response type: {type(data).__name__}"
+            code = data.get("code", data.get("Code", -1))
             if code != 0:
-                return False, data.get("msg", f"Feishu returned code={code}")
+                return False, str(data.get("msg", data.get("Msg", f"Feishu returned code={code}")))
             return True, None
         except httpx.HTTPStatusError as e:
             return False, f"HTTP {e.response.status_code}: {e.response.text[:200]}"
+        except json.JSONDecodeError:
+            return False, f"Feishu returned non-JSON: {resp.text[:200]}"
         except Exception as e:
             return False, str(e)
 

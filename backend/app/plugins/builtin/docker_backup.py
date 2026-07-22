@@ -227,19 +227,10 @@ class DockerBackupPlugin(PluginBase):
         pass
 
     async def run(self, **kwargs: Any) -> Any:
-        result = await asyncio.to_thread(_backup_sync, self.config)
-        history: list[dict[str, Any]] = self.config.setdefault("state", {}).setdefault("history", [])
-        history.insert(0, result)
-        self.config["state"]["history"] = history[:30]
-
-        if result.get("status") == "ok":
-            await self.notify(
-                "Docker Backup Complete",
-                f"Archive: {os.path.basename(result.get('archive', '?'))}\n"
-                f"Size: {result.get('archive_size', '?')}\n"
-                f"Apps: {result.get('apps_count', 0)} — {', '.join(result.get('apps', []))}\n"
-                f"Files: {result.get('total_files', 0)}",
-                level="info",
-            )
-
-        return result
+        import traceback
+        try:
+            result = await asyncio.to_thread(_backup_sync, self.config)
+            return result
+        except Exception as exc:
+            logger.exception("Docker Backup run failed")
+            return {"status": "error", "error": str(exc)[:500], "apps": [], "archive": None}

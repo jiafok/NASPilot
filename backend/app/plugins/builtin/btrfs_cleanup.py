@@ -26,8 +26,20 @@ class BtrfsCleanupPlugin(PluginBase):
 
     async def run(self, **kwargs: Any) -> Any:
         """Scan btrfs subvolumes and report orphaned ones."""
+        import traceback
+
+        try:
+            return await self._run_impl(**kwargs)
+        except Exception as exc:
+            logger.exception("Btrfs Cleanup run failed")
+            return {"status": "error", "error": str(exc)[:500], "orphaned": [], "errors": [str(exc)]}
+
+    async def _run_impl(self, **kwargs: Any) -> Any:
         subvol_path = self.config.get("subvol_path", "/volume1/@docker/btrfs/subvolumes")
-        min_age_days = self.config.get("min_age_days", 7)
+        try:
+            min_age_days = max(0, int(self.config.get("min_age_days", 7)))
+        except (TypeError, ValueError):
+            min_age_days = 7
         dry_run = self.config.get("dry_run", True)
 
         result = {"subvol_path": subvol_path, "orphaned": [], "total_size_bytes": 0, "errors": []}

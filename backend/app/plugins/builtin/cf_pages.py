@@ -27,6 +27,16 @@ class CloudflarePagesPlugin(PluginBase):
 
     async def run(self, **kwargs: Any) -> Any:
         """Generate services HTML and deploy to Cloudflare Pages using wrangler."""
+        import traceback
+
+        try:
+            return await self._run_impl(**kwargs)
+        except Exception as exc:
+            logger.exception("Cloudflare Pages run failed")
+            return {"deployed": False, "errors": [str(exc)]}
+
+    async def _run_impl(self, **kwargs: Any) -> Any:
+        """Generate services HTML and deploy to Cloudflare Pages using wrangler."""
         result: dict[str, Any] = {"deployed": False, "errors": []}
 
         services = self.config.get("services", {})
@@ -60,25 +70,37 @@ class CloudflarePagesPlugin(PluginBase):
         with tempfile.TemporaryDirectory() as tmp:
             html_path = os.path.join(tmp, "index.html")
             worker_path = os.path.join(tmp, "_worker.js")
+            toml_path = os.path.join(tmp, "wrangler.toml")
 
             with open(html_path, "w", encoding="utf-8") as f:
                 f.write(result["html"])
 
-            # Basic Auth worker
-            worker_js = f"""
-export default {{
-  async fetch(request, env) {{
+            # Basic Auth worker — reads credentials from env (set via wrangler / CF dashboard)
+            worker_js = """
+export default {
+  async fetch(request, env) {
     const auth = request.headers.get('Authorization');
-    const expected = 'Basic ' + btoa('{auth_user}:{auth_pass}');
-    if (!auth || auth !== expected) {{
-      return new Response('Unauthorized', {{ status: 401, headers: {{ 'WWW-Authenticate': 'Basic realm=\\"Home Panel\\"' }} }});
-    }}
+    const expected = 'Basic ' + btoa(env.AUTH_USER + ':' + env.AUTH_PASS);
+    if (!auth || auth !== expected) {
+      return new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Home Panel"' } });
+    }
     return env.ASSETS.fetch(request);
-  }}
-}};
+  }
+};
 """
             with open(worker_path, "w", encoding="utf-8") as f:
                 f.write(worker_js)
+
+            # Wrangler config with env var placeholders
+            toml_content = f"""name = "{project}"
+compatibility_date = "2026-01-01"
+
+[vars]
+AUTH_USER = "{auth_user}"
+AUTH_PASS = "{auth_pass}"
+"""
+            with open(toml_path, "w", encoding="utf-8") as f:
+                f.write(toml_content)
 
             env = {**os.environ, "CLOUDFLARE_API_TOKEN": cf_token, "CLOUDFLARE_ACCOUNT_ID": cf_account}
             try:

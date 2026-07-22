@@ -58,7 +58,7 @@ async def _get_public_ipv6(iface: str = "") -> str | None:
             result = await asyncio.to_thread(
                 subprocess.run,
                 ["ip", "-6", "addr", "show", "dev", iface, "scope", "global"],
-                capture_output=True, text=True,
+                capture_output=True, text=True, timeout=10,
             )
             for line in result.stdout.splitlines():
                 line = line.strip()
@@ -200,6 +200,14 @@ class CloudflareDDNSPlugin(PluginBase):
         logger.info("Cloudflare DDNS plugin disabled")
 
     async def run(self, **kwargs: Any) -> dict[str, Any]:
+        import traceback
+        try:
+            return await self._run_impl(**kwargs)
+        except Exception as exc:
+            logger.exception("Cloudflare DDNS run failed")
+            return {"status": "error", "error": str(exc)[:500], "ipv4": None, "ipv6": None, "updated": 0, "unchanged": 0, "results": []}
+
+    async def _run_impl(self, **kwargs: Any) -> dict[str, Any]:
         api_token = self.config.get("api_token", "").strip()
         if not api_token:
             return {"status": "failed", "error": "API Token is not configured"}
