@@ -14,6 +14,7 @@ import DockerBackup from './pages/DockerBackup';
 import PluginList from './pages/plugins/PluginList';
 import NotificationCenter from './pages/notifications/NotificationCenter';
 import LogCenter from './pages/system/LogCenter';
+import LogFullPage from './pages/system/LogFullPage';
 import SystemSettings from './pages/system/SystemSettings';
 import AIAssistant from './pages/AIAssistant';
 
@@ -31,6 +32,7 @@ function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/logs/full" element={<LogFullPage />} />
               <Route path="/" element={<AuthGuard><MainLayout /></AuthGuard>}>
                 <Route index element={<Dashboard />} />
                 <Route path="tasks" element={<TaskList />} />
