@@ -35,6 +35,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Start scheduler
     await start_scheduler()
 
+    # Start real-time log draining (DB + WebSocket broadcast)
+    from app.api.v1.websocket import manager
+    manager.ensure_draining()
+
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Tag, Select, Input, Space, Typography, Button } from 'antd';
+import { Table, Tag, Select, Input, Space, Typography, Button, Divider } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import api from '../../utils/api';
+import LogViewer from '../../components/LogViewer';
 
 const { Title } = Typography;
 
@@ -100,6 +101,11 @@ export default function LogCenter() {
           { title: '消息', dataIndex: 'message', key: 'message', ellipsis: true },
         ]}
       />
+
+      <Divider />
+
+      <Typography.Title level={5} style={{ marginBottom: 8 }}>📡 实时日志流</Typography.Title>
+      <LogViewer maxHeight={400} placeholder="连接中..." />
     </div>
   );
 }

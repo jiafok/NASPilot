@@ -67,7 +67,10 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
     const { _name, _enabled, ...config } = values;
     setSaving(true);
     try {
-      const payload = { name: _name, config, enabled: _enabled };
+      // Preserve runtime state (processed, run_history, daily) from existing config
+      const existingState = instance?.config?.state;
+      const mergedConfig = { ...config, ...(existingState ? { state: existingState } : {}) };
+      const payload = { name: _name, config: mergedConfig, enabled: _enabled };
       if (instance) await api.put(`/plugins/instances/${instance.id}`, payload);
       else await api.post(`/plugins/${plugin.id}/instances`, payload);
       message.success('Saved');

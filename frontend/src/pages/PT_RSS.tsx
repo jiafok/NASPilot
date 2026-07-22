@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import PluginConfigForm from '../components/PluginConfigForm';
+import LogViewer from '../components/LogViewer';
 import type { PluginField } from '../components/PluginConfigForm';
 import api from '../utils/api';
 import { Tag, Descriptions, List, Typography, Collapse, Table, Spin } from 'antd';
@@ -152,6 +153,11 @@ export default function PT_RSS() {
         runResult={runResult}
         resultRenderer={resultRenderer}
       />
+
+      <div style={{ marginTop: 16 }}>
+        <Typography.Title level={5} style={{ marginBottom: 8 }}>📋 实时运行日志</Typography.Title>
+        <LogViewer source="plugin:pt_rss" maxHeight={400} placeholder="等待运行... 点击 Run Now 查看实时日志" />
+      </div>
 
       <Collapse
         style={{ marginTop: 16 }}

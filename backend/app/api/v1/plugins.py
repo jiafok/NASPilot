@@ -160,7 +160,15 @@ async def update_instance(
     if not inst:
         raise HTTPException(status_code=404, detail="Instance not found")
     for k, v in body.model_dump(exclude_unset=True).items():
-        setattr(inst, k, v)
+        if k == "config" and isinstance(v, dict):
+            # Deep-merge: preserve runtime state (processed, run_history, daily)
+            existing = inst.config or {}
+            inst.config = {**existing, **v}
+            # Nested merge for "state" key to avoid losing runtime data
+            if "state" in existing and "state" in v:
+                inst.config["state"] = {**existing["state"], **v["state"]}
+        else:
+            setattr(inst, k, v)
     await db.commit()
     await db.refresh(inst)
 
