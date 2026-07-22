@@ -157,7 +157,25 @@ async def _execute_plugin(plugin_id: int, instance_id: int) -> None:
 
         logger.info(f"Scheduled plugin run: {p.name} ({inst.name})")
         runtime = plugin_cls(cfg)
-        await runtime.run()
+        result = await runtime.run()
+
+        # Save run history (same as manual trigger)
+        import json
+        from datetime import datetime as _dt, timezone as _tz
+        now_iso = _dt.now(_tz.utc).isoformat()
+        state = runtime.config.setdefault("state", {})
+        history: list = state.setdefault("run_history", [])
+        history.insert(0, {
+            "time": now_iso,
+            "trigger": "scheduled",
+            "status": result.get("status", "ok"),
+            "added": result.get("added", 0),
+            "error": result.get("error", ""),
+        })
+        state["run_history"] = history[:50]
+        inst.config = runtime.config
+        await db.commit()
+        logger.info(f"Scheduled plugin run complete: {p.name} status={result.get('status')}")
 
 
 def upsert_plugin_schedule(sched: AsyncIOScheduler, plugin_id: int, instance_id: int, config: dict) -> bool:
