@@ -26,10 +26,14 @@ def _safe_json(resp: httpx.Response) -> dict[str, Any]:
 
 
 def _feishu_sign(timestamp: str, secret: str) -> str:
-    """Generate Feishu webhook signature (HMAC-SHA256, base64)."""
+    """Generate Feishu webhook signature (HMAC-SHA256, base64).
+
+    Feishu signing: key = timestamp + "\\n" + secret, msg = "", digest = SHA256.
+    """
     string_to_sign = f"{timestamp}\n{secret}"
     hmac_code = hmac.new(
-        string_to_sign.encode("utf-8"),
+        key=string_to_sign.encode("utf-8"),
+        msg=b"",
         digestmod=hashlib.sha256,
     ).digest()
     return base64.b64encode(hmac_code).decode("utf-8")
