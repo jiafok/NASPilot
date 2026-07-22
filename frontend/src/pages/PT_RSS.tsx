@@ -57,10 +57,8 @@ export default function PT_RSS() {
       if (!pt) return;
       const res = await api.post(`/plugins/${pt.id}/run`);
       setRunResult(res.data?.result || res.data);
-      // Reload processed after run
       await loadProcessed();
     } catch (err: any) {
-      // Try to extract error: priority → response body detail → response body result.error → axios message
       const body = err?.response?.data;
       const detail = typeof body === 'string' ? body : body?.detail || body?.result?.error || err?.message || 'Unknown error';
       setRunResult({ status: 'error', error: detail });
@@ -117,8 +115,7 @@ export default function PT_RSS() {
   };
 
   const processedEntries = Object.entries(processed).map(([tid, rec]: [string, any]) => ({
-    key: tid,
-    tid,
+    key: tid, tid,
     title: rec.title || '-',
     status: rec.status || '-',
     firstSeen: rec.first_seen,
@@ -144,42 +141,41 @@ export default function PT_RSS() {
     { title: 'Evicted Reason', dataIndex: 'evictedReason', width: 160, ellipsis: true, render: (v: string) => v || '-' },
   ];
 
+  const processedPanel = (
+    <Collapse
+      style={{ marginBottom: 16 }}
+      defaultActiveKey={processedEntries.length > 0 ? ['processed'] : []}
+      items={[{
+        key: 'processed',
+        label: <span><UnorderedListOutlined /> Processed Items ({processedEntries.length})</span>,
+        children: processedLoading
+          ? <Spin style={{ display: 'block', margin: '20px auto' }} />
+          : processedEntries.length === 0
+            ? <Typography.Text type="secondary">No items processed yet. Run the plugin once to populate this table.</Typography.Text>
+            : <Table dataSource={processedEntries} columns={processedColumns} size="small" rowKey="tid" pagination={{ pageSize: 15, showSizeChanger: true, showTotal: (t: number) => `${t} items` }} />,
+      }]}>
+    </Collapse>
+  );
+
+  const logPanel = (
+    <div style={{ marginBottom: 16 }}>
+      <LogViewer source="plugin:pt_rss" maxHeight={400} placeholder="等待运行... 点击 Run Now 查看实时日志" collapsible defaultOpen={false} label="运行日志" />
+    </div>
+  );
+
   return (
-    <>
-      <PluginConfigForm
-        slug="pt_rss"
-        title="PT RSS Auto Download"
-        description="Monitor RSS feeds, auto-add torrents to qBittorrent, manage disk space and seeding."
-        fields={FIELDS}
-        onRun={handleRun}
-        running={running}
-        runResult={runResult}
-        resultRenderer={resultRenderer}
-      />
-
-      <div style={{ marginTop: 16 }}>
-        <Typography.Title level={5} style={{ marginBottom: 8 }}>📋 实时运行日志</Typography.Title>
-        <LogViewer source="plugin:pt_rss" maxHeight={400} placeholder="等待运行... 点击 Run Now 查看实时日志" collapsible defaultOpen={false} label="运行日志" />
-      </div>
-
-      <Collapse
-        style={{ marginTop: 16 }}
-        items={[{
-          key: 'processed',
-          label: <span><UnorderedListOutlined /> Processed Items ({processedEntries.length})</span>,
-          children: processedLoading
-            ? <Spin style={{ display: 'block', margin: '20px auto' }} />
-            : processedEntries.length === 0
-              ? <Typography.Text type="secondary">No items processed yet. Run the plugin once to populate this table.</Typography.Text>
-              : <Table
-                  dataSource={processedEntries}
-                  columns={processedColumns}
-                  size="small"
-                  rowKey="tid"
-                  pagination={{ pageSize: 15, showSizeChanger: true, showTotal: (t: number) => `${t} items` }}
-                />,
-        }]}>
-      </Collapse>
-    </>
+    <PluginConfigForm
+      slug="pt_rss"
+      title="PT RSS Auto Download"
+      description="Monitor RSS feeds, auto-add torrents to qBittorrent, manage disk space and seeding."
+      fields={FIELDS}
+      onRun={handleRun}
+      running={running}
+      runResult={runResult}
+      resultRenderer={resultRenderer}
+      topContent={processedPanel}
+    >
+      {logPanel}
+    </PluginConfigForm>
   );
 }

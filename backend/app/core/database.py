@@ -46,16 +46,17 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     # Fix legacy SQLite tables with non-autoincrement PKs (from old BigInteger model)
-    await _migrate_sqlite_log_entries()
+    await _migrate_sqlite_autoincrement("log_entries", "id,timestamp,logger,level,source,message,extra")
+    await _migrate_sqlite_autoincrement("task_executions", "id,task_id,start_time,end_time,status,exit_code,stdout,stderr,duration_ms,triggered_by,error_message")
+    await _migrate_sqlite_autoincrement("notification_records", "id,channel_id,channel_type,title,message,level,event_type,status,error_message,created_at")
 
 
-async def _migrate_sqlite_log_entries() -> None:
-    """Recreate log_entries table if it has a non-autoincrement PK.
+async def _migrate_sqlite_autoincrement(table: str, columns: str) -> None:
+    """Recreate a SQLite table with INTEGER PRIMARY KEY AUTOINCREMENT if needed.
 
-    SQLite only auto-increments ``INTEGER PRIMARY KEY`` columns.
-    The old ``BigInteger`` model left a non-autoincrement column,
-    causing ``NOT NULL constraint failed: log_entries.id`` on every INSERT.
-    This migration drops & recreates the table (log data is ephemeral).
+    SQLite only auto-increments ``INTEGER PRIMARY KEY`` / ``INTEGER PRIMARY KEY AUTOINCREMENT``.
+    Tables created by the old ``BigInteger`` model lack autoincrement, causing
+    ``NOT NULL constraint failed: <table>.id`` on every INSERT.
     """
     import sqlalchemy as sa
 
@@ -65,33 +66,28 @@ async def _migrate_sqlite_log_entries() -> None:
     logger = logging.getLogger("naspilot.db")
     try:
         async with engine.begin() as conn:
-            # Check if table exists and has correct schema
             result = await conn.execute(
-                sa.text("SELECT sql FROM sqlite_master WHERE type='table' AND name='log_entries'")
+                sa.text(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table}'")
             )
             row = result.fetchone()
-            if row and "AUTOINCREMENT" not in (row[0] or ""):
-                logger.warning("log_entries has non-autoincrement PK — migrating...")
-                await conn.execute(sa.text("DROP TABLE IF EXISTS log_entries_new"))
-                await conn.execute(sa.text(
-                    "CREATE TABLE log_entries_new ("
-                    "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                    "timestamp DATETIME,"
-                    "logger VARCHAR(128),"
-                    "level VARCHAR(16),"
-                    "source VARCHAR(64),"
-                    "message TEXT,"
-                    "extra JSON"
-                    ")"
-                ))
-                try:
-                    await conn.execute(sa.text(
-                        "INSERT INTO log_entries_new SELECT id,timestamp,logger,level,source,message,extra FROM log_entries"
-                    ))
-                except Exception:
-                    pass
-                await conn.execute(sa.text("DROP TABLE IF EXISTS log_entries"))
-                await conn.execute(sa.text("ALTER TABLE log_entries_new RENAME TO log_entries"))
-                logger.info("log_entries migration complete")
+            if not row:
+                return  # table doesn't exist yet
+            ddl = row[0] or ""
+            if "AUTOINCREMENT" in ddl:
+                return  # already correct
+
+            logger.warning("%s has non-autoincrement PK — migrating...", table)
+            await conn.execute(sa.text(f"DROP TABLE IF EXISTS {table}_new"))
+            # Build CREATE TABLE from existing schema, add AUTOINCREMENT
+            new_ddl = ddl.replace("INTEGER NOT NULL", "INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT", 1)
+            new_ddl = new_ddl.replace(f"CREATE TABLE {table}", f"CREATE TABLE {table}_new")
+            await conn.execute(sa.text(new_ddl))
+            try:
+                await conn.execute(sa.text(f"INSERT INTO {table}_new SELECT {columns} FROM {table}"))
+            except Exception:
+                pass
+            await conn.execute(sa.text(f"DROP TABLE IF EXISTS {table}"))
+            await conn.execute(sa.text(f"ALTER TABLE {table}_new RENAME TO {table}"))
+            logger.info("%s migration complete", table)
     except Exception:
-        logger.exception("log_entries migration failed (non-fatal)")
+        logger.exception("%s migration failed (non-fatal)", table)
