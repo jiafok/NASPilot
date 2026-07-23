@@ -22,7 +22,7 @@ class ConnectionManager:
 
     def __init__(self) -> None:
         self.active: list[WebSocket] = []
-        self._log_buffer: deque[dict[str, Any]] = deque(maxlen=500)
+        self._log_buffer: deque[dict[str, Any]] = deque(maxlen=200)
         self._drain_task: asyncio.Task | None = None
         # Critical: drainer errors MUST NOT go back through DBLogHandler.
         # If they do: drain error → DBLogHandler → log queue → drain → error → ∞ loop.
@@ -143,11 +143,14 @@ async def ws_logs(websocket: WebSocket):
     await manager.connect(websocket)
     manager.ensure_draining()
 
-    # Send recent buffer only (last 60s) — prevents stale entries from appearing
-    # out of order when a new client connects
+    # Send recent buffer only (last 60s, max 50) — prevents stale entries
+    # and huge 500-message replay from blocking page load
     import time as _time
     cutoff_ts = _time.time() - 60
+    sent = 0
     for entry in manager._log_buffer:
+        if sent >= 50:
+            break
         try:
             entry_ts = entry.get("timestamp", "")
             if isinstance(entry_ts, str):
@@ -162,6 +165,7 @@ async def ws_logs(websocket: WebSocket):
         if not await manager._send_json(websocket, {"type": "log", **entry}):
             manager.disconnect(websocket)
             return
+        sent += 1
 
     try:
         while True:

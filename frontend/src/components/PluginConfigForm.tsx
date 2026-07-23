@@ -105,7 +105,7 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
     return <Form.Item {...common}><Input placeholder={field.placeholder} /></Form.Item>;
   };
 
-  if (loading) return <Spin size="large" style={{ display: 'block', margin: '120px auto' }} />;
+  if (loading && !plugin) return <Spin size="large" style={{ display: 'block', margin: '120px auto' }} />;
 
   return (
     <div>
@@ -117,7 +117,7 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
           </div>
           <Space>
             <Tag color={instance?.enabled ? 'green' : 'default'}>{instance?.enabled ? 'Active' : 'Disabled'}</Tag>
-            <Button icon={<ReloadOutlined />} onClick={load}>Refresh</Button>
+            <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>Refresh</Button>
             {onRun && <Button type="primary" icon={<PlayCircleOutlined />} onClick={async () => { await onRun(); await load(); }} loading={running}>Run Now</Button>}
           </Space>
         </Space>

@@ -39,6 +39,9 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
   const wsRef = useRef<WebSocket | null>(null);
   const pausedBufferRef = useRef<LogLine[]>([]);
   const userScrolledUpRef = useRef(false);
+  // Batch incoming lines to avoid 500+ re-renders during WS buffer replay
+  const batchRef = useRef<LogLine[]>([]);
+  const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filtered = useMemo(() => {
     if (levelFilter.length === 0) return lines;
@@ -67,14 +70,6 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
     return () => el.removeEventListener('scroll', handler);
   }, [isAtBottom]);
 
-  const appendLine = useCallback((line: LogLine) => {
-    setLines((prev) => {
-      const next = [...prev, line];
-      if (next.length > maxLines) return next.slice(-maxLines);
-      return next;
-    });
-  }, [maxLines]);
-
   const connect = useCallback(() => {
     const token = getToken();
     if (!token) return;
@@ -87,13 +82,10 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
 
     ws.onopen = () => {
       setConnected(true);
+      // Flush buffered lines from paused period in one batch
       if (pausedBufferRef.current.length > 0) {
-        setLines((prev) => {
-          const next = [...prev, ...pausedBufferRef.current];
-          pausedBufferRef.current = [];
-          if (next.length > maxLines) return next.slice(-maxLines);
-          return next;
-        });
+        batchRef.current.push(...pausedBufferRef.current);
+        pausedBufferRef.current = [];
       }
     };
 
@@ -111,8 +103,21 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
         if (paused) {
           pausedBufferRef.current.push(line);
         } else {
-          appendLine(line);
-          setTimeout(smartScroll, 50);
+          // Batch mode: accumulate lines, flush every 100ms
+          batchRef.current.push(line);
+          if (batchTimerRef.current === null) {
+            batchTimerRef.current = setTimeout(() => {
+              const batch = batchRef.current;
+              batchRef.current = [];
+              batchTimerRef.current = null;
+              setLines((prev) => {
+                const next = [...prev, ...batch];
+                if (next.length > maxLines) return next.slice(-maxLines);
+                return next;
+              });
+              setTimeout(smartScroll, 50);
+            }, 100);
+          }
         }
       } catch { /* ignore */ }
     };
@@ -122,7 +127,7 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
       setTimeout(connect, 3000);
     };
     ws.onerror = () => { ws.close(); };
-  }, [source, paused, appendLine, smartScroll, maxLines]);
+  }, [source, paused, smartScroll, maxLines]);
 
   useEffect(() => {
     connect();
