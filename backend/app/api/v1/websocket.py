@@ -143,8 +143,20 @@ async def ws_logs(websocket: WebSocket):
     await manager.connect(websocket)
     manager.ensure_draining()
 
-    # Send recent buffer first (respect filter)
+    # Send recent buffer only (last 60s) — prevents stale entries from appearing
+    # out of order when a new client connects
+    import time as _time
+    cutoff_ts = _time.time() - 60
     for entry in manager._log_buffer:
+        try:
+            entry_ts = entry.get("timestamp", "")
+            if isinstance(entry_ts, str):
+                from datetime import datetime as _dt
+                entry_dt = _dt.fromisoformat(entry_ts)
+                if entry_dt.timestamp() < cutoff_ts:
+                    continue
+        except Exception:
+            pass
         if source_filter and entry.get("source") != source_filter:
             continue
         if not await manager._send_json(websocket, {"type": "log", **entry}):

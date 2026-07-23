@@ -681,6 +681,8 @@ class PTRSSPlugin(PluginBase):
 
             added = 0
             max_active = int(self.config.get("max_active_downloads", 0) or 0)
+            # Fetch torrents list once — reused across all RSS items
+            torrents_cache = await qb.torrents()
             for item in rss_items:
                 if max_active and added >= max_active:
                     break
@@ -709,11 +711,10 @@ class PTRSSPlugin(PluginBase):
                     continue
 
                 tag = f"rss_tid:{item.tid}"
-                existing = await qb.torrents()
-                matched = next((t for t in existing if has_tag(t, tag)), None)
+                matched = next((t for t in torrents_cache if has_tag(t, tag)), None)
                 if matched is None:
                     normalized = normalize_title(item.title)
-                    matched = next((t for t in existing if normalize_title(t.get("name", "")) == normalized), None)
+                    matched = next((t for t in torrents_cache if normalize_title(t.get("name", "")) == normalized), None)
 
                 if matched is not None:
                     if not has_tag(matched, tag):
@@ -769,6 +770,11 @@ class PTRSSPlugin(PluginBase):
                 logger.info("  ✅ 新增下载: tid=%s, title=%s", item.tid, item.title[:50])
                 notify_added.append(f"✅ 新增下载：{item.title[:50]}")
                 added += 1
+                # Refresh torrents cache after adding
+                try:
+                    torrents_cache = await qb.torrents()
+                except Exception:
+                    pass
 
             logger.debug("[RSS] Eviction check, RSS has %d tids, %d source(s) failed",
                          len(rss_tid_set), len(failed_sources))
@@ -785,7 +791,7 @@ class PTRSSPlugin(PluginBase):
                 if rec["rss_missing_count"] < int(self.config.get("rss_missing_threshold", 2)):
                     notify_skipped.append(f"{tid} | missing {rec['rss_missing_count']}")
                     continue
-                candidates = [t for t in await qb.torrents() if has_tag(t, rec.get("tag", f"rss_tid:{tid}"))]
+                candidates = [t for t in torrents_cache if has_tag(t, rec.get("tag", f"rss_tid:{tid}"))]
                 if len(candidates) != 1:
                     continue
                 torrent = candidates[0]
