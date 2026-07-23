@@ -1,38 +1,57 @@
-"""WebSocket endpoints — real-time log streaming and dashboard updates."""
+"""WebSocket endpoints — real-time log streaming via file tailing."""
 
 import asyncio
 import json
 import logging
-import queue as std_queue
-from collections import deque
+import os
+import re
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from sqlalchemy import select
 
 from app.core.database import async_session_factory
 from app.core.deps import get_current_user_ws
-from app.models import LogEntry
 
 router = APIRouter(tags=["websocket"])
 
+# Regex to parse a formatted log line:
+# "2026-07-23 16:30:09 [INFO    ] naspilot.plugin.pt_rss — message text"
+LOG_RE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+"
+    r"\[(\w+)\s*\]\s+"
+    r"(\S+)\s+—\s+"
+    r"(.*)$"
+)
+
+
+def _extract_source(logger_name: str) -> str:
+    if logger_name.startswith("naspilot.plugin.") or logger_name.startswith("naspilot.plugins."):
+        slug = logger_name.replace("naspilot.plugin.", "").replace("naspilot.plugins.", "")
+        return f"plugin:{slug}"
+    if "scheduler" in logger_name:
+        return "scheduler"
+    if "task" in logger_name:
+        return "task"
+    return "system"
+
+
+def _parse_line(line: str) -> dict[str, Any] | None:
+    """Parse a formatted log line into structured fields."""
+    m = LOG_RE.match(line.strip())
+    if not m:
+        return None
+    return {
+        "timestamp": m.group(1),
+        "level": m.group(2),
+        "logger": m.group(3),
+        "source": _extract_source(m.group(3)),
+        "message": m.group(4),
+    }
+
 
 class ConnectionManager:
-    """Manages active WebSocket connections for real-time updates."""
-
     def __init__(self) -> None:
         self.active: list[WebSocket] = []
-        self._log_buffer: deque[dict[str, Any]] = deque(maxlen=200)
-        self._drain_task: asyncio.Task | None = None
-        # Critical: drainer errors MUST NOT go back through DBLogHandler.
-        # If they do: drain error → DBLogHandler → log queue → drain → error → ∞ loop.
-        # Set propagate=False + attach a console-only handler.
-        self._drain_logger = logging.getLogger("naspilot.drainer")
-        self._drain_logger.propagate = False
-        if not self._drain_logger.handlers:
-            h = logging.StreamHandler()
-            h.setFormatter(logging.Formatter("%(asctime)s [%(levelname)-8s] %(name)s — %(message)s", "%Y-%m-%d %H:%M:%S"))
-            self._drain_logger.addHandler(h)
 
     async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
@@ -43,7 +62,6 @@ class ConnectionManager:
             self.active.remove(ws)
 
     async def broadcast(self, msg: dict[str, Any]) -> None:
-        """Send a message to all connected clients."""
         text = json.dumps(msg, default=str, ensure_ascii=False)
         stale = []
         for ws in self.active:
@@ -54,82 +72,17 @@ class ConnectionManager:
         for ws in stale:
             self.disconnect(ws)
 
-    async def _send_json(self, ws: WebSocket, msg: dict[str, Any]) -> bool:
-        """Send to a single WS; returns False on failure."""
-        try:
-            await ws.send_text(json.dumps(msg, default=str, ensure_ascii=False))
-            return True
-        except Exception:
-            return False
-
-    async def start_draining(self) -> None:
-        """Background task: drain log queue → buffer + broadcast + DB."""
-        from app.core.logging_config import get_log_queue
-
-        log_queue = get_log_queue()
-        while True:
-            try:
-                batch: list[dict[str, Any]] = []
-                while True:
-                    try:
-                        batch.append(log_queue.get_nowait())
-                    except std_queue.Empty:
-                        break
-
-                if batch:
-                    self._log_buffer.extend(batch)
-                    # Broadcast to ALL connected clients (skip DB Insert self-logs)
-                    broadcast_batch = [
-                        e for e in batch
-                        if "INSERT INTO log_entries" not in e.get("message", "")
-                    ]
-                    for entry in broadcast_batch:
-                        await self.broadcast({"type": "log", **entry})
-                    # Persist to DB (skip if flooding — e.g. feedback loop)
-                    if len(batch) > 500:
-                        self._drain_logger.warning("Flood detected: %d log entries in one batch — skipping DB persistence", len(batch))
-                    else:
-                        try:
-                            from datetime import datetime as dt
-                            async with async_session_factory() as db:
-                                for entry in batch:
-                                    ts = entry.get("timestamp")
-                                    if isinstance(ts, str):
-                                        try:
-                                            ts = dt.fromisoformat(ts)
-                                        except (ValueError, TypeError):
-                                            ts = dt.now(dt.UTC if hasattr(dt, 'UTC') else None)
-                                    if ts is None:
-                                        ts = dt.now()
-                                    db.add(LogEntry(
-                                        timestamp=ts,
-                                        logger=entry["logger"],
-                                        level=entry["level"],
-                                        source=entry.get("source", "system"),
-                                        message=entry["message"],
-                                    ))
-                                await db.commit()
-                        except Exception:
-                            self._drain_logger.exception("Failed to persist log entries to DB")
-            except Exception:
-                self._drain_logger.exception("Drainer loop error")
-            await asyncio.sleep(0.5)
-
-    def ensure_draining(self) -> None:
-        """Start the drain task if not already running (idempotent)."""
-        if self._drain_task is None or self._drain_task.done():
-            self._drain_task = asyncio.ensure_future(self.start_draining())
-
 
 manager = ConnectionManager()
 
 
 @router.websocket("/ws/logs")
 async def ws_logs(websocket: WebSocket):
-    """Stream log entries in real-time. Requires token via `?token=`.
+    """Stream log entries in real-time by tailing the log file.
 
-    Optional query params:
-    - ``source`` : filter logs by source (e.g. ``plugin:pt_rss``, ``scheduler``).
+    Query params:
+    - ``token`` : JWT auth
+    - ``source`` : filter by source (e.g. ``plugin:pt_rss``)
     """
     async with async_session_factory() as db:
         user = await get_current_user_ws(websocket, db)
@@ -137,39 +90,47 @@ async def ws_logs(websocket: WebSocket):
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
-    # Extract source filter from query params
     source_filter = websocket.query_params.get("source")
-
     await manager.connect(websocket)
-    manager.ensure_draining()
 
-    # Send recent buffer only (last 60s, max 50) — prevents stale entries
-    # and huge 500-message replay from blocking page load
-    import time as _time
-    cutoff_ts = _time.time() - 60
-    sent = 0
-    for entry in manager._log_buffer:
-        if sent >= 50:
-            break
+    from app.core.logging_config import LOG_FILE
+
+    log_path = LOG_FILE or "/app/logs/naspilot.log"
+    tail_logger = logging.getLogger("naspilot.tailer")
+
+    if not os.path.isfile(log_path):
+        tail_logger.warning("Log file not found: %s", log_path)
         try:
-            entry_ts = entry.get("timestamp", "")
-            if isinstance(entry_ts, str):
-                from datetime import datetime as _dt
-                entry_dt = _dt.fromisoformat(entry_ts)
-                if entry_dt.timestamp() < cutoff_ts:
-                    continue
-        except Exception:
-            pass
-        if source_filter and entry.get("source") != source_filter:
-            continue
-        if not await manager._send_json(websocket, {"type": "log", **entry}):
+            while True:
+                await asyncio.sleep(30)
+                await websocket.send_text(json.dumps({"type": "ping"}))
+        except WebSocketDisconnect:
             manager.disconnect(websocket)
-            return
-        sent += 1
+        return
 
     try:
-        while True:
-            await asyncio.sleep(30)
-            await websocket.send_text(json.dumps({"type": "ping"}))
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            f.seek(0, os.SEEK_END)  # start at end — live tail only
+            while True:
+                line = f.readline()
+                if line:
+                    entry = _parse_line(line)
+                    if entry:
+                        if source_filter and entry.get("source") != source_filter:
+                            continue
+                        await manager.broadcast({"type": "log", **entry})
+                    continue
+                # No new data — check for rotation (inode changed)
+                try:
+                    if os.stat(log_path).st_ino != os.fstat(f.fileno()).st_ino:
+                        f.close()
+                        f = open(log_path, "r", encoding="utf-8", errors="replace")
+                        tail_logger.info("Log file rotated, re-opening")
+                except Exception:
+                    pass
+                await asyncio.sleep(0.5)
     except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception:
+        tail_logger.exception("WS tailer error")
         manager.disconnect(websocket)

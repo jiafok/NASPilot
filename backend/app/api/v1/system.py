@@ -1,9 +1,11 @@
 """System endpoints — dashboard stats, logs, settings."""
 
 import json
+import os
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,6 +50,65 @@ async def list_logs(
     q = q.limit(limit).offset(offset)
     result = await db.execute(q)
     return result.scalars().all()
+
+
+@router.get("/logs/raw", response_model=PlainTextResponse, summary="Raw logs")
+async def raw_logs(
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    level: str | None = None,
+    source: str | None = None,
+    search: str | None = None,
+):
+    """Return raw logs as a string."""
+    logs = await list_logs(user, db, limit, offset, level, source, search)
+    return PlainTextResponse(
+        content="\n".join([str(log) for log in logs]),
+        status_code=200,
+        media_type="text/plain",
+    )
+
+
+# ── Raw log file ────────────────────────────────────────────────────────
+
+
+@router.get("/logs/raw", summary="Raw log file", response_class=PlainTextResponse)
+async def raw_logs(
+    source: str | None = None,
+    level: str | None = None,
+    limit: int = Query(10000, ge=100, le=100000),
+):
+    """Serve the raw log text file directly.
+
+    Optional query params:
+    - ``source`` : filter by source (e.g. ``plugin:pt_rss``)
+    - ``level`` : filter by level (e.g. ``WARNING``)
+    - ``limit`` : max lines (default 10000)
+    """
+    from app.core.logging_config import LOG_FILE
+
+    log_path = LOG_FILE or "/app/logs/naspilot.log"
+    if not os.path.isfile(log_path):
+        return PlainTextResponse("", status_code=200)
+
+    lines = []
+    with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # Quick text filter: check if source/level string appears in the line
+            if source and source not in stripped:
+                continue
+            if level and f"[{level.upper()}" not in stripped:
+                continue
+            lines.append(line)
+            if len(lines) >= limit:
+                break
+
+    return PlainTextResponse("".join(lines[-limit:]))
 
 
 # ── Settings ────────────────────────────────────────────────────────────
