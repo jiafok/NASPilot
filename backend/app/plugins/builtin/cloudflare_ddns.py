@@ -210,13 +210,16 @@ class CloudflareDDNSPlugin(PluginBase):
     async def _run_impl(self, **kwargs: Any) -> dict[str, Any]:
         api_token = self.config.get("api_token", "").strip()
         if not api_token:
+            logger.warning("API Token is not configured")
             return {"status": "failed", "error": "API Token is not configured"}
 
         zones: list[dict[str, Any]] = self.config.get("zones") or []
         if not zones:
+            logger.warning("No zones configured")
             return {"status": "failed", "error": "No zones configured"}
 
         iface = self.config.get("iface", "").strip()
+        logger.info("Starting DDNS update, zones=%d", len(zones))
         cf = CloudflareClient(api_token)
         state = self.config.setdefault("state", {})
         results: list[dict[str, Any]] = []

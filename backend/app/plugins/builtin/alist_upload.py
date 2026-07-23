@@ -307,12 +307,15 @@ class AListUploadPlugin(PluginBase):
 
     async def _run_impl(self, **kwargs: Any) -> dict[str, Any]:
         cfg = self.config
+        logger.info("启动")
         alist_url = cfg.get("alist_url", "").strip()
         if not alist_url:
+            logger.warning("AList URL is not configured")
             return {"status": "failed", "error": "AList URL is not configured"}
 
         scan_dirs: list[str] = cfg.get("scan_dirs") or []
         if not scan_dirs:
+            logger.warning("No scan_dirs configured")
             return {"status": "failed", "error": "No scan_dirs configured"}
 
         remote_root = cfg.get("remote_root", "/").rstrip("/")
@@ -320,8 +323,11 @@ class AListUploadPlugin(PluginBase):
         max_retries = int(cfg.get("max_retries", 3))
         delete_after = bool(cfg.get("delete_after_upload", False))
 
+        logger.info("Scanning dirs=%d, remote=%s", len(scan_dirs), remote_root)
         files = await asyncio.to_thread(_collect_files, scan_dirs, extensions)
         logger.info("AList scan found %d file(s)", len(files))
+        if not files:
+            logger.info("No new files to upload")
 
         results: list[dict[str, Any]] = []
         counts = {"scanned": len(files), "uploaded": 0, "skipped": 0, "failed": 0, "deleted": 0}

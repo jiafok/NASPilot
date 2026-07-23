@@ -127,9 +127,11 @@ def _backup_sync(cfg: dict[str, Any]) -> dict[str, Any]:
     containers_filter: list[str] = cfg.get("containers") or []
 
     if not os.path.isdir(docker_root):
+        logger.warning("docker_root not found: %s", docker_root)
         return {"status": "failed", "error": f"docker_root not found: {docker_root}"}
 
     os.makedirs(backup_root, exist_ok=True)
+    logger.info("Starting backup: docker=%s, dest=%s, keep=%d days", docker_root, backup_root, keep_days)
 
     tag = _now_tag()
     tmp_dir = os.path.join(backup_root, f"docker_all_core_{tag}")
