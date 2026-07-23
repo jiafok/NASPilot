@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Tag, Select, Input, Space, Typography, Button, Divider } from 'antd';
-import { ReloadOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
+import { Table, Tag, Select, Input, Space, Typography, Button, Divider, Collapse } from 'antd';
+import { ReloadOutlined, SearchOutlined, ExportOutlined, HistoryOutlined } from '@ant-design/icons';
 import api from '../../utils/api';
 import LogViewer from '../../components/LogViewer';
 
@@ -62,60 +62,46 @@ export default function LogCenter() {
 
       <Divider />
 
-      {/* ── History search / filter ── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <Title level={4} style={{ margin: 0 }}>📋 历史日志</Title>
-        <Space wrap>
-          <Input
-            placeholder="搜索消息..."
-            prefix={<SearchOutlined />}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ width: 180 }}
-            allowClear
-          />
-          <Select
-            placeholder="级别" allowClear style={{ width: 100 }}
-            value={level} onChange={setLevel}
-            options={['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'].map(l => ({ label: l, value: l }))}
-          />
-          <Select
-            placeholder="来源" allowClear style={{ width: 140 }}
-            value={source} onChange={setSource}
-            options={SOURCE_OPTIONS}
-          />
-          <Select
-            style={{ width: 90 }} value={limit} onChange={setLimit}
-            options={[50, 100, 200, 500, 1000].map(n => ({ label: `${n} 条`, value: n }))}
-          />
-          <Button icon={<ReloadOutlined />} onClick={() => fetchLogs(true)}>刷新</Button>
-          <Button icon={<ExportOutlined />}
-            onClick={() => window.open('/logs/full', '_blank', 'width=1100,height=800')}>
-            全屏日志
-          </Button>
-        </Space>
-      </div>
+      {/* ── History table (collapsible) ── */}
+      <Collapse
+        items={[{
+          key: 'history',
+          label: <span><HistoryOutlined /> 历史日志 · {logs.length} 条</span>,
+          children: (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <Space wrap>
+                  <Input placeholder="搜索消息..." prefix={<SearchOutlined />} value={search}
+                    onChange={(e) => setSearch(e.target.value)} style={{ width: 180 }} allowClear />
+                  <Select placeholder="级别" allowClear style={{ width: 100 }} value={level} onChange={setLevel}
+                    options={['DEBUG','INFO','WARNING','ERROR','CRITICAL'].map(l=>({label:l,value:l}))} />
+                  <Select placeholder="来源" allowClear style={{ width: 140 }} value={source} onChange={setSource}
+                    options={SOURCE_OPTIONS} />
+                  <Select style={{ width: 90 }} value={limit} onChange={setLimit}
+                    options={[50,100,200,500,1000].map(n=>({label:`${n} 条`,value:n}))} />
+                  <Button icon={<ReloadOutlined />} onClick={() => fetchLogs(true)}>刷新</Button>
+                  <Button icon={<ExportOutlined />}
+                    onClick={() => window.open('/logs/full', '_blank', 'width=1100,height=800')}>全屏日志</Button>
+                </Space>
+              </div>
 
-      <Table
-        dataSource={logs}
-        rowKey="id"
-        size="small"
-        loading={loading}
-        pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (t: number) => `共 ${t} 条` }}
-        columns={[
-          { title: '时间', dataIndex: 'timestamp', width: 170,
-            render: (t: string) => new Date(t).toLocaleString(),
-          },
-          { title: '级别', dataIndex: 'level', width: 80,
-            render: (l: string) => <Tag color={LEVEL_COLORS[l] || 'default'}>{l}</Tag>,
-          },
-          { title: '来源', dataIndex: 'source', width: 130 },
-          { title: 'Logger', dataIndex: 'logger', width: 150, ellipsis: true },
-          { title: '消息', dataIndex: 'message', ellipsis: true,
-            render: (m: string) => <span style={{ fontSize: 12, fontFamily: 'monospace' }}>{m}</span>,
-          },
-        ]}
-      />
+              <Table
+                dataSource={logs} rowKey="id" size="small" loading={loading}
+                pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (t: number) => `共 ${t} 条` }}
+                columns={[
+                  { title: '时间', dataIndex: 'timestamp', width: 170,
+                    render: (t: string) => new Date(t).toLocaleString() },
+                  { title: '级别', dataIndex: 'level', width: 80,
+                    render: (l: string) => <Tag color={LEVEL_COLORS[l]||'default'}>{l}</Tag> },
+                  { title: '来源', dataIndex: 'source', width: 130 },
+                  { title: 'Logger', dataIndex: 'logger', width: 150, ellipsis: true },
+                  { title: '消息', dataIndex: 'message', ellipsis: true,
+                    render: (m: string) => <span style={{ fontSize: 12, fontFamily: 'monospace' }}>{m}</span> },
+                ]}
+              />
+            </div>
+          ),
+        }]} />
     </div>
   );
 }
