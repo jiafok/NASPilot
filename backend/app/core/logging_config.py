@@ -89,9 +89,11 @@ def setup_logging() -> None:
     # Without this, logger.debug() calls in plugins/tasks never reach DBLogHandler.
     logging.getLogger("naspilot").setLevel(logging.DEBUG)
 
-    # Override noisy library loggers back to INFO
-    for lib in ("httpx", "httpcore", "apscheduler", "sqlalchemy.engine"):
+    # Override noisy library loggers — CRITICAL: sqlalchemy.engine at INFO or below
+    # creates a feedback loop: INSERT log → DBLogHandler → drainer → INSERT → ∞
+    for lib in ("httpx", "httpcore", "apscheduler"):
         logging.getLogger(lib).setLevel(logging.INFO)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
 
 logger = logging.getLogger("naspilot")

@@ -49,6 +49,8 @@ async def init_db() -> None:
     await _migrate_sqlite_autoincrement("log_entries", "id,timestamp,logger,level,source,message,extra")
     await _migrate_sqlite_autoincrement("task_executions", "id,task_id,start_time,end_time,status,exit_code,stdout,stderr,duration_ms,triggered_by,error_message")
     await _migrate_sqlite_autoincrement("notification_records", "id,channel_id,channel_type,title,message,level,event_type,status,error_message,created_at")
+    # Clean up self-referential log spam from previous sqlalchemy.engine INFO feedback loop
+    await _cleanup_log_spam()
 
 
 async def _migrate_sqlite_autoincrement(table: str, columns: str) -> None:
@@ -121,3 +123,36 @@ async def _migrate_sqlite_autoincrement(table: str, columns: str) -> None:
             logger.info("%s migration complete", table)
     except Exception:
         logger.exception("%s migration failed (non-fatal)", table)
+
+
+async def _cleanup_log_spam() -> None:
+    """Clean up self-referential log spam from previous sqlalchemy.engine INFO feedback loop."""
+    import sqlalchemy as sa
+
+    if "sqlite" not in settings.DATABASE_URL:
+        return
+
+    logger = logging.getLogger("naspilot.db")
+    try:
+        async with engine.begin() as conn:
+            # Check if table exists
+            result = await conn.execute(
+                sa.text(f"SELECT name FROM sqlite_master WHERE type='table' AND name='log_entries'")
+            )
+            if not result.fetchone():
+                return
+
+            # Clean up self-referential log spam
+            await conn.execute(sa.text("DELETE FROM log_entries WHERE level='INFO' AND message LIKE '%sqlalchemy%'"))
+            logger.info("Cleaned up self-referential log spam from previous sqlalchemy.engine INFO feedback loop")
+
+            # Delete log entries that are self-referential (INSERT INTO log_entries spam)
+            # from the previous sqlalchemy.engine INFO feedback loop
+            result = await conn.execute(sa.text(
+                "DELETE FROM log_entries WHERE message LIKE '%INSERT INTO log_entries%'"
+            ))
+            deleted = result.rowcount
+            if deleted > 0:
+                logger.info("Cleaned up %d self-referential log spam rows", deleted)
+    except Exception:
+        logger.exception("Cleanup of self-referential log spam failed (non-fatal)")

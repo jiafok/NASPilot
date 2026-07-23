@@ -78,32 +78,39 @@ class ConnectionManager:
 
                 if batch:
                     self._log_buffer.extend(batch)
-                    # Broadcast to ALL connected clients
-                    for entry in batch:
+                    # Broadcast to ALL connected clients (skip DB Insert self-logs)
+                    broadcast_batch = [
+                        e for e in batch
+                        if "INSERT INTO log_entries" not in e.get("message", "")
+                    ]
+                    for entry in broadcast_batch:
                         await self.broadcast({"type": "log", **entry})
-                    # Persist to DB
-                    try:
-                        from datetime import datetime as dt
-                        async with async_session_factory() as db:
-                            for entry in batch:
-                                ts = entry.get("timestamp")
-                                if isinstance(ts, str):
-                                    try:
-                                        ts = dt.fromisoformat(ts)
-                                    except (ValueError, TypeError):
-                                        ts = dt.now(dt.UTC if hasattr(dt, 'UTC') else None)
-                                if ts is None:
-                                    ts = dt.now()
-                                db.add(LogEntry(
-                                    timestamp=ts,
-                                    logger=entry["logger"],
-                                    level=entry["level"],
-                                    source=entry.get("source", "system"),
-                                    message=entry["message"],
-                                ))
-                            await db.commit()
-                    except Exception:
-                        self._drain_logger.exception("Failed to persist log entries to DB")
+                    # Persist to DB (skip if flooding — e.g. feedback loop)
+                    if len(batch) > 500:
+                        self._drain_logger.warning("Flood detected: %d log entries in one batch — skipping DB persistence", len(batch))
+                    else:
+                        try:
+                            from datetime import datetime as dt
+                            async with async_session_factory() as db:
+                                for entry in batch:
+                                    ts = entry.get("timestamp")
+                                    if isinstance(ts, str):
+                                        try:
+                                            ts = dt.fromisoformat(ts)
+                                        except (ValueError, TypeError):
+                                            ts = dt.now(dt.UTC if hasattr(dt, 'UTC') else None)
+                                    if ts is None:
+                                        ts = dt.now()
+                                    db.add(LogEntry(
+                                        timestamp=ts,
+                                        logger=entry["logger"],
+                                        level=entry["level"],
+                                        source=entry.get("source", "system"),
+                                        message=entry["message"],
+                                    ))
+                                await db.commit()
+                        except Exception:
+                            self._drain_logger.exception("Failed to persist log entries to DB")
             except Exception:
                 self._drain_logger.exception("Drainer loop error")
             await asyncio.sleep(0.5)
