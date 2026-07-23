@@ -46,7 +46,9 @@ class CloudflarePagesPlugin(PluginBase):
         cf_account = self.config.get("cf_account_id", "")
         project = self.config.get("cf_project", "home-panel")
 
+        logger.info("Starting CF Pages deploy: project=%s, services=%d", project, len(services))
         if not cf_token or not cf_account:
+            logger.warning("Missing cf_api_token or cf_account_id")
             result["errors"].append("Missing cf_api_token or cf_account_id in config")
             return result
 

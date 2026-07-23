@@ -138,7 +138,10 @@ class LogCleanupPlugin(PluginBase):
         logger.info("Log Cleanup plugin disabled")
 
     async def run(self, **kwargs: Any) -> dict[str, Any]:
-        import traceback
+        logger.info("启动日志清理: dir=%s, max_age=%sd, db_keep=%s",
+                     self.config.get("log_dir","/app/logs"),
+                     self.config.get("max_age_days",30),
+                     self.config.get("db_keep_rows",10000))
         try:
             file_result = await asyncio.to_thread(_cleanup_sync, self.config)
             db_deleted = await _purge_db_logs(int(self.config.get("db_keep_rows", 10000)))

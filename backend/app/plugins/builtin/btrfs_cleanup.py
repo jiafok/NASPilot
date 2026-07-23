@@ -35,6 +35,7 @@ class BtrfsCleanupPlugin(PluginBase):
             return {"status": "error", "error": str(exc)[:500], "orphaned": [], "errors": [str(exc)]}
 
     async def _run_impl(self, **kwargs: Any) -> Any:
+        logger.info("启动 Btrfs 清理")
         subvol_path = self.config.get("subvol_path", "/volume1/@docker/btrfs/subvolumes")
         try:
             min_age_days = max(0, int(self.config.get("min_age_days", 7)))

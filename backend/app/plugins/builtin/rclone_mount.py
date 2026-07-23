@@ -39,6 +39,7 @@ class RcloneMountPlugin(PluginBase):
         mount_point = self.config.get("mount_point", "/volume1/docker/Alist/media")
         remote = self.config.get("remote", "alist:/")
         action = kwargs.get("action", "status")
+        logger.info("Rclone mount: action=%s, mount=%s, remote=%s", action, mount_point, remote)
 
         result = {"action": action, "mount_point": mount_point, "remote": remote}
 
