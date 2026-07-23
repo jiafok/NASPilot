@@ -16,11 +16,12 @@ export default function CloudflareDDNS() {
 
   const handleRun = async () => {
     setRunning(true);
+    setRunResult(null);
     try {
       const pluginsRes = await api.get('/plugins');
       const p = (pluginsRes.data as any[]).find((x: any) => x.slug === 'cloudflare_ddns');
       if (!p) return;
-      const res = await api.post(`/plugins/${p.id}/run`);
+      const res = await api.post(`/plugins/${p.id}/run`, null, { timeout: 300000 });
       setRunResult(res.data?.result);
     } catch {}
     finally { setRunning(false); }

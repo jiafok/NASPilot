@@ -51,17 +51,22 @@ export default function PT_RSS() {
 
   const handleRun = async () => {
     setRunning(true);
+    setRunResult(null); // clear previous result so we see "running" state
     try {
       const pluginsRes = await api.get('/plugins');
       const pt = (pluginsRes.data as any[]).find((x: any) => x.slug === 'pt_rss');
       if (!pt) return;
-      const res = await api.post(`/plugins/${pt.id}/run`);
+      const res = await api.post(`/plugins/${pt.id}/run`, null, { timeout: 300000 }); // 5 min timeout
       setRunResult(res.data?.result || res.data);
       await loadProcessed();
     } catch (err: any) {
-      const body = err?.response?.data;
-      const detail = typeof body === 'string' ? body : body?.detail || body?.result?.error || err?.message || 'Unknown error';
-      setRunResult({ status: 'error', error: detail });
+      if (err?.code === 'ECONNABORTED' || err?.message?.includes('timeout')) {
+        setRunResult({ status: 'error', error: '请求超时（任务可能仍在后台运行，查看日志确认进度）' });
+      } else {
+        const body = err?.response?.data;
+        const detail = typeof body === 'string' ? body : body?.detail || body?.result?.error || err?.message || 'Unknown error';
+        setRunResult({ status: 'error', error: detail });
+      }
     }
     finally { setRunning(false); }
   };
