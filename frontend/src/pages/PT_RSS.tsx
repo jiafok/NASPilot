@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import PluginConfigForm from '../components/PluginConfigForm';
 import LogViewer from '../components/LogViewer';
 import type { PluginField } from '../components/PluginConfigForm';
 import api from '../utils/api';
-import { Tag, Descriptions, List, Typography, Collapse, Table, Spin } from 'antd';
+import { Tag, Descriptions, List, Typography, Collapse, Table } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, ExclamationCircleOutlined, InfoCircleOutlined, UnorderedListOutlined } from '@ant-design/icons';
 
 const FIELDS: PluginField[] = [
@@ -30,35 +30,16 @@ export default function PT_RSS() {
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState<any>(null);
   const [processed, setProcessed] = useState<Record<string, any>>({});
-  const [processedLoading, setProcessedLoading] = useState(false);
-
-  const loadProcessed = async () => {
-    setProcessedLoading(true);
-    try {
-      const pluginsRes = await api.get('/plugins');
-      const pt = (pluginsRes.data as any[]).find((x: any) => x.slug === 'pt_rss');
-      if (!pt) return;
-      const instRes = await api.get(`/plugins/${pt.id}/instances`);
-      const inst = (instRes.data as any[])[0];
-      if (inst?.config?.state?.processed) {
-        setProcessed(inst.config.state.processed);
-      }
-    } catch {}
-    finally { setProcessedLoading(false); }
-  };
-
-  useEffect(() => { loadProcessed(); }, []);
 
   const handleRun = async () => {
     setRunning(true);
-    setRunResult(null); // clear previous result so we see "running" state
+    setRunResult(null);
     try {
       const pluginsRes = await api.get('/plugins');
       const pt = (pluginsRes.data as any[]).find((x: any) => x.slug === 'pt_rss');
       if (!pt) return;
-      const res = await api.post(`/plugins/${pt.id}/run`, null, { timeout: 300000 }); // 5 min timeout
+      const res = await api.post(`/plugins/${pt.id}/run`, null, { timeout: 300000 });
       setRunResult(res.data?.result || res.data);
-      await loadProcessed();
     } catch (err: any) {
       if (err?.code === 'ECONNABORTED' || err?.message?.includes('timeout')) {
         setRunResult({ status: 'error', error: '请求超时（任务可能仍在后台运行，查看日志确认进度）' });
@@ -153,11 +134,9 @@ export default function PT_RSS() {
       items={[{
         key: 'processed',
         label: <span><UnorderedListOutlined /> Processed Items ({processedEntries.length})</span>,
-        children: processedLoading
-          ? <Spin style={{ display: 'block', margin: '20px auto' }} />
-          : processedEntries.length === 0
-            ? <Typography.Text type="secondary">No items processed yet. Run the plugin once to populate this table.</Typography.Text>
-            : <Table dataSource={processedEntries} columns={processedColumns} size="small" rowKey="tid" pagination={{ pageSize: 15, showSizeChanger: true, showTotal: (t: number) => `${t} items` }} />,
+        children: processedEntries.length === 0
+          ? <Typography.Text type="secondary">No items processed yet. Run the plugin once to populate this table.</Typography.Text>
+          : <Table dataSource={processedEntries} columns={processedColumns} size="small" rowKey="tid" pagination={{ pageSize: 15, showSizeChanger: true, showTotal: (t: number) => `${t} items` }} />,
       }]}>
     </Collapse>
   );
@@ -179,6 +158,11 @@ export default function PT_RSS() {
       runResult={runResult}
       resultRenderer={resultRenderer}
       topContent={processedPanel}
+      onInstanceLoad={(inst) => {
+        if (inst?.config?.state?.processed) {
+          setProcessed(inst.config.state.processed);
+        }
+      }}
     >
       {logPanel}
     </PluginConfigForm>

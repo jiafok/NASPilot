@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Form, Input, Select, Switch, InputNumber, Button, Card, Space, Typography, message, Spin, Tag, Divider, Table, Collapse } from 'antd';
+import { Form, Input, Select, Switch, InputNumber, Button, Card, Space, Typography, message, Tag, Divider, Table, Collapse } from 'antd';
 import { SaveOutlined, PlayCircleOutlined, ReloadOutlined, ClockCircleOutlined, SettingOutlined } from '@ant-design/icons';
 import api from '../utils/api';
 
@@ -28,9 +28,14 @@ interface Props {
   resultRenderer?: (result: any) => React.ReactNode;
   topContent?: React.ReactNode;
   children?: React.ReactNode;
+  onInstanceLoad?: (instance: any) => void;
 }
 
-export default function PluginConfigForm({ slug, title, description, fields, onRun, running, runResult, resultRenderer, topContent, children }: Props) {
+// Cache plugin list across page switches — avoids redundant HTTP call
+let _pluginsCache: any[] | null = null;
+let _cacheExpiry = 0;
+
+export default function PluginConfigForm({ slug, title, description, fields, onRun, running, runResult, resultRenderer, topContent, children, onInstanceLoad }: Props) {
   const [plugin, setPlugin] = useState<any>(null);
   const [instance, setInstance] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -40,13 +45,20 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
   const load = async () => {
     setLoading(true);
     try {
-      const pluginsRes = await api.get('/plugins');
-      const p = (pluginsRes.data as any[]).find((x: any) => x.slug === slug);
+      // Use cached plugin list if fresh (<30s)
+      const now = Date.now();
+      if (!_pluginsCache || now - _cacheExpiry > 30000) {
+        const pluginsRes = await api.get('/plugins');
+        _pluginsCache = pluginsRes.data as any[];
+        _cacheExpiry = now;
+      }
+      const p = (_pluginsCache as any[]).find((x: any) => x.slug === slug);
       setPlugin(p || null);
       if (!p) { message.error(`Plugin ${slug} not found`); return; }
       const instRes = await api.get(`/plugins/${p.id}/instances`);
       const inst = (instRes.data as any[])[0] || null;
       setInstance(inst);
+      onInstanceLoad?.(inst);
       const values: Record<string, any> = {};
       fields.forEach((f) => {
         if (f.type === 'object' && f.fields) {
@@ -105,8 +117,7 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
     return <Form.Item {...common}><Input placeholder={field.placeholder} /></Form.Item>;
   };
 
-  if (loading && !plugin) return <Spin size="large" style={{ display: 'block', margin: '120px auto' }} />;
-
+  // Always render UI immediately; load fills in data asynchronously
   return (
     <div>
       <Card style={{ marginBottom: 16 }}>
