@@ -61,6 +61,30 @@ def _normalize_list(value: Any) -> list[str]:
     return []
 
 
+def _collect_files(scan_dirs: list[str], extensions: list[str]) -> list[str]:
+    """Recursively scan directories and return file paths matching extensions.
+
+    Args:
+        scan_dirs: list of local directories to scan.
+        extensions: file extensions to include (e.g. ['mkv','mp4']). Empty = all.
+    """
+    exts = {e.lower().lstrip(".") for e in extensions} if extensions else None
+    results: list[str] = []
+    for scan_dir in scan_dirs:
+        scan_dir = os.path.expanduser(scan_dir)
+        if not os.path.isdir(scan_dir):
+            logger.warning("Scan dir does not exist: %s", scan_dir)
+            continue
+        for root, _dirs, files in os.walk(scan_dir):
+            for fname in files:
+                if exts:
+                    ext = os.path.splitext(fname)[1].lower().lstrip(".")
+                    if ext not in exts:
+                        continue
+                results.append(os.path.join(root, fname))
+    return results
+
+
 class AListError(Exception):
     pass
 

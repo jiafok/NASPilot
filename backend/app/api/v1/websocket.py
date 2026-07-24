@@ -1,4 +1,10 @@
-"""WebSocket endpoints — real-time log streaming via file tailing."""
+"""WebSocket endpoints — real-time log streaming via file tailing.
+
+Architecture: a **single** global tailer reads the log file. Each WebSocket
+connection registers a per-connection async queue. The tailer pushes parsed
+entries to every queue; each connection's own send-loop drains its queue.
+This avoids N tailers × N connections = N² duplicate broadcasts.
+"""
 
 import asyncio
 import json
@@ -16,6 +22,8 @@ from app.core.config import settings
 import pathlib
 
 router = APIRouter(tags=["websocket"])
+
+logger = logging.getLogger("naspilot.websocket")
 
 # Regex to parse a formatted log line:
 # "2026-07-23 16:30:09 [INFO    ] naspilot.plugin.pt_rss — message text"
@@ -52,28 +60,89 @@ def _parse_line(line: str) -> dict[str, Any] | None:
     }
 
 
-class ConnectionManager:
-    def __init__(self) -> None:
-        self.active: list[WebSocket] = []
+def _resolve_log_path() -> str:
+    """Find the log file path — checks LOG_FILE global, settings.LOG_DIR, fallbacks."""
+    if LOG_FILE and os.path.isfile(LOG_FILE):
+        return LOG_FILE
+    app_dir = pathlib.Path(__file__).resolve().parent.parent.parent.parent
+    candidates = [
+        str(settings.LOG_DIR.resolve() / "naspilot.log"),
+        str(app_dir / "data" / "logs" / "naspilot.log"),
+        str(app_dir / "logs" / "naspilot.log"),
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return candidates[0]  # return primary even if not yet created
 
-    async def connect(self, ws: WebSocket) -> None:
+
+class ConnectionManager:
+    """Manages WebSocket connections and a single global log tailer.
+
+    Each connected client gets a personal asyncio.Queue. The tailer pushes
+    parsed log entries to all queues. Each connection's own send-loop drains
+    its queue — no cross-talk, no N² duplication.
+    """
+
+    def __init__(self) -> None:
+        self._subscribers: dict[WebSocket, asyncio.Queue] = {}
+        self._tailer_task: asyncio.Task | None = None
+        self._tailer_started = False
+
+    async def connect(self, ws: WebSocket) -> asyncio.Queue:
         await ws.accept()
-        self.active.append(ws)
+        q: asyncio.Queue = asyncio.Queue(maxsize=10000)
+        self._subscribers[ws] = q
+        # Start the single global tailer on first connection
+        if not self._tailer_started:
+            self._tailer_started = True
+            self._tailer_task = asyncio.create_task(self._tail_log_file())
+        return q
 
     def disconnect(self, ws: WebSocket) -> None:
-        if ws in self.active:
-            self.active.remove(ws)
+        self._subscribers.pop(ws, None)
 
-    async def broadcast(self, msg: dict[str, Any]) -> None:
-        text = json.dumps(msg, default=str, ensure_ascii=False)
-        stale = []
-        for ws in self.active:
+    async def _tail_log_file(self) -> None:
+        """Single global file tailer — reads log file once, broadcasts to all."""
+        log_path = _resolve_log_path()
+        logger.info("WebSocket log tailer started: %s", log_path)
+
+        while True:
+            if not os.path.isfile(log_path):
+                await asyncio.sleep(2)
+                continue
             try:
-                await ws.send_text(text)
+                with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                    f.seek(0, os.SEEK_END)  # live tail only
+                    while True:
+                        line = f.readline()
+                        if line:
+                            entry = _parse_line(line)
+                            if not entry:
+                                continue
+                            # Push to every subscriber's queue (non-blocking)
+                            msg = {"type": "log", **entry}
+                            stale: list[WebSocket] = []
+                            for ws, q in self._subscribers.items():
+                                try:
+                                    q.put_nowait(msg)
+                                except asyncio.QueueFull:
+                                    stale.append(ws)
+                            for ws in stale:
+                                self.disconnect(ws)
+                            continue
+                        # No new data — check for rotation
+                        try:
+                            if os.stat(log_path).st_ino != os.fstat(f.fileno()).st_ino:
+                                f.close()
+                                f = open(log_path, "r", encoding="utf-8", errors="replace")
+                                logger.info("Log file rotated, re-opening")
+                        except Exception:
+                            pass
+                        await asyncio.sleep(0.5)
             except Exception:
-                stale.append(ws)
-        for ws in stale:
-            self.disconnect(ws)
+                logger.exception("Tailer error, retrying in 2s")
+                await asyncio.sleep(2)
 
 
 manager = ConnectionManager()
@@ -81,7 +150,7 @@ manager = ConnectionManager()
 
 @router.websocket("/ws/logs")
 async def ws_logs(websocket: WebSocket):
-    """Stream log entries in real-time by tailing the log file.
+    """Stream log entries in real-time via the single global file tailer.
 
     Query params:
     - ``token`` : JWT auth
@@ -94,47 +163,21 @@ async def ws_logs(websocket: WebSocket):
         return
 
     source_filter = websocket.query_params.get("source")
-    await manager.connect(websocket)
-
-    app_dir = pathlib.Path(__file__).resolve().parent.parent.parent.parent
-    log_path = str(settings.LOG_DIR.resolve() / "naspilot.log")
-    if not os.path.isfile(log_path):
-        log_path = str(app_dir / "data" / "logs" / "naspilot.log")
-    if not os.path.isfile(log_path):
-        log_path = str(app_dir / "logs" / "naspilot.log")
-    if not os.path.isfile(log_path):
-        tail_logger.warning("Log file not found: %s", log_path)
-        try:
-            while True:
-                await asyncio.sleep(30)
-                await websocket.send_text(json.dumps({"type": "ping"}))
-        except WebSocketDisconnect:
-            manager.disconnect(websocket)
-        return
+    queue = await manager.connect(websocket)
 
     try:
-        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
-            f.seek(0, os.SEEK_END)  # start at end — live tail only
-            while True:
-                line = f.readline()
-                if line:
-                    entry = _parse_line(line)
-                    if entry:
-                        if source_filter and entry.get("source") != source_filter:
-                            continue
-                        await manager.broadcast({"type": "log", **entry})
+        while True:
+            msg = await queue.get()
+            # Apply per-connection source filter
+            if source_filter:
+                src = msg.get("source", "")
+                if src != source_filter:
                     continue
-                # No new data — check for rotation (inode changed)
-                try:
-                    if os.stat(log_path).st_ino != os.fstat(f.fileno()).st_ino:
-                        f.close()
-                        f = open(log_path, "r", encoding="utf-8", errors="replace")
-                        tail_logger.info("Log file rotated, re-opening")
-                except Exception:
-                    pass
-                await asyncio.sleep(0.5)
+            text = json.dumps(msg, default=str, ensure_ascii=False)
+            await websocket.send_text(text)
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        pass
     except Exception:
-        tail_logger.exception("WS tailer error")
+        logger.exception("WS send loop error")
+    finally:
         manager.disconnect(websocket)
