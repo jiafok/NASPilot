@@ -29,14 +29,15 @@ env/
 *.swp
 *.swo
 
-# NASPilot
-data/
-logs/
-.env
-*.db
-*.db-journal
-*.db-wal
+# Test scripts
+check_*.py
+test_*.py
+fix_*.py
+run_backup.py
 
-# Frontend
-frontend/node_modules/
-frontend/dist/
+# Docker test compose
+docker-compose.test.yml
+
+# Data / runtime
+backend/data/
+backend/test_*.db
