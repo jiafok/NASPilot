@@ -1,0 +1,15 @@
+services:
+  naspilot:
+    image: ghcr.io/jiafok/naspilot:latest
+    pull_policy: always
+    container_name: naspilot-test
+    restart: "no"
+    ports:
+      - "8080:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
+      - SECRET_KEY=test-key-for-docker-e2e-testing
+      - ADMIN_PASSWORD=admin123
+      - TZ=Asia/Shanghai

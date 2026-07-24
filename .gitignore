@@ -35,9 +35,6 @@ test_*.py
 fix_*.py
 run_backup.py
 
-# Docker test compose
-docker-compose.test.yml
-
 # Data / runtime
 backend/data/
 backend/test_*.db
