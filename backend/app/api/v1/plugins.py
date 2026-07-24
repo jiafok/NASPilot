@@ -108,6 +108,18 @@ async def run_plugin(plugin_id: int, user: CurrentUser, db: Annotated[AsyncSessi
     runtime = plugin_cls(instance.config if instance else None)
     result_payload = await runtime.run()
 
+    # ── Notify on failure ──
+    if result_payload.get("status") in ("error", "failed"):
+        try:
+            await runtime.notify(
+                title=f"❌ 任务失败: {plugin.name}",
+                message=f"插件「{plugin.name}」手动执行失败\n"
+                        f"错误: {result_payload.get('error', 'Unknown')[:300]}",
+                level="error",
+            )
+        except Exception:
+            pass
+
     # Save plugin config + run history back to DB
     if instance:
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -145,8 +157,7 @@ async def list_instances(plugin_id: int, user: CurrentUser, db: Annotated[AsyncS
 
 
 @router.post(
-    "/{plugin_id}/instances", response_model=PluginInstanceOut, status_code=201, summary="Create instance"
-)
+    "/{plugin_id}/instances", response_model=PluginInstanceOut, status_code=201, summary="Create instance")
 async def create_instance(
     plugin_id: int,
     body: PluginInstanceCreate,
@@ -164,8 +175,7 @@ async def create_instance(
 
 
 @router.put(
-    "/instances/{instance_id}", response_model=PluginInstanceOut, summary="Update instance"
-)
+    "/instances/{instance_id}", response_model=PluginInstanceOut, summary="Update instance")
 async def update_instance(
     instance_id: int,
     body: PluginInstanceUpdate,

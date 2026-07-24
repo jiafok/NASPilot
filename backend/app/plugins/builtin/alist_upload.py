@@ -266,7 +266,7 @@ class AListClient:
                         await asyncio.sleep(2 ** attempt)
                     continue
                 # PUT succeeded — return pending, verification done later
-                return "pending", f"已上传: {filename} ({_fmt_size(size)})", {}
+                return "pending", f"已上传: {filename} ({_fmt_size(size)})"
             except httpx.ReadTimeout as exc:
                 # Timeout after upload started — data may have been partially
                 # or fully received by server. Original script returns 'pending'

@@ -179,6 +179,18 @@ async def _execute_plugin(plugin_id: int, instance_id: int) -> None:
             runtime = plugin_cls(cfg)
             result = await runtime.run()
 
+            # ── Notify on failure ──
+            if result.get("status") in ("error", "failed"):
+                try:
+                    await runtime.notify(
+                        title=f"❌ 计划任务失败: {p.name}",
+                        message=f"插件「{p.name}」({inst.name}) 计划执行失败\n"
+                                f"错误: {result.get('error', 'Unknown')[:300]}",
+                        level="error",
+                    )
+                except Exception:
+                    pass
+
             # Save run history (same as manual trigger)
             import json
             from datetime import datetime as _dt, timezone as _tz
