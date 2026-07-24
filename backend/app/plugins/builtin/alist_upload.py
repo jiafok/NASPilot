@@ -61,6 +61,30 @@ def _normalize_list(value: Any) -> list[str]:
     return []
 
 
+def _build_upload_message(counts: dict[str, int], details: list[dict[str, Any]]) -> str:
+    """Build a detailed Feishu notification message for upload results."""
+    parts = [f"共扫描 {counts['scanned']} 个文件\n"]
+    if counts["uploaded"] > 0:
+        uploaded = [d for d in details if d["status"] == "ok"]
+        parts.append(f"✅ 上传成功: {counts['uploaded']} 个")
+        for f in uploaded[:20]:
+            parts.append(f"  · {f['name']} ({f['size_mb']} MB)")
+        if len(uploaded) > 20:
+            parts.append(f"  ... 及 {len(uploaded)-20} 个")
+    if counts["skipped"] > 0:
+        skipped = [d for d in details if d["status"] == "skip"]
+        parts.append(f"⏭️ 跳过: {counts['skipped']} 个")
+        for f in skipped[:10]:
+            parts.append(f"  · {f['name']}")
+    if counts["failed"] > 0:
+        failed = [d for d in details if d["status"] == "fail"]
+        parts.append(f"❌ 失败: {counts['failed']} 个")
+        for f in failed[:10]:
+            err = f.get("error", "")
+            parts.append(f"  · {f['name']} ({f['size_mb']} MB) {err}")
+    return "\n".join(parts)
+
+
 def _collect_files(scan_dirs: list[str], extensions: list[str]) -> list[str]:
     """Recursively scan directories and return file paths matching extensions.
 
@@ -265,6 +289,13 @@ class AListClient:
                     if attempt < max_retries - 1:
                         await asyncio.sleep(2 ** attempt)
                     continue
+
+                # Extract AList task so it shows in AList backend
+                task = ((data.get("data") or {}).get("task")) or None
+                if task and task.get("id"):
+                    logger.info("📌 AList 任务: id=%s name=%s progress=%s",
+                                task.get("id"), task.get("name", "?"), task.get("progress", "?"))
+
                 # PUT succeeded — return pending, verification done later
                 return "pending", f"已上传: {filename} ({_fmt_size(size)})"
             except httpx.ReadTimeout as exc:
@@ -405,6 +436,8 @@ class AListUploadPlugin(PluginBase):
             upload_sem = asyncio.Semaphore(verify_max_workers)
             logger.info("启动并发上传: %d 文件, %d 并发", len(files), verify_max_workers)
             verify_tasks: list[asyncio.Task] = []
+            # Collect detailed per-file results for notification
+            notify_details: list[dict[str, Any]] = []
 
             async def _upload_and_verify(lp: str, rp: str, rl: str, fn: str):
                 """Upload (PUT) then schedule verification — runs concurrently."""
@@ -417,31 +450,35 @@ class AListUploadPlugin(PluginBase):
                         logger.info("[SKIP] %s — %s", fn, msg)
                         results.append({"file": rl, "status": "skip", "message": msg, "time": _now_iso()})
                         counts["skipped"] += 1
+                        notify_details.append({"name": fn, "size_mb": round(sz/1048576,1), "status": "skip"})
                     elif status == "fail":
                         logger.info("[FAIL] %s — %s", fn, msg)
                         results.append({"file": rl, "status": "fail", "message": msg, "time": _now_iso()})
                         counts["failed"] += 1
+                        notify_details.append({"name": fn, "size_mb": round(sz/1048576,1), "status": "fail", "error": msg[:100]})
                     else:
                         # pending — verify concurrently
                         logger.info("[UPLOADED] %s — pending verification", fn)
-                        async def _verify():
-                            verified = await client.verify_file(rp, sz, wait_secs=120, tries=12)
+                        async def _verify(_sz=sz, _fn=fn, _lp=lp, _rp=rp, _rl=rl):
+                            verified = await client.verify_file(_rp, _sz, wait_secs=120, tries=12)
                             status_v = "ok" if verified else "fail"
-                            msg_v = (f"上传成功: {fn} ({_fmt_size(sz)})" if verified
-                                    else f"上传后校验失败: {fn}")
-                            logger.info("[%s] %s — %s", status_v.upper(), fn, msg_v)
-                            results.append({"file": rl, "status": status_v, "message": msg_v, "time": _now_iso()})
+                            msg_v = (f"上传成功: {_fn} ({_fmt_size(_sz)})" if verified
+                                    else f"上传后校验失败: {_fn}")
+                            logger.info("[%s] %s — %s", status_v.upper(), _fn, msg_v)
+                            results.append({"file": _rl, "status": status_v, "message": msg_v, "time": _now_iso()})
                             if verified:
                                 counts["uploaded"] += 1
+                                notify_details.append({"name": _fn, "size_mb": round(_sz/1048576,1), "status": "ok"})
                                 if delete_after:
                                     try:
-                                        os.remove(lp)
+                                        os.remove(_lp)
                                         counts["deleted"] += 1
-                                        logger.info("已删除本地: %s", fn)
+                                        logger.info("已删除本地: %s", _fn)
                                     except OSError as exc:
-                                        logger.warning("delete failed: %s: %s", lp, exc)
+                                        logger.warning("delete failed: %s: %s", _lp, exc)
                             else:
                                 counts["failed"] += 1
+                                notify_details.append({"name": _fn, "size_mb": round(_sz/1048576,1), "status": "fail"})
                         verify_tasks.append(asyncio.create_task(_verify()))
 
             upload_tasks = []
@@ -474,19 +511,11 @@ class AListUploadPlugin(PluginBase):
         if len(history) > 200:
             state["history"] = history[-200:]
 
-        # ── Send Feishu notification ──
-        notif_parts = []
-        if counts["uploaded"] > 0:
-            notif_parts.append(f"✅ 上传成功: {counts['uploaded']} 个")
-        if counts["skipped"] > 0:
-            notif_parts.append(f"⏭️ 跳过: {counts['skipped']} 个")
-        if counts["failed"] > 0:
-            notif_parts.append(f"❌ 失败: {counts['failed']} 个")
-        if notif_parts:
-            await self.notify(
-                title="📁 AList 上传结果",
-                message="\n".join(notif_parts) + f"\n共扫描 {counts['scanned']} 个文件",
-                level="info" if counts["failed"] == 0 else "warn",
-            )
+        # ── Send Feishu notification with detailed lists ──
+        await self.notify(
+            title="📁 AList 上传结果",
+            message=_build_upload_message(counts, notify_details),
+            level="info" if counts["failed"] == 0 else "warn",
+        )
 
         return {"status": "ok", **counts, "results": results[-50:]}
