@@ -471,4 +471,20 @@ class AListUploadPlugin(PluginBase):
         history.extend(results)
         if len(history) > 200:
             state["history"] = history[-200:]
+
+        # ── Send Feishu notification ──
+        notif_parts = []
+        if counts["uploaded"] > 0:
+            notif_parts.append(f"✅ 上传成功: {counts['uploaded']} 个")
+        if counts["skipped"] > 0:
+            notif_parts.append(f"⏭️ 跳过: {counts['skipped']} 个")
+        if counts["failed"] > 0:
+            notif_parts.append(f"❌ 失败: {counts['failed']} 个")
+        if notif_parts:
+            await self.notify(
+                title="📁 AList 上传结果",
+                message="\n".join(notif_parts) + f"\n共扫描 {counts['scanned']} 个文件",
+                level="info" if counts["failed"] == 0 else "warn",
+            )
+
         return {"status": "ok", **counts, "results": results[-50:]}

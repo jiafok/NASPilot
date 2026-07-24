@@ -838,12 +838,13 @@ class PTRSSPlugin(PluginBase):
             notif_parts.append(f"🗑️ 清理 {len(notify_evicted)} 个:\n" + "\n".join(notify_evicted[:10]))
         if notify_failed:
             notif_parts.append(f"❌ 失败 {len(notify_failed)} 个:\n" + "\n".join(notify_failed[:5]))
-        if notif_parts:
-            await self.notify(
-                title="📡 PT RSS 运行结果",
-                message="\n\n".join(notif_parts),
-                level="info" if not notify_failed else "warn",
-            )
+        if not notif_parts:
+            notif_parts.append(f"⏭️ 无变化 — 检查了 {len(rss_items)} 个种子，全部已在追踪中")
+        await self.notify(
+            title="📡 PT RSS 运行结果",
+            message="\n\n".join(notif_parts),
+            level="info" if not notify_failed else "warn",
+        )
 
         return {
             "status": "ok",

@@ -168,7 +168,14 @@ async def _notify_failure(task: Task, execution: TaskExecution) -> None:
             f"Time: {execution.end_time}"
         )
         for ch in channels:
-            await send_notification(ch, msg)
+            await send_notification(
+                db=db2,
+                channel=ch,
+                title=f"❌ 任务失败: {task.name}",
+                message=msg,
+                level="error",
+                event_type="task_failed",
+            )
 
 
 # Import for _notify_failure
