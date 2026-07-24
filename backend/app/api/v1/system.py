@@ -52,27 +52,7 @@ async def list_logs(
     return result.scalars().all()
 
 
-@router.get("/logs/raw", summary="Raw logs")
-async def raw_logs(
-    user: CurrentUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
-    limit: int = Query(100, ge=1, le=1000),
-    offset: int = Query(0, ge=0),
-    level: str | None = None,
-    source: str | None = None,
-    search: str | None = None,
-    response_class=PlainTextResponse,
-):
-    """Return raw logs as a string."""
-    logs = await list_logs(user, db, limit, offset, level, source, search)
-    return PlainTextResponse(
-        content="\n".join([str(log) for log in logs]),
-        status_code=200,
-        media_type="text/plain",
-    )
-
-
-# ── Raw log file ────────────────────────────────────────────────────────
+# ── Raw log file (reads /app/data/logs/naspilot.log) ────────────────────
 
 
 @router.get("/logs/raw", summary="Raw log file", response_class=PlainTextResponse)
@@ -91,15 +71,15 @@ async def raw_logs(
     from app.core.config import settings
     import pathlib
 
-    # Compute log path relative to backend directory (app/ is inside backend/)
-    app_dir = pathlib.Path(__file__).resolve().parent.parent  # app/api/v1/system.py → backend/
-    log_path = str(app_dir / "data" / "logs" / "naspilot.log")
+    # Primary: settings.LOG_DIR (./data/logs) resolved → /app/data/logs
+    log_path = str(settings.LOG_DIR.resolve() / "naspilot.log")
     if not os.path.isfile(log_path):
-        # Fallback: settings-based path
-        log_path = str(settings.LOG_DIR.resolve() / "naspilot.log")
+        # Fallback: relative to backend directory (Docker WORKDIR varies)
+        app_dir = pathlib.Path(__file__).resolve().parent.parent.parent.parent
+        log_path = str(app_dir / "data" / "logs" / "naspilot.log")
     if not os.path.isfile(log_path):
         return PlainTextResponse(
-            f"Log file not found. app_dir={app_dir}\n", status_code=200,
+            f"Log file not found. settings.LOG_DIR={settings.LOG_DIR.resolve()}\n", status_code=200,
         )
 
     lines = []

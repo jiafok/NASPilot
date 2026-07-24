@@ -96,10 +96,12 @@ async def ws_logs(websocket: WebSocket):
     source_filter = websocket.query_params.get("source")
     await manager.connect(websocket)
 
-    app_dir = pathlib.Path(__file__).resolve().parent.parent
-    log_path = str(app_dir / "data" / "logs" / "naspilot.log")
+    app_dir = pathlib.Path(__file__).resolve().parent.parent.parent.parent
+    log_path = str(settings.LOG_DIR.resolve() / "naspilot.log")
     if not os.path.isfile(log_path):
-        log_path = str(settings.LOG_DIR.resolve() / "naspilot.log")
+        log_path = str(app_dir / "data" / "logs" / "naspilot.log")
+    if not os.path.isfile(log_path):
+        log_path = str(app_dir / "logs" / "naspilot.log")
     if not os.path.isfile(log_path):
         tail_logger.warning("Log file not found: %s", log_path)
         try:
