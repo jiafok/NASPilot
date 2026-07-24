@@ -266,7 +266,8 @@ class AsyncQBClient:
         for attempt in range(MAX_RETRIES):
             try:
                 resp = await self.client.request(method, f"{self.base}{path}", data=data, files=files)
-                if resp.status_code == 200:
+                # qB returns 200 for GET, 200 or 202 for POST
+                if resp.status_code in (200, 202):
                     return resp
                 if attempt == MAX_RETRIES - 1:
                     raise QBError(f"{method} {path} status={resp.status_code}")
@@ -285,6 +286,9 @@ class AsyncQBClient:
             data["tags"] = tags
         resp = await self._request("POST", "/api/v2/torrents/add", data=data)
         body = (resp.text or "").strip().lower()
+        # 202 = torrent added successfully (qBittorrent v4.3+)
+        if resp.status_code == 202:
+            return True
         if "fail" in body or "error" in body:
             raise QBError(f"qB rejected: {resp.text[:200]}")
         return True

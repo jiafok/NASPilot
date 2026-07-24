@@ -62,6 +62,15 @@ def _should_skip_root(name: str) -> bool:
     return name.lower() in EXCLUDED_TOP_DIRS
 
 
+def _normalize_list(value: Any) -> list[str]:
+    """Normalize comma-separated string to list. Form saves type:'array' as string."""
+    if isinstance(value, list):
+        return [v.strip() for v in value if isinstance(v, str) and v.strip()]
+    if isinstance(value, str):
+        return [v.strip() for v in value.split(",") if v.strip()]
+    return []
+
+
 def _copy_app(src: str, dst: str, app_name: str) -> dict[str, Any]:
     """Copy an app directory tree, pruning excluded paths. Mirrors rsync logic."""
     copied_files = 0
@@ -124,7 +133,7 @@ def _backup_sync(cfg: dict[str, Any]) -> dict[str, Any]:
     docker_root = cfg.get("docker_root", "/volume1/docker")
     backup_root = cfg.get("backup_dir", "/volumeUSB1/usbshare/docker_backup")
     keep_days = int(cfg.get("keep_days", 7))
-    containers_filter: list[str] = cfg.get("containers") or []
+    containers_filter: list[str] = _normalize_list(cfg.get("containers"))
 
     if not os.path.isdir(docker_root):
         logger.warning("docker_root not found: %s", docker_root)

@@ -11,6 +11,7 @@ Ported from update_cloudflare.sh logic:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import socket
 import subprocess
@@ -25,6 +26,26 @@ logger = logging.getLogger("naspilot.plugin.cloudflare_ddns")
 
 LOCAL_TZ = timezone(timedelta(hours=8))
 CF_API = "https://api.cloudflare.com/client/v4"
+
+
+def _normalize_zones(value: Any) -> list[dict[str, Any]]:
+    """Parse zones config from form (may be JSON string, comma-separated, or already a list)."""
+    if isinstance(value, list):
+        return [z for z in value if isinstance(z, dict)]
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return []
+        # Try JSON parse — auto-wrap single object in array
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [z for z in parsed if isinstance(z, dict)]
+            if isinstance(parsed, dict):
+                return [parsed]
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return []
 
 
 def _now_iso() -> str:
@@ -213,7 +234,7 @@ class CloudflareDDNSPlugin(PluginBase):
             logger.warning("API Token is not configured")
             return {"status": "failed", "error": "API Token is not configured"}
 
-        zones: list[dict[str, Any]] = self.config.get("zones") or []
+        zones: list[dict[str, Any]] = _normalize_zones(self.config.get("zones"))
         if not zones:
             logger.warning("No zones configured")
             return {"status": "failed", "error": "No zones configured"}

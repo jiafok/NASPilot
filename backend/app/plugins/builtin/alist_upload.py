@@ -48,6 +48,19 @@ def _encode_path(path: str) -> str:
     return quote(path, safe="")
 
 
+def _normalize_list(value: Any) -> list[str]:
+    """Normalize config values that may arrive as comma-separated strings.
+
+    PluginConfigForm renders ``type: 'array'`` as a plain text Input,
+    so values like ``/dir1, /dir2`` are stored as strings, not JSON arrays.
+    """
+    if isinstance(value, list):
+        return [v.strip() for v in value if isinstance(v, str) and v.strip()]
+    if isinstance(value, str):
+        return [v.strip() for v in value.split(",") if v.strip()]
+    return []
+
+
 class AListError(Exception):
     pass
 
@@ -231,24 +244,6 @@ class AListClient:
         return "fail", f"上传失败 (重试{max_retries}次): {last_err}"
 
 
-def _collect_files(scan_dirs: list[str], extensions: list[str]) -> list[str]:
-    """Recursively collect files matching extensions from scan_dirs."""
-    files: list[str] = []
-    ext_set = {e.lower().lstrip(".") for e in extensions} if extensions else None
-    for base in scan_dirs:
-        if not os.path.isdir(base):
-            logger.warning("scan_dir not found: %s", base)
-            continue
-        for root, _dirs, fnames in os.walk(base):
-            for fname in fnames:
-                if ext_set:
-                    ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
-                    if ext not in ext_set:
-                        continue
-                files.append(os.path.join(root, fname))
-    return files
-
-
 class AListUploadPlugin(PluginBase):
     META = PluginMeta(
         slug="alist_upload",
@@ -313,13 +308,13 @@ class AListUploadPlugin(PluginBase):
             logger.warning("AList URL is not configured")
             return {"status": "failed", "error": "AList URL is not configured"}
 
-        scan_dirs: list[str] = cfg.get("scan_dirs") or []
+        scan_dirs = _normalize_list(cfg.get("scan_dirs"))
         if not scan_dirs:
             logger.warning("No scan_dirs configured")
             return {"status": "failed", "error": "No scan_dirs configured"}
 
         remote_root = cfg.get("remote_root", "/").rstrip("/")
-        extensions: list[str] = cfg.get("extensions") or []
+        extensions = _normalize_list(cfg.get("extensions"))
         max_retries = int(cfg.get("max_retries", 3))
         delete_after = bool(cfg.get("delete_after_upload", False))
 
