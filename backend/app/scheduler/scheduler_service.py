@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.executors.asyncio import AsyncIOExecutor
 
 from app.core.config import settings
 from app.core.database import async_session_factory
@@ -27,7 +28,7 @@ def get_scheduler() -> AsyncIOScheduler:
     global scheduler
     if scheduler is None:
         scheduler = AsyncIOScheduler(
-            executors={"default": {"type": "threadpool", "max_workers": settings.SCHEDULER_THREADPOOL}},
+            executors={"default": AsyncIOExecutor()},
             timezone="Asia/Shanghai",
         )
     return scheduler
