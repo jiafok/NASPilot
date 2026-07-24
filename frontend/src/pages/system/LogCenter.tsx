@@ -50,6 +50,12 @@ export default function LogCenter() {
     finally { setLoading(false); }
   }, [level, source, search, limit]);
 
+  // Auto-refresh when filters change (debounced for text input)
+  useEffect(() => {
+    const t = setTimeout(() => fetchLogs(false), 350);
+    return () => clearTimeout(t);
+  }, [level, source, search, limit, fetchLogs]);
+
   useEffect(() => { fetchLogs(true); }, []); // Initial load only
 
   return (
