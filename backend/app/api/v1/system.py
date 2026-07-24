@@ -89,8 +89,9 @@ async def raw_logs(
     - ``limit`` : max lines (default 10000)
     """
     from app.core.logging_config import LOG_FILE
+    from app.core.config import settings
 
-    log_path = LOG_FILE or "/app/logs/naspilot.log"
+    log_path = LOG_FILE or str(settings.LOG_DIR / "naspilot.log")
     if not os.path.isfile(log_path):
         return PlainTextResponse("", status_code=200)
 

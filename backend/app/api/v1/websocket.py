@@ -11,6 +11,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core.database import async_session_factory
 from app.core.deps import get_current_user_ws
+from app.core.logging_config import LOG_FILE
+from app.core.config import settings
 
 router = APIRouter(tags=["websocket"])
 
@@ -94,8 +96,9 @@ async def ws_logs(websocket: WebSocket):
     await manager.connect(websocket)
 
     from app.core.logging_config import LOG_FILE
+    from app.core.config import settings
 
-    log_path = LOG_FILE or "/app/logs/naspilot.log"
+    log_path = LOG_FILE or str(settings.LOG_DIR / "naspilot.log")
     tail_logger = logging.getLogger("naspilot.tailer")
 
     if not os.path.isfile(log_path):
