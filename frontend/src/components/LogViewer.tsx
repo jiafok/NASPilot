@@ -46,8 +46,8 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
   const mountedRef = useRef(true);
   // Reconnect timer reference for cleanup
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Last message key for deduplication
-  const lastMsgKeyRef = useRef<string>('');
+  // Set of recent message keys for O(1) dedup against N recent messages
+  const recentMsgKeysRef = useRef<Set<string>>(new Set());
 
   const filtered = useMemo(() => {
     if (levelFilter.length === 0) return lines;
@@ -102,8 +102,13 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
         // Dedup by timestamp+message — prevents display duplication when
         // multiple zombie WS connections receive the same broadcast.
         const msgKey = `${data.timestamp || ''}|${data.message || ''}`;
-        if (lastMsgKeyRef.current === msgKey) return;
-        lastMsgKeyRef.current = msgKey;
+        if (recentMsgKeysRef.current.has(msgKey)) return;
+        recentMsgKeysRef.current.add(msgKey);
+        // Keep set bounded to last 200 keys to avoid memory growth
+        if (recentMsgKeysRef.current.size > 200) {
+          const arr = Array.from(recentMsgKeysRef.current);
+          recentMsgKeysRef.current = new Set(arr.slice(-100));
+        }
 
         const line: LogLine = {
           timestamp: data.timestamp || '',

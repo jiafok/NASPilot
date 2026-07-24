@@ -182,6 +182,7 @@ async def _execute_plugin(plugin_id: int, instance_id: int) -> None:
             # Save run history (same as manual trigger)
             import json
             from datetime import datetime as _dt, timezone as _tz
+            from sqlalchemy.orm.attributes import flag_modified as _flag_modified
             now_iso = _dt.now(_tz.utc).isoformat()
             state = runtime.config.setdefault("state", {})
             history: list = state.setdefault("run_history", [])
@@ -191,9 +192,13 @@ async def _execute_plugin(plugin_id: int, instance_id: int) -> None:
                 "status": result.get("status", "ok"),
                 "added": result.get("added", 0),
                 "error": result.get("error", ""),
+                "summary": json.dumps({k: v for k, v in result.items()
+                    if k not in ("added_messages", "failed_messages", "deleted_messages", "skipped_messages")},
+                    ensure_ascii=False, default=str),
             })
             state["run_history"] = history[:50]
             inst.config = runtime.config
+            _flag_modified(inst, "config")  # SQLAlchemy JSON column needs explicit dirty flag
             await db.commit()
             logger.info(f"Scheduled plugin run complete: {p.name} status={result.get('status')}")
 
