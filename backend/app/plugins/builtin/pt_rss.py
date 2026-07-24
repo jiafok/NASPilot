@@ -669,6 +669,10 @@ class PTRSSPlugin(PluginBase):
         processed = _processed(self.config)
         _ensure_daily_defaults(self.config)
         daily = _daily(self.config)
+        # Reset daily stats for this run cycle — prevents stale "added: 1"
+        # persisting across runs when no new items are added
+        daily["stats"] = _default_stats()
+        daily["details"] = {"added_items": [], "deleted_items": []}
         logger.info("启动")
         logger.debug("processed loaded: %d items", len(processed))
         for rec in processed.values():
@@ -825,6 +829,21 @@ class PTRSSPlugin(PluginBase):
                 notify_evicted.append(f"{tid} | {torrent.get('name', '')[:50]} | RSS缺席")
 
         logger.info("[DONE] Run complete")
+
+        # ── Send Feishu notification ──
+        notif_parts = []
+        if notify_added:
+            notif_parts.append(f"✅ 新增 {len(notify_added)} 个:\n" + "\n".join(notify_added[:10]))
+        if notify_evicted:
+            notif_parts.append(f"🗑️ 清理 {len(notify_evicted)} 个:\n" + "\n".join(notify_evicted[:10]))
+        if notify_failed:
+            notif_parts.append(f"❌ 失败 {len(notify_failed)} 个:\n" + "\n".join(notify_failed[:5]))
+        if notif_parts:
+            await self.notify(
+                title="📡 PT RSS 运行结果",
+                message="\n\n".join(notif_parts),
+                level="info" if not notify_failed else "warn",
+            )
 
         return {
             "status": "ok",

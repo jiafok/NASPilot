@@ -19,10 +19,10 @@ const SOURCE_OPTIONS = [
   { label: '系统', value: 'system' },
   { label: '调度器', value: 'scheduler' },
   { label: '任务', value: 'task' },
-  { label: 'PT RSS', value: 'plugin:pt_rss' },
-  { label: 'DDNS', value: 'plugin:cloudflare_ddns' },
-  { label: '备份', value: 'plugin:docker_backup' },
-  { label: 'AList', value: 'plugin:alist_upload' },
+  { label: 'PT RSS', value: 'pt_rss' },
+  { label: 'DDNS', value: 'cloudflare_ddns' },
+  { label: '备份', value: 'docker_backup' },
+  { label: 'AList', value: 'alist_upload' },
 ];
 
 export default function LogFullPage() {

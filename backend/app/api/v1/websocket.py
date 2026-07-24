@@ -38,7 +38,7 @@ LOG_RE = re.compile(
 def _extract_source(logger_name: str) -> str:
     if logger_name.startswith("naspilot.plugin.") or logger_name.startswith("naspilot.plugins."):
         slug = logger_name.replace("naspilot.plugin.", "").replace("naspilot.plugins.", "")
-        return f"plugin:{slug}"
+        return slug  # e.g. "pt_rss" — no "plugin:" prefix
     if "scheduler" in logger_name:
         return "scheduler"
     if "task" in logger_name:

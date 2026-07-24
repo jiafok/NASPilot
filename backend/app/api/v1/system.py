@@ -33,7 +33,7 @@ LOG_RE = re.compile(
 def _extract_source(logger_name: str) -> str:
     if "plugin" in logger_name:
         slug = logger_name.replace("naspilot.plugin.", "").replace("naspilot.plugins.", "")
-        return f"plugin:{slug}"
+        return slug  # e.g. "pt_rss", "alist_upload" — no "plugin:" prefix
     if "scheduler" in logger_name:
         return "scheduler"
     if "task" in logger_name:
@@ -46,11 +46,11 @@ def _parse_line(line: str) -> dict[str, Any] | None:
     if not m:
         return None
     return {
-        "timestamp": m.group(1),
-        "level": m.group(2),
-        "logger": m.group(3),
-        "source": _extract_source(m.group(3)),
-        "message": m.group(4),
+        "timestamp": m.group(1).strip(),
+        "level": m.group(2).strip(),
+        "logger": m.group(3).strip(),
+        "source": _extract_source(m.group(3).strip()),
+        "message": m.group(4).strip().replace("\r", ""),
     }
 
 

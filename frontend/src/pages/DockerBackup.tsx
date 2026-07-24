@@ -42,7 +42,7 @@ export default function DockerBackup() {
         resultRenderer={(r) => <pre style={{ fontSize: 12 }}>{JSON.stringify(r, null, 2)}</pre>}
       />
       <div style={{ marginTop: 16 }}>
-        <LogViewer source="plugin:docker_backup" maxHeight={300} placeholder="等待运行..." collapsible defaultOpen={false} label="运行日志" />
+        <LogViewer source="docker_backup" maxHeight={300} placeholder="等待运行..." collapsible defaultOpen={false} label="运行日志" />
       </div>
     </>
   );

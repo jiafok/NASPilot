@@ -22,11 +22,11 @@ const SOURCE_OPTIONS = [
   { label: '系统', value: 'system' },
   { label: '调度器', value: 'scheduler' },
   { label: '任务', value: 'task' },
-  { label: '插件:pt_rss', value: 'plugin:pt_rss' },
-  { label: '插件:ddns', value: 'plugin:cloudflare_ddns' },
-  { label: '插件:备份', value: 'plugin:docker_backup' },
-  { label: '插件:alist', value: 'plugin:alist_upload' },
-  { label: '插件:清理', value: 'plugin:log_cleanup' },
+  { label: '插件:pt_rss', value: 'pt_rss' },
+  { label: '插件:ddns', value: 'cloudflare_ddns' },
+  { label: '插件:备份', value: 'docker_backup' },
+  { label: '插件:alist', value: 'alist_upload' },
+  { label: '插件:清理', value: 'log_cleanup' },
 ];
 
 export default function LogCenter() {

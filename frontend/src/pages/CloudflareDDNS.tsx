@@ -40,7 +40,7 @@ export default function CloudflareDDNS() {
         resultRenderer={(r) => <pre style={{ fontSize: 12 }}>{JSON.stringify(r, null, 2)}</pre>}
       />
       <div style={{ marginTop: 16 }}>
-        <LogViewer source="plugin:cloudflare_ddns" maxHeight={300} placeholder="等待运行..." collapsible defaultOpen={false} label="运行日志" />
+        <LogViewer source="cloudflare_ddns" maxHeight={300} placeholder="等待运行..." collapsible defaultOpen={false} label="运行日志" />
       </div>
     </>
   );
