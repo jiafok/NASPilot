@@ -74,10 +74,28 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
 
   useEffect(() => { load(); }, []);
 
+  /** Recursively normalize form values before saving:
+   *  - type:'array' comma-strings → string[]
+   *  - type:'object' nested fields normalized
+   */
+  const normalizeConfig = (config: Record<string, any>, flds: PluginField[]): Record<string, any> => {
+    const out: Record<string, any> = { ...config };
+    for (const f of flds) {
+      const v = out[f.key];
+      if (f.type === 'array' && typeof v === 'string') {
+        out[f.key] = v.split(',').map((s: string) => s.trim()).filter(Boolean);
+      } else if (f.type === 'object' && f.fields && typeof v === 'object' && v !== null) {
+        out[f.key] = normalizeConfig(v, f.fields);
+      }
+    }
+    return out;
+  };
+
   const handleSave = async () => {
     const values = await form.validateFields();
     if (!plugin) return;
-    const { _name, _enabled, ...config } = values;
+    const { _name, _enabled, ...rawConfig } = values;
+    const config = normalizeConfig(rawConfig, fields);
     setSaving(true);
     try {
       const existingState = instance?.config?.state;

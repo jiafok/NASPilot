@@ -285,13 +285,19 @@ class AsyncQBClient:
         if tags:
             data["tags"] = tags
         resp = await self._request("POST", "/api/v2/torrents/add", data=data)
-        body = (resp.text or "").strip().lower()
-        # 202 = torrent added successfully (qBittorrent v4.3+)
-        if resp.status_code == 202:
+        body = resp.text.strip()
+        # qBittorrent response: "Ok." = success, "Fails." / "Fails. <reason>" = failure
+        if resp.status_code == 202 and body.lower().startswith("ok"):
             return True
-        if "fail" in body or "error" in body:
-            raise QBError(f"qB rejected: {resp.text[:200]}")
-        return True
+        if body.lower().startswith("ok"):
+            return True
+        if body.lower().startswith("fail"):
+            raise QBError(f"qB rejected: {body[:200]}")
+        # Unknown response — check if the torrent hash is known
+        if resp.status_code == 200:
+            # Some qB versions return the added torrent hash on success
+            raise QBError(f"qB unexpected response: {resp.text[:200]}")
+        return False
 
     async def add_file(self, torrent_url: str, savepath: str, tags: str | None = None) -> bool:
         timeout = int(self.cfg.get("download_timeout", 120))
@@ -306,10 +312,14 @@ class AsyncQBClient:
             form_data["tags"] = tags
         files = {"torrents": ("seed.torrent", torrent_data, "application/x-bittorrent")}
         resp = await self._request("POST", "/api/v2/torrents/add", data=form_data, files=files)
-        body = (resp.text or "").strip().lower()
-        if "fail" in body or "error" in body:
-            raise QBError(f"qB rejected: {resp.text[:200]}")
-        return True
+        body = resp.text.strip()
+        if resp.status_code == 202 and body.lower().startswith("ok"):
+            return True
+        if body.lower().startswith("ok"):
+            return True
+        if body.lower().startswith("fail"):
+            raise QBError(f"qB rejected: {body[:200]}")
+        return False
 
     async def delete(self, torrent_hash: str, delete_files: bool = True) -> None:
         await self._request(
