@@ -15,6 +15,7 @@ from app.scheduler.scheduler_service import (
     get_scheduler,
     remove_task_from_scheduler,
 )
+from app.services.notification_service import notify_default_channels
 from app.services.task_service import run_task
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -120,9 +121,18 @@ async def delete_task(task_id: int, user: CurrentUser, db: Annotated[AsyncSessio
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+    task_name = task.name
     remove_task_from_scheduler(get_scheduler(), task.id)
     await db.delete(task)
     await db.commit()
+    # ── Notify ──
+    await notify_default_channels(
+        db,
+        title="🗑️ 任务已删除",
+        message=f"任务「{task_name}」(ID:{task_id}) 已被删除",
+        level="warn",
+        event_type="task_deleted",
+    )
     return {"message": "deleted"}
 
 

@@ -15,6 +15,7 @@ from app.core.deps import CurrentUser
 from app.models import Plugin, PluginInstance
 from app.schemas.plugin import PluginInstanceCreate, PluginInstanceOut, PluginInstanceUpdate, PluginOut
 from app.plugins.registry import registry
+from app.services.notification_service import notify_default_channels
 
 logger = logging.getLogger("naspilot")
 
@@ -202,6 +203,15 @@ async def delete_instance(instance_id: int, user: CurrentUser, db: Annotated[Asy
     inst = result.scalar_one_or_none()
     if not inst:
         raise HTTPException(status_code=404, detail="Instance not found")
+    plugin_name = inst.plugin_id
     await db.delete(inst)
     await db.commit()
+    # ── Notify ──
+    await notify_default_channels(
+        db,
+        title="🗑️ 插件实例已删除",
+        message=f"插件「{plugin_name}」实例(ID:{instance_id}) 已被删除",
+        level="warn",
+        event_type="plugin_deleted",
+    )
     return {"message": "deleted"}

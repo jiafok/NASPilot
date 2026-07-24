@@ -16,7 +16,7 @@ from app.schemas.notification import (
     NotificationRecordOut,
     NotificationTestRequest,
 )
-from app.services.notification_service import send_notification
+from app.services.notification_service import send_notification, notify_default_channels
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -62,8 +62,18 @@ async def delete_channel(channel_id: int, user: CurrentUser, db: Annotated[Async
     ch = result.scalar_one_or_none()
     if not ch:
         raise HTTPException(status_code=404, detail="Channel not found")
+    ch_name = ch.name
+    ch_type = ch.channel_type
     await db.delete(ch)
     await db.commit()
+    # ── Notify other default channels ──
+    await notify_default_channels(
+        db,
+        title="🗑️ 通知渠道已删除",
+        message=f"通知渠道「{ch_name}」({ch_type}, ID:{channel_id}) 已被删除",
+        level="warn",
+        event_type="channel_deleted",
+    )
     return {"message": "deleted"}
 
 
