@@ -403,12 +403,14 @@ class AListUploadPlugin(PluginBase):
         ) as client:
             # Semaphore to limit concurrent uploads (matching original verify_max_workers)
             upload_sem = asyncio.Semaphore(verify_max_workers)
+            logger.info("启动并发上传: %d 文件, %d 并发", len(files), verify_max_workers)
             verify_tasks: list[asyncio.Task] = []
 
             async def _upload_and_verify(lp: str, rp: str, rl: str, fn: str):
                 """Upload (PUT) then schedule verification — runs concurrently."""
+                sz = os.path.getsize(lp)
+                logger.info("[START] %s (%s)", fn, _fmt_size(sz))
                 async with upload_sem:
-                    sz = os.path.getsize(lp)
                     status, msg = await client.upload_put(lp, rp, max_retries=max_retries)
 
                     if status == "skip":
