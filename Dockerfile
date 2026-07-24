@@ -28,11 +28,9 @@ RUN groupadd -r naspilot -g 1000 && \
 
 COPY backend/requirements.lock.txt ./
 RUN pip install --no-cache-dir -r requirements.lock.txt && \
-    # Strip ~40-60MB of junk from site-packages
-    find /usr/local/lib/python3.11/site-packages/ -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; \
-    find /usr/local/lib/python3.11/site-packages/ -type f -name '*.pyc' -delete; \
-    find /usr/local/lib/python3.11/site-packages/ -type d -name '*.dist-info' -exec rm -rf {} + 2>/dev/null; \
-    find /usr/local/lib/python3.11/site-packages/ -type d -name tests -exec rm -rf {} + 2>/dev/null; \
+    find /usr/local/lib/python3.11/site-packages/ -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null ; \
+    find /usr/local/lib/python3.11/site-packages/ -type f -name '*.pyc' -delete ; \
+    find /usr/local/lib/python3.11/site-packages/ -type d -name tests -exec rm -rf {} + 2>/dev/null ; \
     true
 
 
