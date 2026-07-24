@@ -266,7 +266,13 @@ class AListClient:
                         await asyncio.sleep(2 ** attempt)
                     continue
                 # PUT succeeded — return pending, verification done later
-                return "pending", f"已上传: {filename} ({_fmt_size(size)})"
+                return "pending", f"已上传: {filename} ({_fmt_size(size)})", {}
+            except httpx.ReadTimeout as exc:
+                # Timeout after upload started — data may have been partially
+                # or fully received by server. Original script returns 'pending'
+                # and defers to async verification.
+                logger.warning("Upload timeout (will verify): %s", filename)
+                return "pending", f"上传超时, 待验证: {filename}"
             except Exception as exc:
                 last_err = str(exc) if str(exc) else type(exc).__name__
                 if attempt < max_retries - 1:
@@ -454,5 +460,4 @@ class AListUploadPlugin(PluginBase):
         history.extend(results)
         if len(history) > 200:
             state["history"] = history[-200:]
-
         return {"status": "ok", **counts, "results": results[-50:]}

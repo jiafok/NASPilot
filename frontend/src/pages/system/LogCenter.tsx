@@ -93,7 +93,7 @@ export default function LogCenter() {
 
               <Table
                 dataSource={logs} rowKey="id" size="small" loading={loading}
-                pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (t: number) => `共 ${t} 条` }}
+                pagination={{ pageSize: limit, showSizeChanger: true, pageSizeOptions: [50,100,200,500,1000], showTotal: (t: number) => `共 ${t} 条` }}
                 columns={[
                   { title: '时间', dataIndex: 'timestamp', width: 170,
                     render: (t: string) => new Date(t).toLocaleString('zh-CN', { hour12: false }) },
