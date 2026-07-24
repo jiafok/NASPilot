@@ -67,7 +67,13 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
           values[f.key] = inst?.config?.[f.key] ?? f.default;
         }
       });
-      form.setFieldsValue({ ...values, _name: inst?.name || title, _enabled: inst ? inst.enabled : true });
+      form.setFieldsValue({
+        ...values,
+        _name: inst?.name || title,
+        _enabled: inst ? inst.enabled : true,
+        schedule_enabled: inst?.config?.schedule_enabled ?? false,
+        schedule_cron: inst?.config?.schedule_cron ?? '',
+      });
     } catch { message.error('Failed to load plugin'); }
     finally { setLoading(false); }
   };
