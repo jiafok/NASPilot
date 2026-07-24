@@ -321,8 +321,10 @@ class AListUploadPlugin(PluginBase):
         try:
             return await self._run_impl(**kwargs)
         except Exception as exc:
-            logger.exception("AList Upload run failed")
-            return {"status": "error", "error": str(exc)[:500], "scanned": 0, "uploaded": 0, "skipped": 0, "failed": 0, "deleted": 0}
+            # httpx timeout exceptions often have empty str(exc), fall back to type name
+            err_msg = str(exc) if str(exc) else type(exc).__name__
+            logger.error("AList Upload run failed: %s", err_msg)
+            return {"status": "error", "error": err_msg[:500], "scanned": 0, "uploaded": 0, "skipped": 0, "failed": 0, "deleted": 0}
 
     async def _run_impl(self, **kwargs: Any) -> dict[str, Any]:
         cfg = self.config

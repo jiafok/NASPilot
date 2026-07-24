@@ -102,14 +102,7 @@ async def list_logs(
         for line in f:
             parsed = _parse_line(line)
             if parsed is None:
-                # Unparsed line → include as raw SYSTEM message
-                parsed = {
-                    "timestamp": "unknown",
-                    "level": "INFO",
-                    "logger": "naspilot",
-                    "source": "system",
-                    "message": line.strip(),
-                }
+                continue  # skip traceback continuation lines and blank lines
             if level and parsed["level"].upper() != level.upper():
                 continue
             if source and parsed["source"] != source:
