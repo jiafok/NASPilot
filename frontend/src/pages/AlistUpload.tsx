@@ -17,6 +17,7 @@ const FIELDS: PluginField[] = [
   { key: 'min_free_space_gb', label: '最小剩余空间(GB)', type: 'number', default: 0, help: '远程剩余空间低于此值时跳过，0=不检查' },
   { key: 'connect_timeout', label: '连接超时(秒)', type: 'number', default: 10 },
   { key: 'read_timeout', label: '读取超时(秒)', type: 'number', default: 120 },
+  { key: 'verify_max_workers', label: '并发上传数', type: 'number', default: 4, help: '同时上传的文件数，默认4' },
 ];
 
 export default function AlistUpload() {
