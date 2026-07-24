@@ -232,12 +232,18 @@ class AListClient:
                     "File-Path": _encode_path(remote_path),
                     "As-Task": "true",
                 }
-                with open(local_path, "rb") as fh:
-                    content = fh.read()
+                # Stream upload — avoid reading entire file into memory
+                def _file_iter(_path: str, _chunk: int = 8192):
+                    with open(_path, "rb") as _f:
+                        while True:
+                            _data = _f.read(_chunk)
+                            if not _data:
+                                break
+                            yield _data
 
                 resp = await self._client.put(
                     f"{self.base}/api/fs/put",
-                    content=content,
+                    content=_file_iter(local_path),
                     headers=headers,
                     timeout=httpx.Timeout(self.connect_timeout, read=max(self.read_timeout, 3600)),
                 )
@@ -293,6 +299,8 @@ class AListUploadPlugin(PluginBase):
             "delete_after_upload": False,
             "connect_timeout": 10,
             "read_timeout": 120,
+            "max_file_size_gb": 0,     # 0 = no limit
+            "min_free_space_gb": 0,   # 0 = skip check
         }
 
     def get_config_schema(self) -> dict[str, Any]:
@@ -307,6 +315,8 @@ class AListUploadPlugin(PluginBase):
                 "extensions": {"type": "array", "items": {"type": "string"}, "title": "文件扩展名过滤（空=全部）"},
                 "max_retries": {"type": "integer", "title": "最大重试次数"},
                 "delete_after_upload": {"type": "boolean", "title": "上传成功后删除本地文件"},
+                "max_file_size_gb": {"type": "number", "title": "文件大小上限(GB)，0=不限"},
+                "min_free_space_gb": {"type": "number", "title": "远程最小剩余空间(GB)，0=不检查"},
             },
         }
 
@@ -343,10 +353,28 @@ class AListUploadPlugin(PluginBase):
         extensions = _normalize_list(cfg.get("extensions"))
         max_retries = int(cfg.get("max_retries", 3))
         delete_after = bool(cfg.get("delete_after_upload", False))
+        max_file_size_gb = float(cfg.get("max_file_size_gb", 0) or 0)
+        max_file_size_bytes = int(max_file_size_gb * 1024**3) if max_file_size_gb > 0 else 0
 
-        logger.info("Scanning dirs=%d, remote=%s", len(scan_dirs), remote_root)
+        logger.info("Scanning dirs=%d, remote=%s, max_size=%sGB", len(scan_dirs), remote_root,
+                    max_file_size_gb if max_file_size_gb else "unlimited")
         files = await asyncio.to_thread(_collect_files, scan_dirs, extensions)
         logger.info("AList scan found %d file(s)", len(files))
+
+        # Filter by file size limit
+        if max_file_size_bytes > 0:
+            filtered = []
+            for f in files:
+                try:
+                    if os.path.getsize(f) <= max_file_size_bytes:
+                        filtered.append(f)
+                    else:
+                        logger.info("Skipping (too large): %s (%s)", os.path.basename(f), _fmt_size(os.path.getsize(f)))
+                except OSError:
+                    pass
+            files = filtered
+            logger.info("After size filter: %d file(s)", len(files))
+
         if not files:
             logger.info("No new files to upload")
 

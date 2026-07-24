@@ -71,6 +71,19 @@ def _normalize_list(value: Any) -> list[str]:
     return []
 
 
+def _dir_size(path: str) -> int:
+    """Calculate total size of a directory tree (excluding excluded subdirs)."""
+    total = 0
+    for root, dirs, files in os.walk(path, topdown=True):
+        dirs[:] = [d for d in dirs if not _is_excluded_dir(d)]
+        for fname in files:
+            try:
+                total += os.path.getsize(os.path.join(root, fname))
+            except OSError:
+                pass
+    return total
+
+
 def _copy_app(src: str, dst: str, app_name: str) -> dict[str, Any]:
     """Copy an app directory tree, pruning excluded paths. Mirrors rsync logic."""
     copied_files = 0
@@ -134,6 +147,7 @@ def _backup_sync(cfg: dict[str, Any]) -> dict[str, Any]:
     backup_root = cfg.get("backup_dir", "/volumeUSB1/usbshare/docker_backup")
     keep_days = int(cfg.get("keep_days", 7))
     containers_filter: list[str] = _normalize_list(cfg.get("containers"))
+    max_app_size_gb = float(cfg.get("max_app_size_gb", 0) or 0)
 
     if not os.path.isdir(docker_root):
         logger.warning("docker_root not found: %s", docker_root)
@@ -164,6 +178,13 @@ def _backup_sync(cfg: dict[str, Any]) -> dict[str, Any]:
             if not has_data:
                 logger.info(f"Skipping (no core data): {app_name}")
                 continue
+
+            # Check app size limit
+            if max_app_size_gb > 0:
+                app_size = _dir_size(app_path)
+                if app_size > max_app_size_gb * 1024**3:
+                    logger.info(f"Skipping (too large): {app_name} ({_fmt_size(app_size)})")
+                    continue
 
             app_dest = os.path.join(tmp_dir, app_name)
             logger.info(f"Collecting: {app_name}")
@@ -230,6 +251,28 @@ class DockerBackupPlugin(PluginBase):
         version="3.0.0",
         category="system",
     )
+
+    @property
+    def default_config(self) -> dict[str, Any]:
+        return {
+            "docker_root": "/volume1/docker",
+            "backup_dir": "/volumeUSB1/usbshare/docker_backup",
+            "keep_days": 7,
+            "containers": [],
+            "max_app_size_gb": 0,
+        }
+
+    def get_config_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "docker_root": {"type": "string", "title": "Docker 应用根目录"},
+                "backup_dir": {"type": "string", "title": "备份输出目录"},
+                "keep_days": {"type": "integer", "title": "保留天数"},
+                "containers": {"type": "array", "items": {"type": "string"}, "title": "只备份指定容器（空=全部）"},
+                "max_app_size_gb": {"type": "number", "title": "单个 App 数据上限(GB)，0=不限"},
+            },
+        }
 
     async def on_enable(self) -> None:
         pass
