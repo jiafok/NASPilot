@@ -13,6 +13,7 @@ from app.core.database import async_session_factory
 from app.core.deps import get_current_user_ws
 from app.core.logging_config import LOG_FILE
 from app.core.config import settings
+import pathlib
 
 router = APIRouter(tags=["websocket"])
 
@@ -95,12 +96,10 @@ async def ws_logs(websocket: WebSocket):
     source_filter = websocket.query_params.get("source")
     await manager.connect(websocket)
 
-    from app.core.logging_config import LOG_FILE
-    from app.core.config import settings
-
-    log_path = LOG_FILE or str(settings.LOG_DIR / "naspilot.log")
-    tail_logger = logging.getLogger("naspilot.tailer")
-
+    app_dir = pathlib.Path(__file__).resolve().parent.parent
+    log_path = str(app_dir / "data" / "logs" / "naspilot.log")
+    if not os.path.isfile(log_path):
+        log_path = str(settings.LOG_DIR.resolve() / "naspilot.log")
     if not os.path.isfile(log_path):
         tail_logger.warning("Log file not found: %s", log_path)
         try:

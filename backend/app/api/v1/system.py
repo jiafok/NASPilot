@@ -88,12 +88,19 @@ async def raw_logs(
     - ``level`` : filter by level (e.g. ``WARNING``)
     - ``limit`` : max lines (default 10000)
     """
-    from app.core.logging_config import LOG_FILE
     from app.core.config import settings
+    import pathlib
 
-    log_path = LOG_FILE or str(settings.LOG_DIR / "naspilot.log")
+    # Compute log path relative to backend directory (app/ is inside backend/)
+    app_dir = pathlib.Path(__file__).resolve().parent.parent  # app/api/v1/system.py → backend/
+    log_path = str(app_dir / "data" / "logs" / "naspilot.log")
     if not os.path.isfile(log_path):
-        return PlainTextResponse("", status_code=200)
+        # Fallback: settings-based path
+        log_path = str(settings.LOG_DIR.resolve() / "naspilot.log")
+    if not os.path.isfile(log_path):
+        return PlainTextResponse(
+            f"Log file not found. app_dir={app_dir}\n", status_code=200,
+        )
 
     lines = []
     with open(log_path, "r", encoding="utf-8", errors="replace") as f:
