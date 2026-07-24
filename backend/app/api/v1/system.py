@@ -52,7 +52,7 @@ async def list_logs(
     return result.scalars().all()
 
 
-@router.get("/logs/raw", response_model=PlainTextResponse, summary="Raw logs")
+@router.get("/logs/raw", summary="Raw logs")
 async def raw_logs(
     user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -61,6 +61,7 @@ async def raw_logs(
     level: str | None = None,
     source: str | None = None,
     search: str | None = None,
+    response_class=PlainTextResponse,
 ):
     """Return raw logs as a string."""
     logs = await list_logs(user, db, limit, offset, level, source, search)
