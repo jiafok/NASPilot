@@ -1,6 +1,6 @@
 # ============================================================
 # NASPilot — Production Dockerfile
-# 3-stage build: frontend → deps → final (Immich-style)
+# 3-stage build: frontend → deps → final (optimized)
 # ============================================================
 
 # ── Stage 1: Frontend build ───────────────────────────────
@@ -13,7 +13,7 @@ COPY frontend/ ./
 RUN npm run build
 
 
-# ── Stage 2: Python deps (pre-installed, cached) ──────────
+# ── Stage 2: Python deps (pre-installed, cached, cleaned) ─
 FROM python:3.11-slim AS backend-deps
 
 RUN apt-get update && \
@@ -27,10 +27,16 @@ RUN groupadd -r naspilot -g 1000 && \
     chown -R naspilot:naspilot /app
 
 COPY backend/requirements.lock.txt ./
-RUN pip install --no-cache-dir -r requirements.lock.txt
+RUN pip install --no-cache-dir -r requirements.lock.txt && \
+    # Strip ~40-60MB of junk from site-packages
+    find /usr/local/lib/python3.11/site-packages/ -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; \
+    find /usr/local/lib/python3.11/site-packages/ -type f -name '*.pyc' -delete; \
+    find /usr/local/lib/python3.11/site-packages/ -type d -name '*.dist-info' -exec rm -rf {} + 2>/dev/null; \
+    find /usr/local/lib/python3.11/site-packages/ -type d -name tests -exec rm -rf {} + 2>/dev/null; \
+    true
 
 
-# ── Stage 3: Final runtime ────────────────────────────────
+# ── Stage 3: Final runtime (trimmed) ──────────────────────
 FROM python:3.11-slim
 
 ARG VERSION=dev
@@ -39,11 +45,11 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl tzdata && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy pre-built site-packages (every .so / .py file)
+# Copy pre-built site-packages (cleaned)
 COPY --from=backend-deps /usr/local/lib/python3.11/site-packages/ /usr/local/lib/python3.11/site-packages/
 COPY --from=backend-deps /usr/local/bin/ /usr/local/bin/
 
-# Create non-root user in final stage (no shadow copy)
+# Create non-root user
 RUN groupadd -r naspilot -g 1000 && \
     useradd -r -g naspilot -u 1000 -d /app naspilot && \
     mkdir -p /app/data /app/logs && \
