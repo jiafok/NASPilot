@@ -4,6 +4,7 @@ Tasks managed in DB are synced to APScheduler on startup and when tasks are
 created/edited/deleted via the API.
 """
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -69,6 +70,8 @@ def add_task_to_scheduler(sched: AsyncIOScheduler, task: "Task") -> bool:
         name=task.name,
         replace_existing=True,
         misfire_grace_time=60,
+        coalesce=True,       # skip queued runs if previous still running
+        max_instances=1,     # at most 1 concurrent run per job
     )
     logger.info(f"Registered task '{task.name}' (id={task.id}) with cron '{task.cron_expr}'")
     return True
@@ -122,60 +125,76 @@ def _plugin_job_id(plugin_id: int, instance_id: int) -> str:
     return f"plugin-{plugin_id}-{instance_id}"
 
 
+# Per-instance locks — prevents concurrent scheduled runs of the same plugin
+_plugin_locks: dict[str, asyncio.Lock] = {}
+
+
 async def _execute_plugin(plugin_id: int, instance_id: int) -> None:
-    """Internal callback — loads a PluginInstance from DB and runs it."""
-    from app.models import Plugin, PluginInstance
-    from app.plugins.registry import registry
-    from sqlalchemy import select
+    """Internal callback — loads a PluginInstance from DB and runs it.
 
-    async with async_session_factory() as db:
-        # Load instance
-        r = await db.execute(select(PluginInstance).where(PluginInstance.id == instance_id))
-        inst = r.scalar_one_or_none()
-        if not inst or not inst.enabled:
-            return
+    Uses a per-instance lock to prevent duplicate concurrent executions
+    when multiple scheduler jobs or overlapping triggers fire at once.
+    """
+    job_id = _plugin_job_id(plugin_id, instance_id)
+    lock = _plugin_locks.setdefault(job_id, asyncio.Lock())
 
-        # Load plugin metadata
-        r2 = await db.execute(select(Plugin).where(Plugin.id == plugin_id))
-        p = r2.scalar_one_or_none()
-        if not p:
-            return
+    if lock.locked():
+        logger.debug("Plugin %s already running — skipping duplicate trigger", job_id)
+        return
 
-        # Find runtime class
-        plugin_cls = None
-        for slug, cls in registry.list_all():
-            if slug == p.slug:
-                plugin_cls = cls
-                break
-        if plugin_cls is None:
-            return
+    async with lock:
+        from app.models import Plugin, PluginInstance
+        from app.plugins.registry import registry
+        from sqlalchemy import select
 
-        # Check schedule enabled in config
-        cfg = inst.config or {}
-        if not cfg.get("schedule_enabled"):
-            return
+        async with async_session_factory() as db:
+            # Load instance
+            r = await db.execute(select(PluginInstance).where(PluginInstance.id == instance_id))
+            inst = r.scalar_one_or_none()
+            if not inst or not inst.enabled:
+                return
 
-        logger.info(f"Scheduled plugin run: {p.name} ({inst.name})")
-        runtime = plugin_cls(cfg)
-        result = await runtime.run()
+            # Load plugin metadata
+            r2 = await db.execute(select(Plugin).where(Plugin.id == plugin_id))
+            p = r2.scalar_one_or_none()
+            if not p:
+                return
 
-        # Save run history (same as manual trigger)
-        import json
-        from datetime import datetime as _dt, timezone as _tz
-        now_iso = _dt.now(_tz.utc).isoformat()
-        state = runtime.config.setdefault("state", {})
-        history: list = state.setdefault("run_history", [])
-        history.insert(0, {
-            "time": now_iso,
-            "trigger": "scheduled",
-            "status": result.get("status", "ok"),
-            "added": result.get("added", 0),
-            "error": result.get("error", ""),
-        })
-        state["run_history"] = history[:50]
-        inst.config = runtime.config
-        await db.commit()
-        logger.info(f"Scheduled plugin run complete: {p.name} status={result.get('status')}")
+            # Find runtime class
+            plugin_cls = None
+            for slug, cls in registry.list_all():
+                if slug == p.slug:
+                    plugin_cls = cls
+                    break
+            if plugin_cls is None:
+                return
+
+            # Check schedule enabled in config
+            cfg = inst.config or {}
+            if not cfg.get("schedule_enabled"):
+                return
+
+            logger.info(f"Scheduled plugin run: {p.name} ({inst.name})")
+            runtime = plugin_cls(cfg)
+            result = await runtime.run()
+
+            # Save run history (same as manual trigger)
+            import json
+            from datetime import datetime as _dt, timezone as _tz
+            now_iso = _dt.now(_tz.utc).isoformat()
+            state = runtime.config.setdefault("state", {})
+            history: list = state.setdefault("run_history", [])
+            history.insert(0, {
+                "time": now_iso,
+                "trigger": "scheduled",
+                "status": result.get("status", "ok"),
+                "added": result.get("added", 0),
+                "error": result.get("error", ""),
+            })
+            state["run_history"] = history[:50]
+            inst.config = runtime.config
+            await db.commit()
+            logger.info(f"Scheduled plugin run complete: {p.name} status={result.get('status')}")
 
 
 def upsert_plugin_schedule(sched: AsyncIOScheduler, plugin_id: int, instance_id: int, config: dict) -> bool:
@@ -202,7 +221,9 @@ def upsert_plugin_schedule(sched: AsyncIOScheduler, plugin_id: int, instance_id:
             id=job_id,
             name=f"plugin-{plugin_id}-{instance_id}",
             replace_existing=True,
-            misfire_grace_time=120,
+            misfire_grace_time=60,
+            coalesce=True,       # skip queued runs if previous still running
+            max_instances=1,     # at most 1 concurrent run per job
         )
         logger.info(f"Registered plugin schedule: id={job_id} cron={cron_expr}")
         return True
