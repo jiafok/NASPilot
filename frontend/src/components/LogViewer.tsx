@@ -228,7 +228,7 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
                    : line.level === 'DEBUG' ? '#888' : '#e0e0e0',
             }}>
               <span style={{ color: '#569cd6', marginRight: 8 }}>
-                {line.timestamp ? new Date(line.timestamp).toLocaleTimeString() : '--:--:--'}
+                {line.timestamp ? new Date(line.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) : '--:--:--'}
               </span>
               <span style={{ color: '#888', marginRight: 4 }}>[{line.level}]</span>
               <span>{line.message}</span>

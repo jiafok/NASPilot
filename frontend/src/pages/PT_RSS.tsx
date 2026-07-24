@@ -122,8 +122,8 @@ export default function PT_RSS() {
       },
     },
     { title: 'Missing', dataIndex: 'missingCount', width: 70 },
-    { title: 'First Seen', dataIndex: 'firstSeen', width: 160, render: (v: string) => v ? new Date(v).toLocaleString() : '-' },
-    { title: 'Added', dataIndex: 'addedTime', width: 160, render: (v: string) => v ? new Date(v).toLocaleString() : '-' },
+    { title: 'First Seen', dataIndex: 'firstSeen', width: 160, render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
+    { title: 'Added', dataIndex: 'addedTime', width: 160, render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
     { title: 'Evicted Reason', dataIndex: 'evictedReason', width: 160, ellipsis: true, render: (v: string) => v || '-' },
   ];
 

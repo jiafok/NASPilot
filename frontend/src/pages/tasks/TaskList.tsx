@@ -48,7 +48,7 @@ export default function TaskList() {
     { title: t('tasks.cronExpr'), dataIndex: 'cron_expr', key: 'cron_expr', width: 110, ellipsis: true, render: (v: string|null) => v || <Tag color="default">manual</Tag> },
     { title: t('tasks.timeout'), dataIndex: 'timeout', key: 'timeout', width: 70, render: (v: number) => `${v}s` },
     { title: t('common.status'), dataIndex: 'enabled', key: 'enabled', width: 70, render: (enabled: boolean, r: Task) => <Switch size="small" checked={enabled} onChange={(v) => handleToggle(r.id, v)} /> },
-    { title: t('tasks.lastRun'), dataIndex: 'last_run_at', key: 'last_run_at', width: 150, render: (v: string|null) => v ? new Date(v).toLocaleString() : '-' },
+    { title: t('tasks.lastRun'), dataIndex: 'last_run_at', key: 'last_run_at', width: 150, render: (v: string|null) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
     { title: t('common.actions'), key: 'actions', width: 170, render: (_: any, r: Task) => (
       <Space size="small">
         <Tooltip title={t('tasks.runNow')}><Button size="small" icon={<PlayCircleOutlined />} onClick={() => handleRun(r.id)} /></Tooltip>

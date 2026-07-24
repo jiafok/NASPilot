@@ -96,7 +96,7 @@ export default function LogCenter() {
                 pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (t: number) => `共 ${t} 条` }}
                 columns={[
                   { title: '时间', dataIndex: 'timestamp', width: 170,
-                    render: (t: string) => new Date(t).toLocaleString() },
+                    render: (t: string) => new Date(t).toLocaleString('zh-CN', { hour12: false }) },
                   { title: '级别', dataIndex: 'level', width: 80,
                     render: (l: string) => <Tag color={LEVEL_COLORS[l]||'default'}>{l}</Tag> },
                   { title: '来源', dataIndex: 'source', width: 130 },

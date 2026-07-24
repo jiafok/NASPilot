@@ -179,7 +179,7 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
                 size="small"
                 pagination={{ pageSize: 5 }}
                 columns={[
-                  { title: 'Time', dataIndex: 'time', width: 170, render: (v: string) => new Date(v).toLocaleString() },
+                  { title: 'Time', dataIndex: 'time', width: 170, render: (v: string) => new Date(v).toLocaleString('zh-CN', { hour12: false }) },
                   { title: 'Status', dataIndex: 'status', width: 80, render: (s: string) => <Tag color={s === 'ok' ? 'green' : 'red'}>{s}</Tag> },
                   { title: 'Added', dataIndex: 'added', width: 70 },
                   { title: 'Summary', dataIndex: 'summary', ellipsis: true },

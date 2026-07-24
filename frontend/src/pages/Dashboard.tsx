@@ -55,7 +55,7 @@ export default function Dashboard() {
             { title: t('tasks.name'), dataIndex: 'task_name', ellipsis: true },
             { title: t('common.status'), dataIndex: 'status', width: 100, render: (s: string) => <Tag color={sc(s)} icon={si(s)}>{s}</Tag> },
             { title: t('tasks.duration'), dataIndex: 'duration_ms', width: 90, render: (ms: number|null) => ms ? `${(ms/1000).toFixed(1)}s` : '-' },
-            { title: t('common.time'), dataIndex: 'start_time', width: 170, render: (v: string) => v ? new Date(v).toLocaleString() : '-' },
+            { title: t('common.time'), dataIndex: 'start_time', width: 170, render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
           ]} />
       </Card>
     </div>
