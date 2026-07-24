@@ -42,6 +42,12 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
   // Batch incoming lines to avoid 500+ re-renders during WS buffer replay
   const batchRef = useRef<LogLine[]>([]);
   const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track mounted state to prevent reconnect after unmount
+  const mountedRef = useRef(true);
+  // Reconnect timer reference for cleanup
+  const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Last message key for deduplication
+  const lastMsgKeyRef = useRef<string>('');
 
   const filtered = useMemo(() => {
     if (levelFilter.length === 0) return lines;
@@ -93,6 +99,12 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'ping') return;
+        // Dedup by timestamp+message — prevents display duplication when
+        // multiple zombie WS connections receive the same broadcast.
+        const msgKey = `${data.timestamp || ''}|${data.message || ''}`;
+        if (lastMsgKeyRef.current === msgKey) return;
+        lastMsgKeyRef.current = msgKey;
+
         const line: LogLine = {
           timestamp: data.timestamp || '',
           level: data.level || 'INFO',
@@ -124,14 +136,34 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
 
     ws.onclose = () => {
       setConnected(false);
-      setTimeout(connect, 3000);
+      // Only reconnect if component is still mounted AND this is still the active ws
+      if (mountedRef.current && wsRef.current === ws) {
+        reconnectRef.current = setTimeout(() => {
+          if (mountedRef.current && wsRef.current === ws) {
+            connect();
+          }
+        }, 3000);
+      }
     };
     ws.onerror = () => { ws.close(); };
   }, [source, paused, smartScroll, maxLines]);
 
   useEffect(() => {
+    mountedRef.current = true;
     connect();
-    return () => { wsRef.current?.close(); };
+    return () => {
+      mountedRef.current = false;
+      if (reconnectRef.current) {
+        clearTimeout(reconnectRef.current);
+        reconnectRef.current = null;
+      }
+      const ws = wsRef.current;
+      if (ws) {
+        ws.onclose = null;  // prevent reconnection during close
+        ws.close();
+      }
+      wsRef.current = null;
+    };
   }, [connect]);
 
   const body = (
