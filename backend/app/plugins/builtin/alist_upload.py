@@ -232,8 +232,10 @@ class AListClient:
                     "File-Path": _encode_path(remote_path),
                     "As-Task": "true",
                 }
-                # Stream upload — avoid reading entire file into memory
-                def _file_iter(_path: str, _chunk: int = 8192):
+                # Async generator for streaming upload — avoids loading
+                # entire file into memory. httpx AsyncClient requires async
+                # content iterators, not sync generators.
+                async def _file_stream(_path: str, _chunk: int = 65536):
                     with open(_path, "rb") as _f:
                         while True:
                             _data = _f.read(_chunk)
@@ -243,7 +245,7 @@ class AListClient:
 
                 resp = await self._client.put(
                     f"{self.base}/api/fs/put",
-                    content=_file_iter(local_path),
+                    content=_file_stream(local_path),
                     headers=headers,
                     timeout=httpx.Timeout(self.connect_timeout, read=max(self.read_timeout, 3600)),
                 )
