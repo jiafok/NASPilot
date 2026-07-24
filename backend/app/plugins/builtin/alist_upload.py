@@ -26,7 +26,7 @@ import httpx
 
 from app.plugins.registry import PluginBase, PluginMeta
 
-logger = logging.getLogger("naspilot.plugin.alist")
+logger = logging.getLogger("naspilot.plugin.alist_upload")
 
 LOCAL_TZ = timezone(timedelta(hours=8))
 

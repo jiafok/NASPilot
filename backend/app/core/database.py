@@ -126,7 +126,11 @@ async def _migrate_sqlite_autoincrement(table: str, columns: str) -> None:
 
 
 async def _cleanup_log_spam() -> None:
-    """Clean up self-referential log spam from previous sqlalchemy.engine INFO feedback loop."""
+    """Delete all legacy DB log entries — logs now go to file only.
+
+    The log_entries table is kept for schema compatibility but no new rows
+    are written. Delete all existing rows to reduce DB file size.
+    """
     import sqlalchemy as sa
 
     if "sqlite" not in settings.DATABASE_URL:
@@ -135,24 +139,20 @@ async def _cleanup_log_spam() -> None:
     logger = logging.getLogger("naspilot.db")
     try:
         async with engine.begin() as conn:
-            # Check if table exists
             result = await conn.execute(
                 sa.text(f"SELECT name FROM sqlite_master WHERE type='table' AND name='log_entries'")
             )
             if not result.fetchone():
                 return
 
-            # Clean up self-referential log spam
-            await conn.execute(sa.text("DELETE FROM log_entries WHERE level='INFO' AND message LIKE '%sqlalchemy%'"))
-            logger.info("Cleaned up self-referential log spam from previous sqlalchemy.engine INFO feedback loop")
-
-            # Delete log entries that are self-referential (INSERT INTO log_entries spam)
-            # from the previous sqlalchemy.engine INFO feedback loop
-            result = await conn.execute(sa.text(
-                "DELETE FROM log_entries WHERE message LIKE '%INSERT INTO log_entries%'"
-            ))
+            # Delete ALL legacy log entries — logs now go to file only
+            result = await conn.execute(sa.text("DELETE FROM log_entries"))
             deleted = result.rowcount
             if deleted > 0:
-                logger.info("Cleaned up %d self-referential log spam rows", deleted)
+                logger.info("Deleted %d legacy DB log entries (logs now file-only)", deleted)
+
+            # Vacuum to reclaim disk space
+            await conn.execute(sa.text("VACUUM"))
+            logger.info("DB vacuumed to reclaim space")
     except Exception:
-        logger.exception("Cleanup of self-referential log spam failed (non-fatal)")
+        logger.exception("Cleanup of legacy log entries failed (non-fatal)")

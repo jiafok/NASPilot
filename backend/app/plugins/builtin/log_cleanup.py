@@ -3,7 +3,7 @@
 Ported from cron_log_cleanup.sh:
 - Delete log files older than max_age_days
 - Truncate files larger than max_size_kb (keep last N lines)
-- Also purges old LogEntry DB rows beyond keep_rows
+- Logs are file-only (no DB log entries) — DB only stores config.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ LOCAL_TZ = timezone(timedelta(hours=8))
 
 
 def _cleanup_sync(cfg: dict[str, Any]) -> dict[str, Any]:
-    log_dir = cfg.get("log_dir", "/app/logs").rstrip("/")
+    log_dir = cfg.get("log_dir", "/app/data/logs").rstrip("/")
     max_age_days = int(cfg.get("max_age_days", 30))
     max_size_kb = int(cfg.get("max_size_kb", 256))
     tail_lines = int(cfg.get("tail_lines", 2000))
@@ -70,38 +70,11 @@ def _cleanup_sync(cfg: dict[str, Any]) -> dict[str, Any]:
     return {"status": "ok", "deleted": deleted, "truncated": truncated}
 
 
-async def _purge_db_logs(keep_rows: int) -> int:
-    """Delete oldest LogEntry rows, keeping only keep_rows total."""
-    try:
-        from sqlalchemy import delete, func, select, text
-        from app.core.database import async_session_factory
-        from app.models import LogEntry
-
-        async with async_session_factory() as db:
-            count_result = await db.execute(select(func.count()).select_from(LogEntry))
-            total = count_result.scalar_one()
-            if total <= keep_rows:
-                return 0
-            delete_count = total - keep_rows
-            subq = (
-                select(LogEntry.id)
-                .order_by(LogEntry.id.asc())
-                .limit(delete_count)
-                .scalar_subquery()
-            )
-            await db.execute(delete(LogEntry).where(LogEntry.id.in_(subq)))
-            await db.commit()
-            return delete_count
-    except Exception as exc:
-        logger.warning("DB log purge failed: %s", exc)
-        return 0
-
-
 class LogCleanupPlugin(PluginBase):
     META = PluginMeta(
         slug="log_cleanup",
         name="日志清理",
-        description="删除过期日志文件、截断超大日志、清理数据库日志记录",
+        description="删除过期日志文件、截断超大日志",
         version="1.0.0",
         author="NASPilot",
         icon="🧹",
@@ -112,11 +85,10 @@ class LogCleanupPlugin(PluginBase):
     @property
     def default_config(self) -> dict[str, Any]:
         return {
-            "log_dir": "/app/logs",
+            "log_dir": "/app/data/logs",
             "max_age_days": 30,
-            "max_size_kb": 256,
+            "max_size_kb": 102400,
             "tail_lines": 2000,
-            "db_keep_rows": 10000,
         }
 
     def get_config_schema(self) -> dict[str, Any]:
@@ -127,7 +99,6 @@ class LogCleanupPlugin(PluginBase):
                 "max_age_days": {"type": "integer", "title": "日志文件保留天数"},
                 "max_size_kb": {"type": "integer", "title": "单文件最大大小 (KB)"},
                 "tail_lines": {"type": "integer", "title": "截断后保留行数"},
-                "db_keep_rows": {"type": "integer", "title": "数据库日志保留条数"},
             },
         }
 
@@ -138,14 +109,13 @@ class LogCleanupPlugin(PluginBase):
         logger.info("Log Cleanup plugin disabled")
 
     async def run(self, **kwargs: Any) -> dict[str, Any]:
-        logger.info("启动日志清理: dir=%s, max_age=%sd, db_keep=%s",
-                     self.config.get("log_dir","/app/logs"),
-                     self.config.get("max_age_days",30),
-                     self.config.get("db_keep_rows",10000))
+        logger.info("启动日志清理: dir=%s, max_age=%sd",
+                     self.config.get("log_dir","/app/data/logs"),
+                     self.config.get("max_age_days",30))
         try:
             file_result = await asyncio.to_thread(_cleanup_sync, self.config)
-            db_deleted = await _purge_db_logs(int(self.config.get("db_keep_rows", 10000)))
-            return {**file_result, "db_deleted": db_deleted}
+            return file_result
         except Exception as exc:
-            logger.exception("Log Cleanup run failed")
-            return {"status": "error", "error": str(exc)[:500], "deleted": 0, "truncated": 0, "errors": [], "db_deleted": 0}
+            err_msg = str(exc) if str(exc) else type(exc).__name__
+            logger.error("Log Cleanup run failed: %s", err_msg)
+            return {"status": "error", "error": err_msg[:500], "deleted": 0, "truncated": 0}
