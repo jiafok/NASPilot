@@ -5,16 +5,18 @@ import type { PluginField } from '../components/PluginConfigForm';
 import api from '../utils/api';
 
 const FIELDS: PluginField[] = [
-  { key: 'alist_url', label: 'AList URL', type: 'string', placeholder: 'https://alist.example.com', required: true, help: 'AList 服务地址' },
-  { key: 'username', label: 'Username', type: 'string', default: 'admin' },
-  { key: 'password', label: 'Password', type: 'password' },
-  { key: 'scan_dirs', label: 'Scan Directories', type: 'array', placeholder: '/volume1/upload, /volume1/media', help: '逗号分隔的本地扫描目录' },
-  { key: 'remote_root', label: 'Remote Root', type: 'string', default: '/', help: 'AList 上的目标根目录' },
-  { key: 'extensions', label: 'File Extensions', type: 'array', placeholder: 'mkv, mp4, iso, zip', help: '逗号分隔，只扫描这些扩展名' },
-  { key: 'max_retries', label: 'Max Retries', type: 'number', default: 3 },
-  { key: 'delete_after_upload', label: 'Delete After Upload', type: 'boolean', default: false, help: '上传成功后删除本地文件' },
-  { key: 'connect_timeout', label: 'Connect Timeout (s)', type: 'number', default: 10 },
-  { key: 'read_timeout', label: 'Read Timeout (s)', type: 'number', default: 120 },
+  { key: 'alist_url', label: 'AList 地址', type: 'string', placeholder: 'https://alist.example.com', required: true, help: 'AList 服务地址' },
+  { key: 'username', label: '用户名', type: 'string', default: 'admin' },
+  { key: 'password', label: '密码', type: 'password' },
+  { key: 'scan_dirs', label: '扫描目录', type: 'array', placeholder: '/volume1/upload, /volume1/media', help: '逗号分隔的本地扫描目录' },
+  { key: 'remote_root', label: '远程根路径', type: 'string', default: '/', help: 'AList 上的目标根目录' },
+  { key: 'extensions', label: '文件扩展名', type: 'array', placeholder: 'mkv, mp4, iso, zip', help: '逗号分隔，只扫描这些扩展名（空=全部）' },
+  { key: 'max_retries', label: '最大重试次数', type: 'number', default: 3 },
+  { key: 'delete_after_upload', label: '上传后删除', type: 'boolean', default: false, help: '上传成功后删除本地文件' },
+  { key: 'max_file_size_gb', label: '文件大小上限(GB)', type: 'number', default: 0, help: '超过此大小的文件跳过，0=不限' },
+  { key: 'min_free_space_gb', label: '最小剩余空间(GB)', type: 'number', default: 0, help: '远程剩余空间低于此值时跳过，0=不检查' },
+  { key: 'connect_timeout', label: '连接超时(秒)', type: 'number', default: 10 },
+  { key: 'read_timeout', label: '读取超时(秒)', type: 'number', default: 120 },
 ];
 
 export default function AlistUpload() {
