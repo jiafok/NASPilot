@@ -206,9 +206,14 @@ class AListClient:
             await asyncio.sleep(interval)
         return False
 
-    async def upload(self, local_path: str, remote_path: str,
+    async def upload_put(self, local_path: str, remote_path: str,
                      max_retries: int = 3) -> tuple[str, str]:
-        """Upload a single file. Returns (status, message) where status is 'ok'|'skip'|'fail'."""
+        """Upload a single file (PUT only, no verify). Returns (status, message).
+
+        status is 'skip'|'pending'|'fail'. Verification is done separately
+        by the caller via verify_file(), mirroring the original script's
+        upload→schedule→verify pattern.
+        """
         assert self._client
         size = os.path.getsize(local_path)
         filename = os.path.basename(local_path)
@@ -260,16 +265,10 @@ class AListClient:
                     if attempt < max_retries - 1:
                         await asyncio.sleep(2 ** attempt)
                     continue
-
-                # Verify upload
-                verified = await self.verify_file(remote_path, size, wait_secs=120, tries=12)
-                if verified:
-                    return "ok", f"上传成功: {filename} ({_fmt_size(size)})"
-                last_err = "上传后校验失败"
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)
+                # PUT succeeded — return pending, verification done later
+                return "pending", f"已上传: {filename} ({_fmt_size(size)})"
             except Exception as exc:
-                last_err = str(exc)
+                last_err = str(exc) if str(exc) else type(exc).__name__
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
 
@@ -393,29 +392,61 @@ class AListUploadPlugin(PluginBase):
             connect_timeout=float(cfg.get("connect_timeout", 10)),
             read_timeout=float(cfg.get("read_timeout", 120)),
         ) as client:
+            verify_tasks: list[asyncio.Task] = []
+
+            async def _verify_and_record(lp: str, rp: str, sz: int, fn: str, rl: str):
+                """Concurrent verify — mirrors original AsyncVerifyManager."""
+                verified = await client.verify_file(rp, sz, wait_secs=120, tries=12)
+                status = "ok" if verified else "fail"
+                msg = (f"上传成功: {fn} ({_fmt_size(sz)})" if verified
+                       else f"上传后校验失败: {fn}")
+                logger.info("[%s] %s — %s", status.upper(), fn, msg)
+                results.append({"file": rl, "status": status, "message": msg, "time": _now_iso()})
+                if verified:
+                    counts["uploaded"] += 1
+                    if delete_after:
+                        try:
+                            os.remove(lp)
+                            counts["deleted"] += 1
+                            logger.info("已删除本地: %s", fn)
+                        except OSError as exc:
+                            logger.warning("delete failed: %s: %s", lp, exc)
+                else:
+                    counts["failed"] += 1
+
             for local_path in files:
                 if base_dir and local_path.startswith(base_dir):
                     rel = local_path[len(base_dir):].lstrip("/\\").replace("\\", "/")
                 else:
                     rel = os.path.basename(local_path)
                 remote_path = f"{remote_root}/{rel}"
+                filename = os.path.basename(local_path)
 
-                status, msg = await client.upload(local_path, remote_path, max_retries=max_retries)
-                logger.info("[%s] %s — %s", status.upper(), os.path.basename(local_path), msg)
-                results.append({"file": rel, "status": status, "message": msg, "time": _now_iso()})
+                # Upload (streaming, with retries) — returns immediately after PUT
+                status, msg = await client.upload_put(local_path, remote_path, max_retries=max_retries)
 
-                if status == "ok":
-                    counts["uploaded"] += 1
-                    if delete_after:
-                        try:
-                            os.remove(local_path)
-                            counts["deleted"] += 1
-                        except OSError as exc:
-                            logger.warning("delete failed: %s: %s", local_path, exc)
-                elif status == "skip":
+                if status == "skip":
+                    logger.info("[SKIP] %s — %s", filename, msg)
+                    results.append({"file": rel, "status": "skip", "message": msg, "time": _now_iso()})
                     counts["skipped"] += 1
-                else:
+                elif status == "fail":
+                    logger.info("[FAIL] %s — %s", filename, msg)
+                    results.append({"file": rel, "status": "fail", "message": msg, "time": _now_iso()})
                     counts["failed"] += 1
+                else:
+                    # status == "pending" — schedule concurrent verification
+                    logger.info("[UPLOADED] %s — pending verification", filename)
+                    sz = os.path.getsize(local_path)
+                    task = asyncio.create_task(
+                        _verify_and_record(local_path, remote_path, sz, filename, rel)
+                    )
+                    verify_tasks.append(task)
+
+            # Wait for all concurrent verifications to complete
+            if verify_tasks:
+                logger.info("等待 %d 个并发校验完成...", len(verify_tasks))
+                await asyncio.gather(*verify_tasks, return_exceptions=True)
+                logger.info("并发校验全部完成")
 
         # Persist history (last 200 entries)
         state = cfg.setdefault("state", {})
