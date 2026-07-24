@@ -24,10 +24,12 @@ logger = logging.getLogger("naspilot.plugin.docker_backup")
 LOCAL_TZ = timezone(timedelta(hours=8))
 
 # Directories that mark an "app" in /volume1/docker/
-DATA_DIR_NAMES = ("config", "data", "conf", "db")
+DATA_DIR_NAMES = ("config", "data", "conf", "db", "appdata", "AppData")
 
 # Directories excluded at top level (media/downloads etc.)
-EXCLUDED_TOP_DIRS = {"media", "downloads", "download", "movies", "tv", "music"}
+# NOTE: "data" is NOT here — it's a valid app data directory, only excluded
+# as a top-level media category directory like movies/tv, not inside apps.
+EXCLUDED_TOP_DIRS = {"media", "downloads", "download", "movies", "tv", "music", "Music", "Movies"}
 
 # Directories excluded at any depth (cache/tmp/logs etc.)
 EXCLUDED_SUBDIR_NAMES = {"cache", "tmp", "temp", "logs", "transcode", "imagecache"}
@@ -167,24 +169,32 @@ def _backup_sync(cfg: dict[str, Any]) -> dict[str, Any]:
         for entry in sorted(os.listdir(docker_root)):
             app_path = os.path.join(docker_root, entry)
             if not os.path.isdir(app_path):
+                logger.debug(f"Skipping non-directory: {entry}")
                 continue
 
             app_name = entry
             if containers_filter and app_name not in containers_filter:
                 continue
 
-            # Must have at least one config/data/conf/db subdirectory
-            has_data = any(os.path.isdir(os.path.join(app_path, d)) for d in DATA_DIR_NAMES)
-            if not has_data:
-                logger.info(f"Skipping (no core data): {app_name}")
+            # Skip top-level media/excluded dirs entirely
+            if app_name.lower() in EXCLUDED_TOP_DIRS:
+                logger.info(f"Skipping (excluded): {app_name}")
                 continue
 
-            # Check app size limit
-            if max_app_size_gb > 0:
-                app_size = _dir_size(app_path)
-                if app_size > max_app_size_gb * 1024**3:
-                    logger.info(f"Skipping (too large): {app_name} ({_fmt_size(app_size)})")
+            # Must have at least one config/data/conf/db subdirectory OR
+            # contain files directly (for simple backup scenarios)
+            has_data = any(os.path.isdir(os.path.join(app_path, d)) for d in DATA_DIR_NAMES)
+            if not has_data:
+                # Check if directory has any files at all
+                has_files = any(os.path.isfile(os.path.join(app_path, f))
+                                for f in os.listdir(app_path))
+                if not has_files:
+                    logger.info(f"Skipping (empty): {app_name}")
                     continue
+                logger.info(f"Backing up (flat files): {app_name}")
+
+            else:
+                logger.info(f"Backing up: {app_name}")
 
             app_dest = os.path.join(tmp_dir, app_name)
             logger.info(f"Collecting: {app_name}")
