@@ -27,7 +27,7 @@ DATA_DIR_NAMES = ("config", "data", "conf", "db", "appdata", "AppData")
 # Directories excluded at top level (media/downloads etc.)
 # NOTE: "data" is NOT here — it's a valid app data directory, only excluded
 # as a top-level media category directory like movies/tv, not inside apps.
-EXCLUDED_TOP_DIRS = {"media", "downloads", "download", "movies", "tv", "music", "Music", "Movies"}
+EXCLUDED_TOP_DIRS = {"media", "downloads", "download", "movies", "tv", "music", "Music", "Movies", "rclone-cache"}
 
 # Directories excluded at any depth (cache/tmp/logs etc.)
 EXCLUDED_SUBDIR_NAMES = {"cache", "tmp", "temp", "log", "logs", "transcode", "imagecache", "trickplay", "metadata"}
