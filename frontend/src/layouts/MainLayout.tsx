@@ -49,6 +49,7 @@ export default function MainLayout() {
       { key: '/tools/alist', label: t('nav.alistUpload') },
       { key: '/tools/cloudflare', label: t('nav.ddns') },
       { key: '/tools/docker-backup', label: t('nav.dockerBackup') },
+      { key: '/tools/log-cleanup', label: t('nav.logCleanup') },
     ]},
     { key: '/plugins', icon: <AppstoreOutlined />, label: t('nav.plugins') },
     { key: '/notifications', icon: <BellOutlined />, label: t('nav.notifications') },

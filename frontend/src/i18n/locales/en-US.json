@@ -11,6 +11,7 @@
     "alistUpload": "AList Upload",
     "ddns": "Cloudflare DDNS",
     "dockerBackup": "Docker Backup",
+    "logCleanup": "Log Cleanup",
     "plugins": "Plugin Center",
     "notifications": "Notifications",
     "logs": "Log Center",

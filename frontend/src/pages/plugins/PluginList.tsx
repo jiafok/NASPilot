@@ -23,6 +23,7 @@ const TOOL_PAGE_MAP: Record<string, string> = {
   alist_upload: '/tools/alist',
   cloudflare_ddns: '/tools/cloudflare',
   docker_backup: '/tools/docker-backup',
+  log_cleanup: '/tools/log-cleanup',
 };
 
 export default function PluginList() {

@@ -11,6 +11,7 @@
     "alistUpload": "AList 上传",
     "ddns": "Cloudflare DDNS",
     "dockerBackup": "Docker 备份",
+    "logCleanup": "日志清理",
     "plugins": "插件中心",
     "notifications": "通知中心",
     "logs": "日志中心",

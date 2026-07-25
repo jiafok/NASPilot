@@ -17,6 +17,7 @@ import LogCenter from './pages/system/LogCenter';
 import LogFullPage from './pages/system/LogFullPage';
 import SystemSettings from './pages/system/SystemSettings';
 import AIAssistant from './pages/AIAssistant';
+import LogCleanup from './pages/plugins/LogCleanup';
 
 function App() {
   return (
@@ -40,6 +41,7 @@ function App() {
                 <Route path="tools/alist" element={<AlistUpload />} />
                 <Route path="tools/cloudflare" element={<CloudflareDDNS />} />
                 <Route path="tools/docker-backup" element={<DockerBackup />} />
+                <Route path="tools/log-cleanup" element={<LogCleanup />} />
                 <Route path="plugins" element={<PluginList />} />
                 <Route path="notifications" element={<NotificationCenter />} />
                 <Route path="logs" element={<LogCenter />} />
