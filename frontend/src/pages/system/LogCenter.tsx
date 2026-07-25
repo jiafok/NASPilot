@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Table, Tag, Select, Input, Space, Typography, Button, Divider, Collapse } from 'antd';
-import { ReloadOutlined, SearchOutlined, ExportOutlined, HistoryOutlined } from '@ant-design/icons';
+import { Table, Tag, Select, Input, Space, Typography, Button } from 'antd';
+import { ReloadOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
 import api from '../../utils/api';
-import LogViewer from '../../components/LogViewer';
 
 const { Title } = Typography;
 
@@ -62,53 +61,37 @@ export default function LogCenter() {
 
   return (
     <div>
-      {/* ── Real-time stream ── */}
-      <Title level={4} style={{ marginBottom: 8 }}>{t('system.realtimeLogs')}</Title>
-      <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <LogViewer maxHeight={400} maxLines={8000} placeholder="{t('system.connectingLogs')}" showOpenWindow />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <Title level={4} style={{ margin: 0 }}>📋 {t('system.logs')}</Title>
+        <Space wrap>
+          <Input placeholder={t('common.search')} prefix={<SearchOutlined />} value={search}
+            onChange={(e) => setSearch(e.target.value)} style={{ width: 180 }} allowClear />
+          <Select placeholder={t('logs.level')} allowClear style={{ width: 100 }} value={level} onChange={setLevel}
+            options={['DEBUG','INFO','WARNING','ERROR','CRITICAL'].map(l=>({label:l,value:l}))} />
+          <Select placeholder={t('logs.source')} allowClear style={{ width: 140 }} value={source} onChange={setSource}
+            options={SOURCE_OPTIONS} />
+          <Button icon={<ReloadOutlined />} onClick={() => fetchLogs(true)}>{t('common.refresh')}</Button>
+          <Button icon={<ExportOutlined />}
+            onClick={() => window.open('/logs/full', '_blank', 'width=1100,height=800')}>{t('system.fullscreenLogs')}</Button>
+        </Space>
       </div>
 
-      <Divider />
-
-      {/* ── History table (collapsible) ── */}
-      <Collapse
-        items={[{
-          key: 'history',
-          label: <span><HistoryOutlined /> 历史日志 · {logs.length} 条</span>,
-          children: (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-                <Space wrap>
-                  <Input placeholder={t('common.search')} prefix={<SearchOutlined />} value={search}
-                    onChange={(e) => setSearch(e.target.value)} style={{ width: 180 }} allowClear />
-                  <Select placeholder={t('logs.level')} allowClear style={{ width: 100 }} value={level} onChange={setLevel}
-                    options={['DEBUG','INFO','WARNING','ERROR','CRITICAL'].map(l=>({label:l,value:l}))} />
-                  <Select placeholder={t('logs.source')} allowClear style={{ width: 140 }} value={source} onChange={setSource}
-                    options={SOURCE_OPTIONS} />
-                  <Button icon={<ReloadOutlined />} onClick={() => fetchLogs(true)}>{t('common.refresh')}</Button>
-                  <Button icon={<ExportOutlined />}
-                    onClick={() => window.open('/logs/full', '_blank', 'width=1100,height=800')}>{t('system.fullscreenLogs')}</Button>
-                </Space>
-              </div>
-
-              <Table
-                dataSource={logs} rowKey="id" size="small" loading={loading}
-                pagination={{ defaultPageSize: 200, showSizeChanger: true, pageSizeOptions: [50,100,200,500,1000], showTotal: (total: number) => t('common.items', { count: total }),
-                  onChange: (_page: number, pageSize: number) => { if (pageSize !== limit) setLimit(pageSize); } }}
-                columns={[
-                  { title: '时间', dataIndex: 'timestamp', width: 170,
-                    render: (t: string) => new Date(t).toLocaleString('zh-CN', { hour12: false }) },
-                  { title: '级别', dataIndex: 'level', width: 80,
-                    render: (l: string) => <Tag color={LEVEL_COLORS[l]||'default'}>{l}</Tag> },
-                  { title: '来源', dataIndex: 'source', width: 130 },
-                  { title: 'Logger', dataIndex: 'logger', width: 150, ellipsis: true },
-                  { title: t('common.message'), dataIndex: 'message', ellipsis: true,
-                    render: (m: string) => <span style={{ fontSize: 12, fontFamily: 'monospace' }}>{m}</span> },
-                ]}
-              />
-            </div>
-          ),
-        }]} />
+      <Table
+        dataSource={logs} rowKey="id" size="small" loading={loading}
+        scroll={{ x: 700 }}
+        pagination={{ defaultPageSize: 200, showSizeChanger: true, pageSizeOptions: [50,100,200,500,1000], showTotal: (total: number) => t('common.items', { count: total }),
+          onChange: (_page: number, pageSize: number) => { if (pageSize !== limit) setLimit(pageSize); } }}
+        columns={[
+          { title: t('common.time'), dataIndex: 'timestamp', width: 170,
+            render: (ts: string) => new Date(ts).toLocaleString('zh-CN', { hour12: false }) },
+          { title: t('logs.level'), dataIndex: 'level', width: 80,
+            render: (l: string) => <Tag color={LEVEL_COLORS[l]||'default'}>{l}</Tag> },
+          { title: t('logs.source'), dataIndex: 'source', width: 130 },
+          { title: 'Logger', dataIndex: 'logger', width: 150, ellipsis: true, responsive: ['md' as const] },
+          { title: t('common.message'), dataIndex: 'message', ellipsis: true,
+            render: (m: string) => <span style={{ fontSize: 12, fontFamily: 'monospace' }}>{m}</span> },
+        ]}
+      />
     </div>
   );
 }

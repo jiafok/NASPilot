@@ -12,7 +12,7 @@ class MonitorErrorBoundary extends Component<{ children: ReactNode }, { hasError
   state = { hasError: false };
   static getDerivedStateFromError() { return { hasError: true }; }
   render() {
-    if (this.state.hasError) return <Text type="secondary">资源监控加载失败，请刷新页面。</Text>;
+    if (this.state.hasError) return null;
     return this.props.children;
   }
 }
@@ -122,7 +122,7 @@ export default function Dashboard() {
         </Col>
         <Col xs={24} lg={10}>
           <Card title={t('dashboard.recentTasks')} extra={<ReloadOutlined onClick={fetchData} style={{ cursor: 'pointer' }} />}>
-            <Table dataSource={recent} rowKey="id" size="small" pagination={false} scroll={{ x: 'max-content' }}
+            <Table dataSource={recent} rowKey="id" size="small" pagination={false} scroll={{ x: 340 }}
               columns={[
                 { title: t('tasks.name'), dataIndex: 'task_name', ellipsis: true, width: 120 },
                 { title: t('common.status'), dataIndex: 'status', width: 80, render: (s: string) => <Tag color={sc(s)} icon={si(s)} style={{ margin: 0, fontSize: 11 }}>{s}</Tag> },
