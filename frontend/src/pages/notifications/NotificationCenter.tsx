@@ -83,17 +83,17 @@ export default function NotificationCenter() {
   };
 
   const columns = [
-    { title: '名称', dataIndex: 'name', key: 'name' },
+    { title: t('common.name'), dataIndex: 'name', key: 'name' },
     {
-      title: '类型', dataIndex: 'channel_type', key: 'channel_type', width: 100,
+      title: t('common.type'), dataIndex: 'channel_type', key: 'channel_type', width: 100,
       render: (t: string) => <Tag color={typeColor(t)}>{t}</Tag>,
     },
     {
-      title: '默认', dataIndex: 'is_default', key: 'is_default', width: 60,
+      title: t('notifications.default'), dataIndex: 'is_default', key: 'is_default', width: 60, align: 'center' as const,
       render: (v: boolean) => v ? <Badge status="success" text="" /> : null,
     },
     {
-      title: '启用', dataIndex: 'enabled', key: 'enabled', width: 70,
+      title: t('common.enable'), dataIndex: 'enabled', key: 'enabled', width: 70, align: 'center' as const,
       render: (enabled: boolean, record: NotificationChannel) => (
         <Switch size="small" checked={enabled} onChange={async (v) => {
           await api.put(`/notifications/channels/${record.id}`, { enabled: v });
@@ -102,7 +102,7 @@ export default function NotificationCenter() {
       ),
     },
     {
-      title: '操作', key: 'actions', width: 200,
+      title: t('common.actions'), key: 'actions', width: 200,
       render: (_: any, record: NotificationChannel) => (
         <Space>
           <Button size="small" icon={<SendOutlined />} loading={testing === record.id}
@@ -138,15 +138,15 @@ export default function NotificationCenter() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>通知中心</Title>
+        <Title level={4} style={{ margin: 0 }}>{t('notifications.title')}</Title>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchChannels}>刷新</Button>
+          <Button icon={<ReloadOutlined />} onClick={fetchChannels}>{t('common.refresh')}</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleNew}>
             {t('notifications.createChannel')}
           </Button>
         </Space>
       </div>
-      <Table dataSource={channels} columns={columns} rowKey="id" loading={loading} size="small" scroll={{ x: 'max-content' }}
+      <Table dataSource={channels} columns={columns} rowKey="id" loading={loading} size="small" scroll={{ x: 550 }}
         pagination={{ defaultPageSize: 5, showSizeChanger: true, pageSizeOptions: [5, 10, 20], showTotal: (n: number) => t('common.items', { count: n }) }} />
 
       <Modal

@@ -105,7 +105,7 @@ export default function Dashboard() {
         <Col xs={24} lg={14}>
           <Card title={<Space><BarChartOutlined /> {t('dashboard.taskStats')}</Space>}
             extra={<Space size="small"><Text type="secondary">{t('dashboard.totalExecutions', { count: totalExecs })}</Text><Text style={{ color: '#52c41a' }}>{totalSuccess} {t('common.success')}</Text><Text style={{ color: '#ff4d4f' }}>{totalFailed} {t('common.failed')}</Text></Space>}>
-            <Table dataSource={summary} rowKey="task_name" size="small" pagination={false} scroll={{ x: 'max-content' }}
+            <Table dataSource={summary} rowKey="task_name" size="small" pagination={false} scroll={{ x: 700 }}
               columns={[
                 { title: t('tasks.title'), dataIndex: 'task_name', ellipsis: true },
                 { title: t('dashboard.totalRuns'), dataIndex: 'total', width: 70, align: 'center' as const },
