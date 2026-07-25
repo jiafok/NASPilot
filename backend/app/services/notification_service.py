@@ -146,6 +146,11 @@ async def send_notification(
         ok, err = await sender(channel.config, title, message)
         record.status = "sent" if ok else "failed"
         record.error_message = err
+        # Log success/failure
+        if ok:
+            logger.info("飞书通知已发送: %s — %s", title, message[:200])
+        else:
+            logger.warning("飞书通知失败: %s — %s (error: %s)", title, message[:200], err)
     except Exception as e:
         record.status = "failed"
         record.error_message = str(e)
@@ -166,6 +171,7 @@ async def notify_default_channels(
         select(NotificationChannel).where(NotificationChannel.is_default.is_(True), NotificationChannel.enabled.is_(True))
     )
     channels = result.scalars().all()
+    logger.info("通知广播: %s → %s (发送到 %d 个渠道)", title, message[:200], len(channels))
     records = []
     for ch in channels:
         rec = await send_notification(db, ch, title, message, level, event_type)

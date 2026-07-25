@@ -69,12 +69,13 @@ class PluginBase(ABC):
         Plugins call this instead of configuring their own webhook.
         Configure channels once in Notification Center UI.
         """
-        try:
-            from app.core.database import async_session_factory
-            from app.models.notification import NotificationChannel
-            from app.services.notification_service import send_notification
-            from sqlalchemy import select
+        from app.core.database import async_session_factory
+        from app.models.notification import NotificationChannel
+        from app.services.notification_service import send_notification
+        from sqlalchemy import select
 
+        notif_logger = logging.getLogger("naspilot.plugins")
+        try:
             async with async_session_factory() as db:
                 result = await db.execute(
                     select(NotificationChannel).where(
@@ -84,13 +85,14 @@ class PluginBase(ABC):
                 )
                 channels = result.scalars().all()
                 if not channels:
+                    notif_logger.info("通知跳过: 无默认渠道 — %s", title)
                     return False
+                notif_logger.info("插件通知: %s — %s", title, message[:200])
                 for ch in channels:
                     await send_notification(db, ch, title, message, level, event_type="plugin")
                 return True
         except Exception:
-            logger = logging.getLogger("naspilot.plugins")
-            logger.exception("Failed to send plugin notification")
+            notif_logger.exception("Failed to send plugin notification")
             return False
 
 

@@ -17,7 +17,7 @@ from app.schemas.plugin import PluginInstanceCreate, PluginInstanceOut, PluginIn
 from app.plugins.registry import registry
 from app.services.notification_service import notify_default_channels
 
-logger = logging.getLogger("naspilot")
+logger = logging.getLogger("naspilot.api.plugins")
 
 router = APIRouter(prefix="/plugins", tags=["plugins"])
 
@@ -199,6 +199,10 @@ async def update_instance(
             setattr(inst, k, v)
     await db.commit()
     await db.refresh(inst)
+
+    # Log config change
+    changed_keys = [k for k in body.model_dump(exclude_unset=True).keys()]
+    logger.info("插件配置已更新: plugin=%s instance=%d keys=%s", inst.plugin_id, inst.id, changed_keys)
 
     # Reschedule plugin if config contains schedule settings
     from app.scheduler.scheduler_service import get_scheduler, upsert_plugin_schedule
