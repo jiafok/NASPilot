@@ -161,3 +161,33 @@ async def list_executions(
         .offset(offset)
     )
     return result.scalars().all()
+
+
+@router.get("/{task_id}/log", summary="Read task unified log")
+async def read_task_log(
+    task_id: int,
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    tail: int = Query(200, ge=10, le=2000, description="Number of lines from end"),
+):
+    """Read the unified log file for a task (e.g. /app/logs/PT_RSS.log)."""
+    result = await db.execute(select(Task).where(Task.id == task_id))
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    from pathlib import Path
+    log_file = Path("/app/logs") / f"{task.name.replace(' ', '_')}.log"
+    if not log_file.exists():
+        return {"task_id": task_id, "task_name": task.name, "lines": [], "message": "No log file yet"}
+
+    content = log_file.read_text(encoding="utf-8", errors="replace")
+    all_lines = content.split("\n")
+    last_n = all_lines[-tail:] if len(all_lines) > tail else all_lines
+    return {
+        "task_id": task_id,
+        "task_name": task.name,
+        "log_path": str(log_file),
+        "total_lines": len(all_lines),
+        "lines": last_n,
+    }

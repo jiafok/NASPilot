@@ -112,8 +112,15 @@ async def run_task(db: AsyncSession, task: Task, triggered_by: str = "manual") -
             execution.stdout = stdout_b.decode("utf-8", errors="replace")[:MAX_STDOUT]
             execution.stderr = stderr_b.decode("utf-8", errors="replace")[:MAX_STDERR]
             execution.status = "success" if execution.exit_code == 0 else "failed"
-            if execution.exit_code != 0 and execution.stderr:
-                execution.error_message = execution.stderr[:500]
+            if execution.exit_code != 0:
+                # Build a useful error summary: stderr first, then stdout tail
+                err_parts = []
+                if execution.stderr and execution.stderr.strip():
+                    err_parts.append(execution.stderr.strip())
+                if execution.stdout and execution.stdout.strip():
+                    stdout_tail = "\n".join(execution.stdout.strip().split("\n")[-20:])
+                    err_parts.append(f"[stdout tail]\n{stdout_tail}")
+                execution.error_message = "\n".join(err_parts)[:2000]
 
         # Write unified log
         stdout_s = execution.stdout or ""
@@ -160,12 +167,22 @@ async def _notify_failure(task: Task, execution: TaskExecution) -> None:
         channels = result.scalars().all()
         if not channels:
             return
+
+        # Build a compact but informative failure message
+        error_summary = execution.error_message or "No output captured"
+        # Truncate for notification (keep last 800 chars — most relevant)
+        if len(error_summary) > 800:
+            error_summary = "...(truncated)\n" + error_summary[-800:]
+
+        log_path = f"/app/logs/{task.name.replace(' ', '_')}.log"
         msg = (
             f"❌ Task Failed: {task.name}\n"
-            f"Status: {execution.status}\n"
-            f"Exit Code: {execution.exit_code}\n"
-            f"Error: {execution.error_message or 'N/A'}\n"
-            f"Time: {execution.end_time}"
+            f"Status: {execution.status}  |  Exit Code: {execution.exit_code}\n"
+            f"Time: {execution.end_time}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{error_summary}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"Full log: {log_path}"
         )
         for ch in channels:
             await send_notification(

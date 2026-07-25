@@ -3,11 +3,11 @@ import {
   Table, Button, Modal, Form, Input, Select, Switch, Space, Tag,
   Popconfirm, message, Typography, InputNumber, Tooltip, Alert,
 } from 'antd';
-import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, ReloadOutlined, FileTextOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import api from '../../utils/api';
 
-const { Title } = Typography;
+const { Title, Paragraph } = Typography;
 const { TextArea } = Input;
 
 interface Task {
@@ -24,6 +24,12 @@ export default function TaskList() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [form] = Form.useForm();
+
+  // Log viewer state
+  const [logModalOpen, setLogModalOpen] = useState(false);
+  const [logTaskName, setLogTaskName] = useState('');
+  const [logLines, setLogLines] = useState<string[]>([]);
+  const [logLoading, setLogLoading] = useState(false);
 
   const fetchTasks = useCallback(async () => { setLoading(true); try { const res = await api.get('/tasks'); setTasks(res.data); } catch { message.error(t('common.failed')); } finally { setLoading(false); } }, [t]);
 
@@ -49,14 +55,28 @@ export default function TaskList() {
     { title: t('tasks.timeout'), dataIndex: 'timeout', key: 'timeout', width: 70, render: (v: number) => `${v}s` },
     { title: t('common.status'), dataIndex: 'enabled', key: 'enabled', width: 70, render: (enabled: boolean, r: Task) => <Switch size="small" checked={enabled} onChange={(v) => handleToggle(r.id, v)} /> },
     { title: t('tasks.lastRun'), dataIndex: 'last_run_at', key: 'last_run_at', width: 150, render: (v: string|null) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
-    { title: t('common.actions'), key: 'actions', width: 170, render: (_: any, r: Task) => (
+    { title: t('common.actions'), key: 'actions', width: 210, render: (_: any, r: Task) => (
       <Space size="small">
+        <Tooltip title="查看日志"><Button size="small" icon={<FileTextOutlined />} onClick={() => handleViewLog(r)} /></Tooltip>
         <Tooltip title={t('tasks.runNow')}><Button size="small" icon={<PlayCircleOutlined />} onClick={() => handleRun(r.id)} /></Tooltip>
         <Button size="small" onClick={() => { setEditingTask(r); form.setFieldsValue(r); setModalOpen(true); }}>{t('common.edit')}</Button>
         <Popconfirm title={t('tasks.deleteConfirm')} onConfirm={() => handleDelete(r.id)}><Button size="small" danger icon={<DeleteOutlined />} /></Popconfirm>
       </Space>
     )},
   ];
+
+  const handleViewLog = async (task: Task) => {
+    setLogTaskName(task.name);
+    setLogModalOpen(true);
+    setLogLoading(true);
+    try {
+      const res = await api.get(`/tasks/${task.id}/log`, { params: { tail: 300 } });
+      setLogLines(res.data.lines || []);
+    } catch {
+      message.error('无法加载日志');
+    }
+    finally { setLogLoading(false); }
+  };
 
   return (
     <div>
@@ -119,6 +139,39 @@ export default function TaskList() {
           <Alert type="info" showIcon style={{ fontSize: 12 }}
             message="脚本放在 /scripts 目录下（容器内路径），通过 docker-compose volumes 挂载。输出日志保存在 /app/logs/{任务名}.log。" />
         </Form>
+      </Modal>
+
+      {/* Log Viewer Modal */}
+      <Modal
+        title={`📋 ${logTaskName} — 执行日志`}
+        open={logModalOpen}
+        onCancel={() => { setLogModalOpen(false); setLogLines([]); }}
+        footer={[
+          <Button key="refresh" icon={<ReloadOutlined />} loading={logLoading}
+            onClick={() => {
+              const task = tasks.find(t => t.name === logTaskName);
+              if (task) handleViewLog(task);
+            }}>刷新</Button>,
+          <Button key="close" onClick={() => { setLogModalOpen(false); setLogLines([]); }}>关闭</Button>,
+        ]}
+        width="90%"
+        style={{ top: 20 }}
+      >
+        {logLoading ? (
+          <Paragraph style={{ textAlign: 'center', padding: 40 }}>加载中...</Paragraph>
+        ) : logLines.length === 0 ? (
+          <Paragraph type="secondary" style={{ textAlign: 'center', padding: 40 }}>
+            暂无日志 — 任务可能尚未执行，或日志文件还未生成。
+          </Paragraph>
+        ) : (
+          <pre style={{
+            maxHeight: '65vh', overflow: 'auto', background: '#1e1e1e', color: '#d4d4d4',
+            padding: 12, borderRadius: 6, fontSize: 12, fontFamily: 'Consolas, monospace',
+            whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0, lineHeight: 1.6,
+          }}>
+            {logLines.join('\n')}
+          </pre>
+        )}
       </Modal>
     </div>
   );
