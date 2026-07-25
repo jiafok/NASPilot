@@ -18,6 +18,8 @@ const FIELDS: PluginField[] = [
   { key: 'connect_timeout', label: '连接超时(秒)', type: 'number', default: 10 },
   { key: 'read_timeout', label: '读取超时(秒)', type: 'number', default: 120 },
   { key: 'verify_max_workers', label: '并发上传数', type: 'number', default: 4, help: '同时上传的文件数，默认4' },
+  { key: 'emby_host', label: 'Emby 地址', type: 'string', placeholder: 'http://192.168.0.115:8098', help: '可选，上传完成后通知 Emby 刷新库' },
+  { key: 'emby_api_key', label: 'Emby API Key', type: 'password', placeholder: '留空则不启用 Emby 刷新' },
 ];
 
 export default function AlistUpload() {

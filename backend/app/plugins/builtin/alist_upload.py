@@ -111,6 +111,29 @@ def _collect_files(scan_dirs: list[str], extensions: list[str]) -> list[str]:
     return results
 
 
+def _refresh_emby(config: dict[str, Any]) -> bool:
+    """Notify Emby to refresh its library. Mirrors original refresh_emby()."""
+    emby_host = str(config.get("emby_host", "")).strip().rstrip("/")
+    emby_key = str(config.get("emby_api_key", "")).strip()
+    if not emby_host or not emby_key:
+        logger.info("Emby refresh skipped — not configured")
+        return False
+    try:
+        import httpx as _httpx
+        r = _httpx.post(
+            f"{emby_host}/emby/Library/Refresh",
+            headers={"X-Emby-Token": emby_key}, timeout=10,
+        )
+        if r.status_code == 204:
+            logger.info("Emby 库刷新请求已发送")
+            return True
+        logger.warning("Emby 刷新失败: HTTP %d", r.status_code)
+        return False
+    except Exception as exc:
+        logger.warning("Emby 刷新异常: %s", exc)
+        return False
+
+
 class AListError(Exception):
     pass
 
@@ -246,14 +269,11 @@ class AListClient:
         task_id = (task or {}).get("id") if task else None
         wait_secs, tries = self._adaptive_window(expected_size)
 
-        # ── Phase 0: Track task to terminal state (skip on small files / no task) ──
+        # ── Phase 0: Track task to terminal state ──
         if task_id:
-            # Use a shorter window for task tracking — FS verify catches the rest
-            task_wait = min(wait_secs, 600)  # max 10 min for task tracking
-            task_tries = max(5, task_wait // 10)
             logger.info("🔎 追踪任务: %s (%s), 最长等待 %ds",
-                       task_id, os.path.basename(remote_path), task_wait)
-            end_ts = time.time() + task_wait
+                       task_id, os.path.basename(remote_path), wait_secs)
+            end_ts = time.time() + wait_secs
             while time.time() < end_ts:
                 info = await self.get_task_state(task_id)
                 if info:
@@ -276,7 +296,7 @@ class AListClient:
                        (isinstance(st, str) and st in ("failed", "error", "canceled", "cancelled", "stopped")) or \
                        error_str:
                         return False, f"任务失败: state={st}, error={error_str[:100]}"
-                await asyncio.sleep(max(2, min(10, task_wait / max(1, task_tries))))
+                await asyncio.sleep(max(2, min(30, wait_secs / max(1, tries))))
 
         # ── Phase 1: FS verification ──
         # Cap tries at 30 per file — AList usually reflects uploads within seconds
@@ -412,6 +432,8 @@ class AListUploadPlugin(PluginBase):
             "verify_wait_secs": 7200,     # base wait window (seconds)
             "verify_per_gb_addon": 1000,  # additional seconds per GB
             "verify_wait_cap_secs": 18000, # max wait cap (seconds, 5h)
+            "emby_host": "",             # optional Emby server URL
+            "emby_api_key": "",          # optional Emby API key
         }
 
     def get_config_schema(self) -> dict[str, Any]:
@@ -429,6 +451,8 @@ class AListUploadPlugin(PluginBase):
                 "max_file_size_gb": {"type": "number", "title": "文件大小上限(GB)，0=不限"},
                 "min_free_space_gb": {"type": "number", "title": "远程最小剩余空间(GB)，0=不检查"},
                 "verify_max_workers": {"type": "integer", "title": "最大并发上传数"},
+                "emby_host": {"type": "string", "title": "Emby 地址（可选）"},
+                "emby_api_key": {"type": "string", "title": "Emby API Key（可选）"},
             },
         }
 
@@ -597,5 +621,9 @@ class AListUploadPlugin(PluginBase):
                                          skipped_too_large=skipped_too_large),
             level="info" if counts["failed"] == 0 else "warn",
         )
+
+        # ── Emby refresh (if configured and uploads happened) ──
+        if counts["uploaded"] > 0:
+            asyncio.ensure_future(asyncio.to_thread(_refresh_emby, cfg))
 
         return {"status": "ok", **counts, "results": results[-50:]}
