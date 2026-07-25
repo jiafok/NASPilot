@@ -699,6 +699,23 @@ class PTRSSPlugin(PluginBase):
             _migrate_old_status(rec)
             rec.setdefault("rss_missing_count", 0)
 
+        # ── GC: purge evicted entries older than 15 days ──
+        gc_days = int(self.config.get("gc", {}).get("evicted_days", 15))
+        cutoff = utc_now() - timedelta(days=gc_days)
+        purged = 0
+        for tid, rec in list(processed.items()):
+            if rec.get("status") in (STATUS_EVICTED, STATUS_EXPIRED_FREE):
+                et = rec.get("evicted_time") or rec.get("completed_time")
+                if et:
+                    try:
+                        if datetime.fromisoformat(et) < cutoff:
+                            del processed[tid]
+                            purged += 1
+                    except (ValueError, TypeError):
+                        pass
+        if purged:
+            logger.info("Processed GC: purged %d old records (≥%d days)", purged, gc_days)
+
         notify_added: list[str] = []
         notify_evicted: list[str] = []
         notify_failed: list[str] = []
