@@ -165,7 +165,10 @@
     "aiApiKey": "AI API Key", "aiApiKeyHelp": "OpenAI / 兼容 API 的密钥",
     "aiBaseUrl": "API Base URL", "aiBaseUrlHelp": "默认 https://api.openai.com/v1",
     "aiModel": "Model", "aiModelHelp": "默认 gpt-4o",
-    "aiConfigDesc": "配置 AI 助手的 API 密钥。支持任何兼容 OpenAI 接口的服务。"
+    "aiConfigDesc": "配置 AI 助手的 API 密钥。支持任何兼容 OpenAI 接口的服务。",
+    "resourceMonitor": "资源监控", "diskPartitions": "磁盘分区",
+    "mount": "挂载点", "device": "设备", "size": "容量",
+    "used": "已用", "available": "可用", "usage": "使用率"
   },
   "ai": {
     "title": "AI 运维助手", "placeholder": "输入你的运维问题",

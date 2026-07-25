@@ -35,6 +35,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Start scheduler
     await start_scheduler()
 
+    # Start real-time metrics collector
+    from app.core.metrics import start_collector
+    start_collector()
+
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────

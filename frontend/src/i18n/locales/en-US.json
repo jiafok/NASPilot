@@ -92,7 +92,10 @@
     "instances": "instance(s)",
     "viewLogs": "View Logs",
     "duration": "Duration",
-    "languages": { "zh-CN": "中文", "en-US": "English" },
+    "languages": {
+      "zh-CN": "中文",
+      "en-US": "English"
+    },
     "username": "Username",
     "password": "Password"
   },
@@ -341,7 +344,15 @@
     "aiBaseUrlHelp": "Default: https://api.openai.com/v1",
     "aiModel": "Model",
     "aiModelHelp": "Default: gpt-4o",
-    "aiConfigDesc": "Configure API key for AI assistant. Supports any OpenAI-compatible service."
+    "aiConfigDesc": "Configure API key for AI assistant. Supports any OpenAI-compatible service.",
+    "resourceMonitor": "Resource Monitor",
+    "diskPartitions": "Disk Partitions",
+    "mount": "Mount",
+    "device": "Device",
+    "size": "Size",
+    "used": "Used",
+    "available": "Avail",
+    "usage": "Usage"
   },
   "ai": {
     "title": "AI Assistant",
@@ -374,5 +385,8 @@
     "allLevels": "All Levels",
     "allSources": "All Sources"
   },
-  "footer": { "version": "Version", "license": "MIT License" }
+  "footer": {
+    "version": "Version",
+    "license": "MIT License"
+  }
 }

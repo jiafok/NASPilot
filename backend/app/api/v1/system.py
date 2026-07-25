@@ -77,6 +77,26 @@ async def stats(user: CurrentUser):
     return get_system_stats()
 
 
+# ── Real-time metrics ────────────────────────────────────────────────────
+
+from app.core.metrics import get_current, get_history
+
+
+@router.get("/metrics/current", summary="Current metrics snapshot")
+async def metrics_current(user: CurrentUser):
+    """Latest metrics snapshot including disk partitions."""
+    return get_current()
+
+
+@router.get("/metrics/history", summary="Time-series metrics history")
+async def metrics_history(
+    user: CurrentUser,
+    count: int = Query(300, ge=10, le=600, description="Number of samples (1 per second)"),
+):
+    """Return time-series data for real-time charts (CPU, memory, net, disk IO)."""
+    return get_history(count)
+
+
 # ── Logs (file-based, parsed into structured records) ────────────────────
 
 

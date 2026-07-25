@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Row, Col, Card, Statistic, Progress, Table, Tag, Typography, Spin, Space } from 'antd';
+import { Row, Col, Card, Statistic, Progress, Table, Tag, Typography, Spin, Space, Divider } from 'antd';
 import { CloudServerOutlined, ThunderboltOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, ReloadOutlined, BarChartOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import api from '../utils/api';
+import ResourceMonitor from '../components/ResourceMonitor';
 
 const { Title, Text } = Typography;
 
@@ -84,6 +85,10 @@ export default function Dashboard() {
         ))}
       </Row>
 
+      {/* ── Real-time Resource Monitor ── */}
+      <Divider />
+      <ResourceMonitor />
+
       {/* ── Task Summary ── */}
       <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
         <Col xs={24} lg={14}>
@@ -102,6 +107,25 @@ export default function Dashboard() {
                 { title: t('tasks.lastRun'), dataIndex: 'last_run', width: 160,
                   render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
               ]} />
+          </Card>
+        </Col>
+        <Col xs={24} lg={10}>
+          <Card title={t('dashboard.recentTasks')} extra={<ReloadOutlined onClick={fetchData} style={{ cursor: 'pointer' }} />}>
+            <Table dataSource={recent} rowKey="id" size="small" pagination={false}
+              columns={[
+                { title: t('tasks.name'), dataIndex: 'task_name', ellipsis: true, width: 120 },
+                { title: t('common.status'), dataIndex: 'status', width: 80, render: (s: string) => <Tag color={sc(s)} icon={si(s)} style={{ margin: 0, fontSize: 11 }}>{s}</Tag> },
+                { title: t('common.duration'), dataIndex: 'duration_ms', width: 60, render: (ms: number|null) => ms ? `${(ms/1000).toFixed(1)}s` : '-' },
+              ]} />
+          </Card>
+        </Col>
+      </Row>
+
+      {/* ── Resource Monitor ── */}
+      <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
+        <Col xs={24} lg={14}>
+          <Card title={t('dashboard.resourceMonitor')}>
+            <ResourceMonitor />
           </Card>
         </Col>
         <Col xs={24} lg={10}>
