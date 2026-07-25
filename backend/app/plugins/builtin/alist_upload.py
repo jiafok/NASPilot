@@ -246,11 +246,14 @@ class AListClient:
         task_id = (task or {}).get("id") if task else None
         wait_secs, tries = self._adaptive_window(expected_size)
 
-        # ── Phase 0: Track task to terminal state ──
+        # ── Phase 0: Track task to terminal state (skip on small files / no task) ──
         if task_id:
+            # Use a shorter window for task tracking — FS verify catches the rest
+            task_wait = min(wait_secs, 600)  # max 10 min for task tracking
+            task_tries = max(5, task_wait // 10)
             logger.info("🔎 追踪任务: %s (%s), 最长等待 %ds",
-                       task_id, os.path.basename(remote_path), wait_secs)
-            end_ts = time.time() + wait_secs
+                       task_id, os.path.basename(remote_path), task_wait)
+            end_ts = time.time() + task_wait
             while time.time() < end_ts:
                 info = await self.get_task_state(task_id)
                 if info:
@@ -273,13 +276,15 @@ class AListClient:
                        (isinstance(st, str) and st in ("failed", "error", "canceled", "cancelled", "stopped")) or \
                        error_str:
                         return False, f"任务失败: state={st}, error={error_str[:100]}"
-                await asyncio.sleep(max(2, min(15, wait_secs / max(1, tries))))
+                await asyncio.sleep(max(2, min(10, task_wait / max(1, task_tries))))
 
         # ── Phase 1: FS verification ──
-        interval = max(2.0, wait_secs / max(1, tries))
+        # Cap tries at 30 per file — AList usually reflects uploads within seconds
+        fs_tries = min(tries, 30)
+        interval = max(2.0, min(30, (wait_secs // 4) / max(1, fs_tries)))
         name = os.path.basename(remote_path)
         parent = os.path.dirname(remote_path)
-        for _ in range(tries):
+        for _ in range(fs_tries):
             try:
                 resp = await self._client.post(
                     f"{self.base}/api/fs/list",
@@ -299,7 +304,7 @@ class AListClient:
             if info and info.get("size") == expected_size:
                 return True, f"校验通过(direct): {name} ({_fmt_size(expected_size)})"
             await asyncio.sleep(interval)
-        return False, f"校验超时: {name} (已等待 {wait_secs}s/{tries}次)"
+        return False, f"校验超时: {name} (已查 {fs_tries} 次, 间隔 {int(interval)}s)"
 
     async def upload_put(self, local_path: str, remote_path: str,
                      max_retries: int = 3) -> tuple[str, str, Any]:
@@ -528,10 +533,13 @@ class AListUploadPlugin(PluginBase):
                         counts["failed"] += 1
                         notify_details.append({"name": fn, "size_mb": round(sz/1048576,1), "status": "fail", "error": msg[:100]})
                     else:
-                        # pending — verify via task tracking + FS
+                        # pending — verify concurrently
                         logger.info("[UPLOADED] %s — pending verification", fn)
-                        async def _verify(_sz=sz, _fn=fn, _lp=lp, _rp=rp, _rl=rl, _task=task_info):
-                            verified, msg_v = await client.verify_task(_rp, _sz, task=_task)
+                        async def _verify(_sz=sz, _fn=fn, _lp=lp, _rp=rp, _rl=rl):
+                            try:
+                                verified, msg_v = await client.verify_task(_rp, _sz, task=task_info)
+                            except Exception as exc:
+                                verified, msg_v = False, f"校验异常: {exc}"
                             status_v = "ok" if verified else "fail"
                             logger.info("[%s] %s — %s", status_v.upper(), _fn, msg_v)
                             results.append({"file": _rl, "status": status_v, "message": msg_v, "time": _now_iso()})
