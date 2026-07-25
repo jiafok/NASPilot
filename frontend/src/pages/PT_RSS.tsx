@@ -27,7 +27,8 @@ const FIELDS: PluginField[] = [
   { key: 'rss_missing_threshold', label: 'RSS Missing Threshold', type: 'number', default: 2, help: '连续多少次不在 RSS 中后移除' },
   { key: 'enable_rss_eviction', label: 'Enable RSS Eviction', type: 'boolean', default: true },
   { key: 'gc', label: 'Processed GC', type: 'object', fields: [
-    { key: 'evicted_days', label: 'Evicted Retention (days)', type: 'number', default: 15, help: '已驱逐记录的保留天数，超时自动清除（completed/expired_free 不清理）' },
+    { key: 'evicted_days', label: 'Evicted Retention (days)', type: 'number', default: 15, help: '已驱逐记录保留天数，超时自动清除' },
+    { key: 'expired_days', label: 'Expired Free Retention (days)', type: 'number', default: 5, help: '免费过期记录保留天数，超时自动清除' },
   ]},
 ];
 

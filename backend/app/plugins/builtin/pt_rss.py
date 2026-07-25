@@ -549,6 +549,7 @@ class PTRSSPlugin(PluginBase):
                     "type": "object",
                     "properties": {
                         "evicted_days": {"type": "number", "title": "已驱逐记录保留天数"},
+                        "expired_days": {"type": "number", "title": "免费过期记录保留天数"},
                     },
                 },
             },
@@ -827,24 +828,35 @@ class PTRSSPlugin(PluginBase):
             _migrate_old_status(rec)
             rec.setdefault("rss_missing_count", 0)
 
-        # ── GC: purge evicted entries older than configured days ──
-        # Only evicted is purged — completed/expired_free stay for reference
-        gc_days = int(self.config.get("gc", {}).get("evicted_days", 15))
-        cutoff = utc_now() - timedelta(days=gc_days)
+        # ── GC: purge old evicted & expired_free entries ──
+        evicted_days = int(self.config.get("gc", {}).get("evicted_days", 15))
+        expired_days = int(self.config.get("gc", {}).get("expired_days", 5))
+        now = utc_now()
         purged = 0
         for tid, rec in list(processed.items()):
-            if rec.get("status") != STATUS_EVICTED:
-                continue
-            et = rec.get("evicted_time")
-            if et:
-                try:
-                    if datetime.fromisoformat(et) < cutoff:
-                        del processed[tid]
-                        purged += 1
-                except (ValueError, TypeError):
-                    pass
+            should_purge = False
+            status = rec.get("status", "")
+            if status == STATUS_EVICTED:
+                et = rec.get("evicted_time")
+                if et:
+                    try:
+                        if datetime.fromisoformat(et) < now - timedelta(days=evicted_days):
+                            should_purge = True
+                    except (ValueError, TypeError):
+                        pass
+            elif status == STATUS_EXPIRED_FREE:
+                et = rec.get("expired_time") or rec.get("first_seen")
+                if et:
+                    try:
+                        if datetime.fromisoformat(et) < now - timedelta(days=expired_days):
+                            should_purge = True
+                    except (ValueError, TypeError):
+                        pass
+            if should_purge:
+                del processed[tid]
+                purged += 1
         if purged:
-            logger.info("Processed GC: purged %d evicted records (≥%d days)", purged, gc_days)
+            logger.info("Processed GC: purged %d old records (evicted≥%dd, expired_free≥%dd)", purged, evicted_days, expired_days)
 
         notify_added: list[str] = []
         notify_evicted: list[str] = []
