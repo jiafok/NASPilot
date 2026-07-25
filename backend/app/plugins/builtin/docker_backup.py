@@ -1,6 +1,6 @@
 """Docker App Backup Plugin — exact port of backup_docker_all_core.sh.
 
-Scans /volume1/docker/ for app directories (those containing config/data/conf/db/vfs).
+Scans /volume1/docker/ for app directories (those containing config/data/conf/db).
 Excludes media/downloads/cache/logs/transcode/imagecache/trickplay/metadata.
 Archives everything to a single .tgz.
 """
@@ -22,7 +22,7 @@ logger = logging.getLogger("naspilot.plugin.docker_backup")
 LOCAL_TZ = timezone(timedelta(hours=8))
 
 # Directories that mark an "app" in /volume1/docker/
-DATA_DIR_NAMES = ("config", "data", "conf", "db", "appdata", "AppData", "vfs")
+DATA_DIR_NAMES = ("config", "data", "conf", "db", "appdata", "AppData")
 
 # Directories excluded at top level (media/downloads etc.)
 # NOTE: "data" is NOT here — it's a valid app data directory, only excluded
