@@ -608,16 +608,21 @@ class PTRSSPlugin(PluginBase):
         try:
             start_space = await qb.free_space_gb()
         except Exception as exc:
-            logger.warning("Space check failed: %s — skipping cleanup", exc)
+            logger.warning("空间检查失败: %s — 跳过清理", exc)
             return {"ok": True, "deleted": [], "start_space": 0.0, "end_space": 0.0}
 
         # Only act on direct qB API response — never use local/cached fallback for deletion
         if not qb.space_reliable() or qb.last_space_source() != "qb_api":
-            logger.info("Space data unreliable (source=%s) — skipping cleanup", qb.last_space_source())
+            logger.info("空间数据不可靠 (source=%s) — 跳过清理，当前=%.1f GB, 目标=%.1f GB",
+                       qb.last_space_source(), start_space, target_free_gb)
             return {"ok": True, "deleted": [], "start_space": start_space, "end_space": start_space}
 
         if start_space >= target_free_gb:
+            logger.info("空间充足: %.1f GB ≥ %.1f GB (目标) — 无需清理", start_space, target_free_gb)
             return {"ok": True, "deleted": [], "start_space": start_space, "end_space": start_space}
+
+        logger.warning("空间不足: %.1f GB < %.1f GB (目标), 差额 %.1f GB — 开始清理",
+                    start_space, target_free_gb, target_free_gb - start_space)
 
         deleted: list[dict[str, Any]] = []
         needed = target_free_gb - start_space
@@ -649,6 +654,8 @@ class PTRSSPlugin(PluginBase):
             [t for t in torrents if t.get("progress", 0) < 1 and t.get("added_on")],
             key=lambda t: float(t.get("added_on", 0))
         )
+        stuck_eligible = [t for t in stuck if days_since(float(t.get("added_on", 0))) >= stuck_days]
+        logger.info("第1轮清理: %d 个卡死候选 (≥%d天), 需释放 %.1f GB", len(stuck_eligible), stuck_days, needed)
         for torrent in stuck:
             if days_since(float(torrent.get("added_on", 0))) >= stuck_days:
                 await delete_candidate(torrent, "卡死下载")
@@ -661,6 +668,7 @@ class PTRSSPlugin(PluginBase):
                 [t for t in torrents if t.get("progress", 0) == 1 and float(t.get("seeding_time", 0)) / 86400 >= seed_days],
                 key=lambda t: float(t.get("seeding_time", 0)), reverse=True
             )
+            logger.info("第2轮清理: %d 个做种候选 (≥%d天), 还需 %.1f GB", len(seeded), seed_days, needed - freed)
             for torrent in seeded:
                 await delete_candidate(torrent, "做种超时")
                 if freed >= needed:
@@ -755,9 +763,11 @@ class PTRSSPlugin(PluginBase):
                 daily["stats"]["deleted_space"] = daily["stats"].get("deleted_space", 0) + 1
 
             # ── 4. Add new downloads (after eviction + cleanup freed space) ──
-            # Pre-check space: only block downloads if qB API returns reliable zero space
             pre_space = await qb.free_space_gb()
             space_unreliable = not qb.space_reliable()
+            logger.info("下载前空间: %.1f GB, 来源=%s, %s",
+                       pre_space, qb.last_space_source(),
+                       "不可靠，直接下载" if space_unreliable else ("可用" if pre_space > 0.1 else "极低，将跳过下载"))
 
             for item in rss_items:
                 if max_active and added >= max_active:
