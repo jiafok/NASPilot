@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.models import Task, TaskExecution
@@ -170,14 +171,13 @@ async def read_task_log(
     db: Annotated[AsyncSession, Depends(get_db)],
     tail: int = Query(200, ge=10, le=2000, description="Number of lines from end"),
 ):
-    """Read the unified log file for a task (e.g. /app/logs/PT_RSS.log)."""
+    """Read the unified log file for a task from the configured log directory."""
     result = await db.execute(select(Task).where(Task.id == task_id))
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    from pathlib import Path
-    log_file = Path("/app/logs") / f"{task.name.replace(' ', '_')}.log"
+    log_file = settings.LOG_DIR / f"{task.name.replace(' ', '_')}.log"
     if not log_file.exists():
         return {"task_id": task_id, "task_name": task.name, "lines": [], "message": "No log file yet"}
 

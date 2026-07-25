@@ -17,11 +17,12 @@ import shutil
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models import Task, TaskExecution
 
 logger = logging.getLogger("naspilot.task")
 
-LOG_DIR = Path("/app/logs")
+LOG_DIR = settings.LOG_DIR
 MAX_STDOUT = 65536
 MAX_STDERR = 65536
 
@@ -174,7 +175,7 @@ async def _notify_failure(task: Task, execution: TaskExecution) -> None:
         if len(error_summary) > 800:
             error_summary = "...(truncated)\n" + error_summary[-800:]
 
-        log_path = f"/app/logs/{task.name.replace(' ', '_')}.log"
+        log_path = str(LOG_DIR / f"{task.name.replace(' ', '_')}.log")
         msg = (
             f"❌ Task Failed: {task.name}\n"
             f"Status: {execution.status}  |  Exit Code: {execution.exit_code}\n"
