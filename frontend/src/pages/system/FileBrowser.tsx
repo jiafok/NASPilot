@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Breadcrumb, Typography, Spin, Input, Modal, Space, message } from 'antd';
-import { FolderOutlined, FileOutlined, HomeOutlined, ReloadOutlined, EyeOutlined, DownloadOutlined, ArrowLeftOutlined } from '@ant-design/icons';
-import api from '../utils/api';
+import { Table, Button, Breadcrumb, Typography, Spin, Modal, Space, message } from 'antd';
+import { FolderOutlined, FileOutlined, HomeOutlined, ReloadOutlined, DownloadOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import api from '../../utils/api';
+import { getToken } from '../../utils/auth';
 
 const { Title, Text } = Typography;
 
@@ -64,7 +65,7 @@ export default function FileBrowser() {
     if (!entry.is_text) {
       // Download non-text files
       const filePath = path === '/' ? `/${entry.name}` : `${path}/${entry.name}`;
-      const token = (await import('../utils/auth')).getToken();
+      const token = getToken();
       window.open(`/api/v1/files/download?path=${encodeURIComponent(filePath)}&token=${token}`, '_blank');
       return;
     }
@@ -152,7 +153,7 @@ export default function FileBrowser() {
           <Button key="download" icon={<DownloadOutlined />}
             onClick={() => {
               const filePath = path === '/' ? `/${viewFile}` : `${path}/${viewFile}`;
-              const token = localStorage.getItem('token') || '';
+              const token = getToken();
               window.open(`/api/v1/files/download?path=${encodeURIComponent(filePath)}&token=${token}`, '_blank');
             }}>下载</Button>,
           <Button key="close" onClick={() => { setViewFile(null); setViewContent(''); }}>关闭</Button>,
