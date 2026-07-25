@@ -485,7 +485,12 @@ class PTRSSPlugin(PluginBase):
             "min_free_gb": 50,
             "max_active_downloads": 15,
             "free_check": False,
-            "cleanup": {"seed_days": 2, "stuck_download_days": 3},
+            "cleanup": {
+                "seed_days": 2,
+                "stuck_download_days": 3,
+                "emergency_threshold_gb": 20,
+                "emergency_target_gb": 30,
+            },
             "free_ttl_hours": 48,
             "rss_missing_threshold": 2,
             "enable_rss_eviction": True,
@@ -531,8 +536,19 @@ class PTRSSPlugin(PluginBase):
                 "cleanup": {
                     "type": "object",
                     "properties": {
-                        "seed_days": {"type": "number"},
-                        "stuck_download_days": {"type": "number"},
+                        "seed_days": {"type": "number", "title": "做种天数"},
+                        "stuck_download_days": {"type": "number", "title": "卡死天数"},
+                        "emergency_threshold_gb": {"type": "number", "title": "紧急清理触发线 (GB)"},
+                        "emergency_target_gb": {"type": "number", "title": "紧急清理目标 (GB)"},
+                    },
+                },
+                "free_ttl_hours": {"type": "number", "title": "Free TTL (小时)"},
+                "rss_missing_threshold": {"type": "number", "title": "RSS 缺席阈值"},
+                "enable_rss_eviction": {"type": "boolean", "title": "启用 RSS 驱逐"},
+                "gc": {
+                    "type": "object",
+                    "properties": {
+                        "evicted_days": {"type": "number", "title": "已驱逐记录保留天数"},
                     },
                 },
             },
@@ -685,10 +701,10 @@ class PTRSSPlugin(PluginBase):
         """Emergency space cleanup — always runs even when no new downloads needed.
 
         Original external script: cleanup_low_space_with_incomplete()
-        Threshold: 20 GB free → clean to 30 GB (not full 50 GB).
+        Configurable thresholds via cleanup.emergency_threshold_gb / emergency_target_gb.
         """
-        EMERGENCY_THRESHOLD = 20.0
-        CLEANUP_TARGET = 30.0
+        EMERGENCY_THRESHOLD = float(self.config.get("cleanup", {}).get("emergency_threshold_gb", 20))
+        CLEANUP_TARGET = float(self.config.get("cleanup", {}).get("emergency_target_gb", 30))
         STUCK_DAYS = float(self.config.get("cleanup", {}).get("stuck_download_days", 3))
         SEED_DAYS = float(self.config.get("cleanup", {}).get("seed_days", 2))
 
@@ -811,22 +827,24 @@ class PTRSSPlugin(PluginBase):
             _migrate_old_status(rec)
             rec.setdefault("rss_missing_count", 0)
 
-        # ── GC: purge evicted/expired entries older than configured days ──
+        # ── GC: purge evicted entries older than configured days ──
+        # Only evicted is purged — completed/expired_free stay for reference
         gc_days = int(self.config.get("gc", {}).get("evicted_days", 15))
         cutoff = utc_now() - timedelta(days=gc_days)
         purged = 0
         for tid, rec in list(processed.items()):
-            if rec.get("status") in (STATUS_EVICTED, STATUS_EXPIRED_FREE):
-                et = rec.get("evicted_time") or rec.get("expired_time") or rec.get("completed_time")
-                if et:
-                    try:
-                        if datetime.fromisoformat(et) < cutoff:
-                            del processed[tid]
-                            purged += 1
-                    except (ValueError, TypeError):
-                        pass
+            if rec.get("status") != STATUS_EVICTED:
+                continue
+            et = rec.get("evicted_time")
+            if et:
+                try:
+                    if datetime.fromisoformat(et) < cutoff:
+                        del processed[tid]
+                        purged += 1
+                except (ValueError, TypeError):
+                    pass
         if purged:
-            logger.info("Processed GC: purged %d old records (≥%d days)", purged, gc_days)
+            logger.info("Processed GC: purged %d evicted records (≥%d days)", purged, gc_days)
 
         notify_added: list[str] = []
         notify_evicted: list[str] = []

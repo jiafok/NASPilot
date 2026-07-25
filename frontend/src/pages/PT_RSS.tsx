@@ -18,14 +18,16 @@ const FIELDS: PluginField[] = [
   { key: 'max_active_downloads', label: 'Max Active Downloads', type: 'number', default: 15 },
   { key: 'free_check', label: 'Free Check', type: 'boolean', default: false, help: '启用后只下载 Free 种子' },
   { key: 'cleanup', label: 'Cleanup', type: 'object', fields: [
-    { key: 'seed_days', label: 'Seed Days', type: 'number', default: 2, help: '做种超过此天数后自动删除' },
+    { key: 'seed_days', label: 'Seed Days', type: 'number', default: 2, help: '做种超过此天数后自动删除（空间不足时）' },
     { key: 'stuck_download_days', label: 'Stuck Download Days', type: 'number', default: 3, help: '卡住超过此天数的下载自动删除' },
+    { key: 'emergency_threshold_gb', label: 'Emergency Threshold (GB)', type: 'number', default: 20, help: '紧急清理触发线：空间低于此值立即清理' },
+    { key: 'emergency_target_gb', label: 'Emergency Target (GB)', type: 'number', default: 30, help: '紧急清理目标：清理到此空间量即停止' },
   ]},
   { key: 'free_ttl_hours', label: 'Free TTL (hours)', type: 'number', default: 48, help: 'Free 种子限时下载窗口' },
   { key: 'rss_missing_threshold', label: 'RSS Missing Threshold', type: 'number', default: 2, help: '连续多少次不在 RSS 中后移除' },
   { key: 'enable_rss_eviction', label: 'Enable RSS Eviction', type: 'boolean', default: true },
   { key: 'gc', label: 'Processed GC', type: 'object', fields: [
-    { key: 'evicted_days', label: 'Evicted Retention (days)', type: 'number', default: 15, help: '已驱逐/已过期的记录保留天数，超时自动清除' },
+    { key: 'evicted_days', label: 'Evicted Retention (days)', type: 'number', default: 15, help: '已驱逐记录的保留天数，超时自动清除（completed/expired_free 不清理）' },
   ]},
 ];
 
