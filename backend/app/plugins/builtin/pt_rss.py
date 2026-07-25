@@ -755,8 +755,9 @@ class PTRSSPlugin(PluginBase):
                 daily["stats"]["deleted_space"] = daily["stats"].get("deleted_space", 0) + 1
 
             # ── 4. Add new downloads (after eviction + cleanup freed space) ──
+            # Pre-check space: only block downloads if qB API returns reliable zero space
             pre_space = await qb.free_space_gb()
-            space_ok = qb.space_reliable() and pre_space > 0.1
+            space_unreliable = not qb.space_reliable()
 
             for item in rss_items:
                 if max_active and added >= max_active:
@@ -809,9 +810,9 @@ class PTRSSPlugin(PluginBase):
                     continue
 
                 # Skip adding if qB space data is unreliable — downloads would fail anyway
-                if not space_ok:
-                    logger.info("  skip add: tid=%s, space unreliable (%s)", item.tid, qb.last_space_source())
-                    notify_skipped.append(f"{item.tid} | 空间不可靠({qb.last_space_source()})")
+                if not space_unreliable and pre_space <= 0.1:
+                    logger.info("  skip add: tid=%s, space=%.1f GB (reliable but critically low)", item.tid, pre_space)
+                    notify_skipped.append(f"{item.tid} | 空间严重不足({pre_space:.1f}GB)")
                     continue
 
                 added_ok = False
