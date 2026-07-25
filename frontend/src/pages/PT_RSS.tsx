@@ -3,8 +3,8 @@ import PluginConfigForm from '../components/PluginConfigForm';
 import LogViewer from '../components/LogViewer';
 import type { PluginField } from '../components/PluginConfigForm';
 import api from '../utils/api';
-import { Tag, Descriptions, List, Typography, Collapse, Table } from 'antd';
-import { CheckCircleOutlined, CloseCircleOutlined, ExclamationCircleOutlined, InfoCircleOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { Tag, Descriptions, List, Typography, Collapse, Table, Button, Modal, Select, Input, Space, message } from 'antd';
+import { CheckCircleOutlined, CloseCircleOutlined, ExclamationCircleOutlined, InfoCircleOutlined, UnorderedListOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 
 const FIELDS: PluginField[] = [
   { key: 'rss_urls', label: 'RSS URLs', type: 'textarea', placeholder: 'https://example.com/rss.xml', required: true, help: '每行一个 RSS 地址。支持 M-Team 等 PT 站 RSS 链接。' },
@@ -33,6 +33,12 @@ export default function PT_RSS() {
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState<any>(null);
   const [processed, setProcessed] = useState<Record<string, any>>({});
+  const [instId, setInstId] = useState<number | null>(null);
+  // Edit modal state
+  const [editTid, setEditTid] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Record<string, any>>({});
+  const [editVisible, setEditVisible] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
 
   const handleRun = async () => {
     setRunning(true);
@@ -53,6 +59,55 @@ export default function PT_RSS() {
       }
     }
     finally { setRunning(false); }
+  };
+
+  // Persist processed state to backend
+  const saveProcessed = async (newProcessed: Record<string, any>) => {
+    if (!instId) return;
+    try {
+      await api.put(`/plugins/instances/${instId}`, {
+        config: { state: { processed: newProcessed } },
+      });
+      setProcessed({ ...newProcessed });
+    } catch { message.error('保存失败'); }
+  };
+
+  // Delete a processed entry
+  const handleDelete = (tid: string) => {
+    const next = { ...processed };
+    delete next[tid];
+    saveProcessed(next);
+  };
+
+  // Open edit modal
+  const handleEdit = (tid: string, rec: Record<string, any>) => {
+    setEditTid(tid);
+    setEditForm({
+      title: rec.title || '',
+      status: rec.status || '',
+      evicted_reason: rec.evicted_reason || '',
+      evicted_time: rec.evicted_time || '',
+    });
+    setEditVisible(true);
+  };
+
+  // Save edited entry
+  const handleEditSave = async () => {
+    if (!editTid) return;
+    setEditSaving(true);
+    const next = { ...processed };
+    const existing = { ...next[editTid] };
+    existing.title = editForm.title;
+    existing.status = editForm.status;
+    existing.evicted_reason = editForm.evicted_reason;
+    if (editForm.evicted_time && editForm.evicted_time !== existing.evicted_time) {
+      existing.evicted_time = editForm.evicted_time;
+    }
+    next[editTid] = existing;
+    await saveProcessed(next);
+    setEditSaving(false);
+    setEditVisible(false);
+    setEditTid(null);
   };
 
   const resultRenderer = (r: any) => {
@@ -126,8 +181,25 @@ export default function PT_RSS() {
     },
     { title: 'Missing', dataIndex: 'missingCount', width: 70 },
     { title: 'First Seen', dataIndex: 'firstSeen', width: 160, render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
-    { title: 'Added', dataIndex: 'addedTime', width: 160, render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
-    { title: 'Evicted Reason', dataIndex: 'evictedReason', width: 160, ellipsis: true, render: (v: string) => v || '-' },
+    { title: 'Evicted', dataIndex: 'evictedTime', width: 160, render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
+    { title: 'Reason', dataIndex: 'evictedReason', width: 120, ellipsis: true, render: (v: string) => v || '-' },
+    {
+      title: '操作', key: 'actions', width: 100,
+      render: (_: any, record: any) => (
+        <Space size="small">
+          <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record.tid, record)}>编辑</Button>
+          <Button size="small" danger icon={<DeleteOutlined />}
+            onClick={() => {
+              Modal.confirm({
+                title: `确认删除 TID: ${record.tid}?`,
+                content: `将从记录中移除 ${record.title?.slice(0, 50)}`,
+                okText: '删除', okType: 'danger', cancelText: '取消',
+                onOk: () => handleDelete(record.tid),
+              });
+            }}>删除</Button>
+        </Space>
+      ),
+    },
   ];
 
   const processedPanel = (
@@ -162,12 +234,51 @@ export default function PT_RSS() {
       resultRenderer={resultRenderer}
       topContent={processedPanel}
       onInstanceLoad={(inst) => {
+        if (inst?.id) setInstId(inst.id);
         if (inst?.config?.state?.processed) {
           setProcessed(inst.config.state.processed);
         }
       }}
     >
       {logPanel}
+      {/* ── Edit Processed Modal ── */}
+      <Modal
+        title={`编辑记录: ${editTid}`}
+        open={editVisible}
+        onOk={handleEditSave}
+        onCancel={() => { setEditVisible(false); setEditTid(null); }}
+        confirmLoading={editSaving}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <div>
+            <Typography.Text strong>标题</Typography.Text>
+            <Input value={editForm.title || ''} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} placeholder="种子标题" />
+          </div>
+          <div>
+            <Typography.Text strong>状态</Typography.Text>
+            <Select style={{ width: '100%' }} value={editForm.status || 'pending_free'}
+              onChange={(v) => setEditForm({ ...editForm, status: v })}
+              options={[
+                { label: 'pending_free（待免费）', value: 'pending_free' },
+                { label: 'added（已添加）', value: 'added' },
+                { label: 'completed（已完成）', value: 'completed' },
+                { label: 'evicted（已驱逐）', value: 'evicted' },
+                { label: 'expired_free（免费过期）', value: 'expired_free' },
+              ]}
+            />
+          </div>
+          <div>
+            <Typography.Text strong>驱逐原因</Typography.Text>
+            <Input value={editForm.evicted_reason || ''} onChange={(e) => setEditForm({ ...editForm, evicted_reason: e.target.value })} placeholder="可选" />
+          </div>
+          <div>
+            <Typography.Text strong>驱逐时间 (ISO)</Typography.Text>
+            <Input value={editForm.evicted_time || ''} onChange={(e) => setEditForm({ ...editForm, evicted_time: e.target.value })} placeholder="2026-07-25T10:00:00+08:00" />
+          </div>
+        </Space>
+      </Modal>
     </PluginConfigForm>
   );
 }
