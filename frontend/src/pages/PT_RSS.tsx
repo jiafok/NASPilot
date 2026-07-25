@@ -24,6 +24,9 @@ const FIELDS: PluginField[] = [
   { key: 'free_ttl_hours', label: 'Free TTL (hours)', type: 'number', default: 48, help: 'Free 种子限时下载窗口' },
   { key: 'rss_missing_threshold', label: 'RSS Missing Threshold', type: 'number', default: 2, help: '连续多少次不在 RSS 中后移除' },
   { key: 'enable_rss_eviction', label: 'Enable RSS Eviction', type: 'boolean', default: true },
+  { key: 'gc', label: 'Processed GC', type: 'object', fields: [
+    { key: 'evicted_days', label: 'Evicted Retention (days)', type: 'number', default: 15, help: '已驱逐/已过期的记录保留天数，超时自动清除' },
+  ]},
 ];
 
 export default function PT_RSS() {

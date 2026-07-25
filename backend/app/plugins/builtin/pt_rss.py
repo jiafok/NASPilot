@@ -489,7 +489,7 @@ class PTRSSPlugin(PluginBase):
             "free_ttl_hours": 48,
             "rss_missing_threshold": 2,
             "enable_rss_eviction": True,
-            "gc": {"evicted_days": 5, "expired_days": 5},
+            "gc": {"evicted_days": 15, "expired_days": 5},
             "download_timeout": 120,
             "mt_passkey": "",
             "site_domain": "m-team.cc",
@@ -699,13 +699,13 @@ class PTRSSPlugin(PluginBase):
             _migrate_old_status(rec)
             rec.setdefault("rss_missing_count", 0)
 
-        # ── GC: purge evicted entries older than 15 days ──
+        # ── GC: purge evicted/expired entries older than configured days ──
         gc_days = int(self.config.get("gc", {}).get("evicted_days", 15))
         cutoff = utc_now() - timedelta(days=gc_days)
         purged = 0
         for tid, rec in list(processed.items()):
             if rec.get("status") in (STATUS_EVICTED, STATUS_EXPIRED_FREE):
-                et = rec.get("evicted_time") or rec.get("completed_time")
+                et = rec.get("evicted_time") or rec.get("expired_time") or rec.get("completed_time")
                 if et:
                     try:
                         if datetime.fromisoformat(et) < cutoff:
@@ -805,6 +805,7 @@ class PTRSSPlugin(PluginBase):
                 free_ttl_hours = float(self.config.get("free_ttl_hours", 48))
                 if rec.get("status") == STATUS_PENDING_FREE and hours_since_iso(rec.get("first_seen", "")) > free_ttl_hours:
                     rec["status"] = STATUS_EXPIRED_FREE
+                    rec["expired_time"] = utc_now_iso()
                     daily["stats"]["expired_free"] += 1
                     logger.debug("  expired free: tid=%s", item.tid)
                     continue
