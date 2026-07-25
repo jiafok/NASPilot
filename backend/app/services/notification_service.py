@@ -44,9 +44,25 @@ async def _send_feishu(config: dict[str, Any], title: str, message: str) -> tupl
     if not webhook:
         return False, "No webhook configured"
 
+    # ── Card-style message ──
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    # Clean message for lark_md
+    clean_message = message.replace("\r\n", "\n").replace("\r", "")[:4000]
     body: dict[str, Any] = {
-        "msg_type": "text",
-        "content": {"text": f"{title}\n\n{message}"},
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {"tag": "plain_text", "content": title[:100]},
+                "template": "blue",
+            },
+            "elements": [
+                {"tag": "div", "text": {"tag": "lark_md", "content": clean_message}},
+                {"tag": "hr"},
+                {"tag": "note", "elements": [
+                    {"tag": "plain_text", "content": f"⏰ {now_str}"},
+                ]},
+            ],
+        },
     }
 
     # Sign if secret is configured
