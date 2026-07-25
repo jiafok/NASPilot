@@ -213,14 +213,17 @@ export default function PT_RSS() {
     <Collapse
       style={{ marginBottom: 16 }}
       defaultActiveKey={processedEntries.length > 0 ? ['processed'] : []}
+      destroyInactivePanel={false}
       items={[{
         key: 'processed',
         label: <span><UnorderedListOutlined /> 追踪记录 ({processedEntries.length})</span>,
         children: processedEntries.length === 0
           ? <Typography.Text type="secondary">暂无追踪记录。执行一次插件运行即可填充此表格。</Typography.Text>
-          : <Table dataSource={processedEntries} columns={processedColumns} size="small" rowKey="tid"
+          : <div style={{ overflow: 'visible' }}>
+            <Table dataSource={processedEntries} columns={processedColumns} size="small" rowKey="tid"
               scroll={{ x: 600 }}
-              pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (t: number) => `${t} 条` }} />,
+              pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (t: number) => `${t} 条` }} />
+          </div>,
       }]}>
     </Collapse>
   );
