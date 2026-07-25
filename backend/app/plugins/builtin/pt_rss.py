@@ -359,18 +359,14 @@ class AsyncQBClient:
         raw_bytes = server_state.get("free_space_on_disk", None)
 
         def use_fallback(reason: str) -> float:
+            self._space_reliable = False
+            self._last_space_source = f"unreliable:{reason}"
             fallback = self._local_free_space_gb()
             if fallback is not None and fallback > 0:
                 self._last_free_space = fallback
-                self._space_reliable = True
                 self._last_space_source = f"local_fallback:{reason}"
                 return fallback
-            if self._last_free_space is not None and self._last_free_space > 0:
-                self._space_reliable = True
-                self._last_space_source = f"cached:{reason}"
-                return self._last_free_space
-            self._space_reliable = False
-            self._last_space_source = f"unreliable:{reason}"
+            self._last_free_space = 0.0
             return 0.0
 
         if raw_bytes is None:
@@ -612,10 +608,12 @@ class PTRSSPlugin(PluginBase):
         try:
             start_space = await qb.free_space_gb()
         except Exception as exc:
-            logger.warning("Space check failed: %s", exc)
+            logger.warning("Space check failed: %s — skipping cleanup", exc)
             return {"ok": True, "deleted": [], "start_space": 0.0, "end_space": 0.0}
 
-        if not qb.space_reliable():
+        # Only act on direct qB API response — never use local/cached fallback for deletion
+        if not qb.space_reliable() or qb.last_space_source() != "qb_api":
+            logger.info("Space data unreliable (source=%s) — skipping cleanup", qb.last_space_source())
             return {"ok": True, "deleted": [], "start_space": start_space, "end_space": start_space}
 
         if start_space >= target_free_gb:
