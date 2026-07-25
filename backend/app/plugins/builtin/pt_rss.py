@@ -636,22 +636,37 @@ class PTRSSPlugin(PluginBase):
             await qb.delete(torrent["hash"], delete_files=True)
             size_gb = float(torrent.get("total_size", 0)) / (1024 ** 3)
             freed += size_gb
-            deleted.append({"name": torrent.get("name", "unknown")[:60], "size": round(size_gb, 2), "reason": reason_detail})
+            name = torrent.get("name", "unknown")[:50]
+            deleted.append({"name": name, "size": round(size_gb, 2), "reason": reason_detail})
+            logger.info("  cleanup deleted: %s (%.1f GB, %s)", name, size_gb, reason_detail)
+            # Mark as evicted in processed
+            if tid:
+                rec = _processed(self.config).setdefault(tid, {})
+                rec["status"] = STATUS_EVICTED
+                rec["evicted_time"] = utc_now_iso()
+                rec["evicted_reason"] = reason_detail
 
-        for torrent in torrents:
-            if torrent.get("progress", 0) < 1 and torrent.get("added_on") and days_since(float(torrent.get("added_on", 0))) >= stuck_days:
+        # Round 1: stuck downloads — sort oldest first (added_on ascending)
+        stuck = sorted(
+            [t for t in torrents if t.get("progress", 0) < 1 and t.get("added_on")],
+            key=lambda t: float(t.get("added_on", 0))
+        )
+        for torrent in stuck:
+            if days_since(float(torrent.get("added_on", 0))) >= stuck_days:
                 await delete_candidate(torrent, "卡死下载")
                 if freed >= needed:
                     break
 
         if freed < needed:
-            for torrent in torrents:
-                if torrent.get("progress", 0) != 1:
-                    continue
-                if float(torrent.get("seeding_time", 0)) / 86400 >= seed_days:
-                    await delete_candidate(torrent, "做种超时")
-                    if freed >= needed:
-                        break
+            # Round 2: seeded torrents — sort by seeding_time descending (oldest first)
+            seeded = sorted(
+                [t for t in torrents if t.get("progress", 0) == 1 and float(t.get("seeding_time", 0)) / 86400 >= seed_days],
+                key=lambda t: float(t.get("seeding_time", 0)), reverse=True
+            )
+            for torrent in seeded:
+                await delete_candidate(torrent, "做种超时")
+                if freed >= needed:
+                    break
 
         await asyncio.sleep(2)
         try:
@@ -692,6 +707,9 @@ class PTRSSPlugin(PluginBase):
         ) as qb:
             logger.debug("qB login OK")
             emergency_result = await self._cleanup_for_new_task(qb)
+            # Add cleanup deletions to notification
+            for item in emergency_result.get("deleted", []):
+                notify_evicted.append(f"🧹 {item['name']} ({item['size']}GB, {item['reason']})")
             rss_items, failed_sources = await self._collect_rss_items()
             rss_tid_set = {item.tid for item in rss_items}
             logger.debug("RSS sources=%d, parsed=%d, unique_tids=%d",
