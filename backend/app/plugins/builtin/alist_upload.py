@@ -61,9 +61,10 @@ def _normalize_list(value: Any) -> list[str]:
     return []
 
 
-def _build_upload_message(counts: dict[str, int], details: list[dict[str, Any]]) -> str:
+def _build_upload_message(counts: dict[str, int], details: list[dict[str, Any]],
+                          skipped_exists: int = 0, skipped_too_large: list[str] | None = None) -> str:
     """Build a detailed Feishu notification message for upload results."""
-    parts = [f"共扫描 {counts['scanned']} 个文件\n"]
+    parts = [f"共扫描 {counts['scanned']} 个文件"]
     if counts["uploaded"] > 0:
         uploaded = [d for d in details if d["status"] == "ok"]
         parts.append(f"✅ 上传成功: {counts['uploaded']} 个")
@@ -71,11 +72,12 @@ def _build_upload_message(counts: dict[str, int], details: list[dict[str, Any]])
             parts.append(f"  · {f['name']} ({f['size_mb']} MB)")
         if len(uploaded) > 20:
             parts.append(f"  ... 及 {len(uploaded)-20} 个")
-    if counts["skipped"] > 0:
-        skipped = [d for d in details if d["status"] == "skip"]
-        parts.append(f"⏭️ 跳过: {counts['skipped']} 个")
-        for f in skipped[:10]:
-            parts.append(f"  · {f['name']}")
+    if skipped_exists > 0:
+        parts.append(f"⏭️ 已存在跳过: {skipped_exists} 个")
+    if skipped_too_large:
+        parts.append(f"⚠️ 超过大小上限跳过: {len(skipped_too_large)} 个")
+        for f in skipped_too_large[:10]:
+            parts.append(f"  · {f}")
     if counts["failed"] > 0:
         failed = [d for d in details if d["status"] == "fail"]
         parts.append(f"❌ 失败: {counts['failed']} 个")
@@ -468,24 +470,28 @@ class AListUploadPlugin(PluginBase):
         logger.info("AList scan found %d file(s)", len(files))
 
         # Filter by file size limit
+        skipped_too_large: list[str] = []
+        filtered = files
         if max_file_size_bytes > 0:
             filtered = []
             for f in files:
                 try:
-                    if os.path.getsize(f) <= max_file_size_bytes:
+                    sz = os.path.getsize(f)
+                    if sz <= max_file_size_bytes:
                         filtered.append(f)
                     else:
-                        logger.info("Skipping (too large): %s (%s)", os.path.basename(f), _fmt_size(os.path.getsize(f)))
+                        logger.info("Skipping (too large): %s (%s)", os.path.basename(f), _fmt_size(sz))
+                        skipped_too_large.append(os.path.basename(f))
                 except OSError:
                     pass
             files = filtered
-            logger.info("After size filter: %d file(s)", len(files))
+            logger.info("After size filter: %d file(s), skipped too large: %d", len(files), len(skipped_too_large))
 
         if not files:
             logger.info("No new files to upload")
 
         results: list[dict[str, Any]] = []
-        counts = {"scanned": len(files), "uploaded": 0, "skipped": 0, "failed": 0, "deleted": 0}
+        counts = {"scanned": len(files) + len(skipped_too_large), "uploaded": 0, "skipped": 0, "failed": 0, "deleted": 0}
 
         # Find the common base so relative paths look sane
         base_dir = scan_dirs[0] if len(scan_dirs) == 1 else ""
@@ -575,9 +581,12 @@ class AListUploadPlugin(PluginBase):
             state["history"] = history[-200:]
 
         # ── Send Feishu notification with detailed lists ──
+        skipped_exists = sum(1 for d in notify_details if d["status"] == "skip")
         await self.notify(
             title="📁 AList 上传结果",
-            message=_build_upload_message(counts, notify_details),
+            message=_build_upload_message(counts, notify_details,
+                                         skipped_exists=skipped_exists,
+                                         skipped_too_large=skipped_too_large),
             level="info" if counts["failed"] == 0 else "warn",
         )
 
