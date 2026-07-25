@@ -170,10 +170,10 @@ export default function PT_RSS() {
     evictedReason: rec.evicted_reason,
   }));
 
-  const processedColumns = [
-    { title: 'TID', dataIndex: 'tid', width: 70, ellipsis: true },
-    { title: '标题', dataIndex: 'title', ellipsis: true, width: 180 },
-    { title: '状态', dataIndex: 'status', width: 90,
+  const processedColumns: any[] = [
+    { title: 'TID', dataIndex: 'tid', width: 70, ellipsis: true, responsive: ['md'] },
+    { title: '标题', dataIndex: 'title', ellipsis: true },
+    { title: '状态', dataIndex: 'status', width: 85, responsive: ['md'],
       render: (s: string) => {
         const color = s === 'added' ? 'blue' : s === 'completed' ? 'green' : s === 'evicted' ? 'red' : s === 'expired_free' ? 'orange' : 'default';
         const label = { pending_free: '待免费', added: '已添加', completed: '已完成', evicted: '已驱逐', expired_free: '已过期' }[s] || s;
@@ -181,13 +181,15 @@ export default function PT_RSS() {
       },
     },
     { title: '缺失', dataIndex: 'missingCount', width: 50, align: 'center' as const },
-    { title: '首次发现', dataIndex: 'firstSeen', width: 140,
+    { title: '首次发现', dataIndex: 'firstSeen', width: 130,
+      responsive: ['md'],
       render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-' },
-    { title: '驱逐时间', dataIndex: 'evictedTime', width: 140,
+    { title: '驱逐时间', dataIndex: 'evictedTime', width: 130,
       render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-' },
-    { title: '原因', dataIndex: 'evictedReason', width: 100, ellipsis: true, render: (v: string) => v || '-' },
+    { title: '原因', dataIndex: 'evictedReason', width: 100, ellipsis: true,
+      responsive: ['md'], render: (v: string) => v || '-' },
     {
-      title: '操作', key: 'actions', width: 70, fixed: 'right' as const,
+      title: '操作', key: 'actions', width: 60, fixed: 'right' as const,
       render: (_: any, record: any) => (
         <Space size={2}>
           <Tooltip title="编辑">
@@ -197,7 +199,6 @@ export default function PT_RSS() {
             <Button type="link" danger size="small" icon={<DeleteOutlined />}
               onClick={() => Modal.confirm({
                 title: `确认删除 TID: ${record.tid}?`,
-                content: `将从记录中移除 ${record.title?.slice(0, 50)}`,
                 okText: '删除', okType: 'danger', cancelText: '取消',
                 onOk: () => handleDelete(record.tid),
               })}
@@ -218,7 +219,7 @@ export default function PT_RSS() {
         children: processedEntries.length === 0
           ? <Typography.Text type="secondary">暂无追踪记录。执行一次插件运行即可填充此表格。</Typography.Text>
           : <Table dataSource={processedEntries} columns={processedColumns} size="small" rowKey="tid"
-              scroll={{ x: 840 }}
+              scroll={{ x: 600 }}
               pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (t: number) => `${t} 条` }} />,
       }]}>
     </Collapse>
