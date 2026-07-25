@@ -225,9 +225,9 @@ class AListClient:
     def _adaptive_window(self, file_size: int) -> tuple[int, int]:
         """Calculate wait window and tries — mirrors original _adaptive_window."""
         gb = max(0.001, file_size / (1024**3))
-        base = int(self.config.get("verify_wait_secs", 7200) or 7200)
-        per_gb = int(self.config.get("verify_per_gb_addon", 1000) or 1000)
-        cap = int(self.config.get("verify_wait_cap_secs", 5 * 3600) or 5 * 3600)
+        base = 7200       # base wait (seconds)
+        per_gb = 1000     # add per GB
+        cap = 5 * 3600    # max cap (5 hours)
         wait = min(cap, base + int(gb * per_gb))
         tries = max(12, wait // 30)
         return wait, tries
