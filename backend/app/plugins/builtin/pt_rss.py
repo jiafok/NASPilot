@@ -713,8 +713,48 @@ class PTRSSPlugin(PluginBase):
             max_active = int(self.config.get("max_active_downloads", 0) or 0)
             torrents_cache = await qb.torrents()
 
-            # ── 2. Try adding new downloads ──
-            # Check space once before attempting new downloads
+            # ── 2. Eviction check — remove torrents absent from RSS ──
+            logger.debug("[RSS] Eviction check, RSS has %d tids, %d source(s) failed",
+                         len(rss_tid_set), len(failed_sources))
+            for tid, rec in processed.items():
+                if is_final_status(rec.get("status", "")) or rec.get("status") != STATUS_ADDED:
+                    continue
+                if tid in rss_tid_set:
+                    rec["rss_missing_count"] = 0
+                    continue
+                source = rec.get("rss_source", "")
+                if source and source in failed_sources:
+                    continue
+                rec["rss_missing_count"] = int(rec.get("rss_missing_count", 0)) + 1
+                if rec["rss_missing_count"] < int(self.config.get("rss_missing_threshold", 2)):
+                    notify_skipped.append(f"{tid} | missing {rec['rss_missing_count']}")
+                    continue
+                candidates = [t for t in torrents_cache if has_tag(t, rec.get("tag", f"rss_tid:{tid}"))]
+                if len(candidates) != 1:
+                    continue
+                torrent = candidates[0]
+                if torrent.get("progress", 0) >= 1:
+                    rec["status"] = STATUS_COMPLETED
+                    rec["completed_time"] = utc_now_iso()
+                    rec["rss_missing_count"] = 0
+                    continue
+                await qb.delete(torrent["hash"], delete_files=True)
+                rec["status"] = STATUS_EVICTED
+                rec["evicted_time"] = utc_now_iso()
+                rec["evicted_reason"] = "rss"
+                rec["rss_missing_count"] = 0
+                daily["stats"]["deleted_rss_missing"] += 1
+                _append_limited(daily["details"]["deleted_items"], {"time": utc_now_iso(), "tid": tid, "name": torrent.get("name", "unknown"), "reason": "rss"})
+                logger.info("  evicted: tid=%s, name=%s (RSS缺席)", tid, torrent.get("name", "")[:50])
+                notify_evicted.append(f"{tid} | {torrent.get('name', '')[:50]} | RSS缺席")
+
+            # ── 3. Space cleanup — free disk before adding new downloads ──
+            emergency_result = await self._cleanup_for_new_task(qb)
+            for item in emergency_result.get("deleted", []):
+                notify_evicted.append(f"🧹 {item['name']} ({item['size']}GB, {item['reason']})")
+                daily["stats"]["deleted_space"] = daily["stats"].get("deleted_space", 0) + 1
+
+            # ── 4. Add new downloads (after eviction + cleanup freed space) ──
             pre_space = await qb.free_space_gb()
             space_ok = qb.space_reliable() and pre_space > 0.1
 
@@ -813,46 +853,6 @@ class PTRSSPlugin(PluginBase):
                     torrents_cache = await qb.torrents()
                 except Exception:
                     pass
-
-            # ── 3. Space cleanup (after adding new downloads) ──
-            emergency_result = await self._cleanup_for_new_task(qb)
-            for item in emergency_result.get("deleted", []):
-                notify_evicted.append(f"🧹 {item['name']} ({item['size']}GB, {item['reason']})")
-                daily["stats"]["deleted_space"] = daily["stats"].get("deleted_space", 0) + 1
-
-            logger.debug("[RSS] Eviction check, RSS has %d tids, %d source(s) failed",
-                         len(rss_tid_set), len(failed_sources))
-            for tid, rec in processed.items():
-                if is_final_status(rec.get("status", "")) or rec.get("status") != STATUS_ADDED:
-                    continue
-                if tid in rss_tid_set:
-                    rec["rss_missing_count"] = 0
-                    continue
-                source = rec.get("rss_source", "")
-                if source and source in failed_sources:
-                    continue
-                rec["rss_missing_count"] = int(rec.get("rss_missing_count", 0)) + 1
-                if rec["rss_missing_count"] < int(self.config.get("rss_missing_threshold", 2)):
-                    notify_skipped.append(f"{tid} | missing {rec['rss_missing_count']}")
-                    continue
-                candidates = [t for t in torrents_cache if has_tag(t, rec.get("tag", f"rss_tid:{tid}"))]
-                if len(candidates) != 1:
-                    continue
-                torrent = candidates[0]
-                if torrent.get("progress", 0) >= 1:
-                    rec["status"] = STATUS_COMPLETED
-                    rec["completed_time"] = utc_now_iso()
-                    rec["rss_missing_count"] = 0
-                    continue
-                await qb.delete(torrent["hash"], delete_files=True)
-                rec["status"] = STATUS_EVICTED
-                rec["evicted_time"] = utc_now_iso()
-                rec["evicted_reason"] = "rss"
-                rec["rss_missing_count"] = 0
-                daily["stats"]["deleted_rss_missing"] += 1
-                _append_limited(daily["details"]["deleted_items"], {"time": utc_now_iso(), "tid": tid, "name": torrent.get("name", "unknown"), "reason": "rss"})
-                logger.info("  evicted: tid=%s, name=%s (RSS缺席)", tid, torrent.get("name", "")[:50])
-                notify_evicted.append(f"{tid} | {torrent.get('name', '')[:50]} | RSS缺席")
 
         logger.info("[DONE] Run complete")
 
