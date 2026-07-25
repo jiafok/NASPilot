@@ -3,7 +3,7 @@ import PluginConfigForm from '../components/PluginConfigForm';
 import LogViewer from '../components/LogViewer';
 import type { PluginField } from '../components/PluginConfigForm';
 import api from '../utils/api';
-import { Tag, Descriptions, List, Typography, Collapse, Table, Button, Modal, Select, Input, Space, message } from 'antd';
+import { Tag, Descriptions, List, Typography, Collapse, Table, Button, Modal, Select, Input, Space, message, Tooltip } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, ExclamationCircleOutlined, InfoCircleOutlined, UnorderedListOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 
 const FIELDS: PluginField[] = [
@@ -151,7 +151,7 @@ export default function PT_RSS() {
         )}
         {!r.added_messages?.length && !r.failed_messages?.length && (
           <div style={{ marginTop: 12, padding: 16, textAlign: 'center', color: '#888' }}>
-            <InfoCircleOutlined /> No new items in RSS. Everything is up to date.
+            <InfoCircleOutlined /> 暂无追踪记录。执行一次插件运行即可填充此表格。
           </div>
         )}
       </div>
@@ -171,32 +171,38 @@ export default function PT_RSS() {
   }));
 
   const processedColumns = [
-    { title: 'TID', dataIndex: 'tid', width: 80, ellipsis: true },
-    { title: 'Title', dataIndex: 'title', ellipsis: true },
-    { title: 'Status', dataIndex: 'status', width: 110,
+    { title: 'TID', dataIndex: 'tid', width: 70, ellipsis: true },
+    { title: '标题', dataIndex: 'title', ellipsis: true, width: 180 },
+    { title: '状态', dataIndex: 'status', width: 90,
       render: (s: string) => {
         const color = s === 'added' ? 'blue' : s === 'completed' ? 'green' : s === 'evicted' ? 'red' : s === 'expired_free' ? 'orange' : 'default';
-        return <Tag color={color}>{s}</Tag>;
+        const label = { pending_free: '待免费', added: '已添加', completed: '已完成', evicted: '已驱逐', expired_free: '已过期' }[s] || s;
+        return <Tag color={color} style={{ fontSize: 11, lineHeight: '16px', margin: 0 }}>{label}</Tag>;
       },
     },
-    { title: 'Missing', dataIndex: 'missingCount', width: 70 },
-    { title: 'First Seen', dataIndex: 'firstSeen', width: 160, render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
-    { title: 'Evicted', dataIndex: 'evictedTime', width: 160, render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
-    { title: 'Reason', dataIndex: 'evictedReason', width: 120, ellipsis: true, render: (v: string) => v || '-' },
+    { title: '缺失', dataIndex: 'missingCount', width: 50, align: 'center' as const },
+    { title: '首次发现', dataIndex: 'firstSeen', width: 140,
+      render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-' },
+    { title: '驱逐时间', dataIndex: 'evictedTime', width: 140,
+      render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-' },
+    { title: '原因', dataIndex: 'evictedReason', width: 100, ellipsis: true, render: (v: string) => v || '-' },
     {
-      title: '操作', key: 'actions', width: 100,
+      title: '操作', key: 'actions', width: 70, fixed: 'right' as const,
       render: (_: any, record: any) => (
-        <Space size="small">
-          <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record.tid, record)}>编辑</Button>
-          <Button size="small" danger icon={<DeleteOutlined />}
-            onClick={() => {
-              Modal.confirm({
+        <Space size={2}>
+          <Tooltip title="编辑">
+            <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record.tid, record)} />
+          </Tooltip>
+          <Tooltip title="删除">
+            <Button type="link" danger size="small" icon={<DeleteOutlined />}
+              onClick={() => Modal.confirm({
                 title: `确认删除 TID: ${record.tid}?`,
                 content: `将从记录中移除 ${record.title?.slice(0, 50)}`,
                 okText: '删除', okType: 'danger', cancelText: '取消',
                 onOk: () => handleDelete(record.tid),
-              });
-            }}>删除</Button>
+              })}
+            />
+          </Tooltip>
         </Space>
       ),
     },
@@ -208,10 +214,12 @@ export default function PT_RSS() {
       defaultActiveKey={processedEntries.length > 0 ? ['processed'] : []}
       items={[{
         key: 'processed',
-        label: <span><UnorderedListOutlined /> Processed Items ({processedEntries.length})</span>,
+        label: <span><UnorderedListOutlined /> 追踪记录 ({processedEntries.length})</span>,
         children: processedEntries.length === 0
-          ? <Typography.Text type="secondary">No items processed yet. Run the plugin once to populate this table.</Typography.Text>
-          : <Table dataSource={processedEntries} columns={processedColumns} size="small" rowKey="tid" pagination={{ pageSize: 15, showSizeChanger: true, showTotal: (t: number) => `${t} items` }} />,
+          ? <Typography.Text type="secondary">暂无追踪记录。执行一次插件运行即可填充此表格。</Typography.Text>
+          : <Table dataSource={processedEntries} columns={processedColumns} size="small" rowKey="tid"
+              scroll={{ x: 840 }}
+              pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (t: number) => `${t} 条` }} />,
       }]}>
     </Collapse>
   );
