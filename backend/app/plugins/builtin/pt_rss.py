@@ -948,6 +948,21 @@ class PTRSSPlugin(PluginBase):
                 notify_evicted.append(f"🧹 {item['name']} ({item['size']}GB, {item['reason']})")
                 daily["stats"]["deleted_space"] = daily["stats"].get("deleted_space", 0) + 1
 
+            # ── 3b. Sync completed — mark added→completed for 100% torrents ──
+            synced = 0
+            for tid, rec in processed.items():
+                if rec.get("status") != STATUS_ADDED:
+                    continue
+                tag = rec.get("tag", f"rss_tid:{tid}")
+                matched = next((t for t in torrents_cache if has_tag(t, tag)), None)
+                if matched and matched.get("progress", 0) >= 1:
+                    rec["status"] = STATUS_COMPLETED
+                    rec["completed_time"] = utc_now_iso()
+                    synced += 1
+                    logger.debug("  sync completed: tid=%s, name=%s", tid, matched.get("name", "")[:50])
+            if synced:
+                logger.info("Synced %d added→completed from qB", synced)
+
             # ── 4. Add new downloads (after eviction + cleanup freed space) ──
             pre_space = await qb.free_space_gb()
             space_unreliable = not qb.space_reliable()
