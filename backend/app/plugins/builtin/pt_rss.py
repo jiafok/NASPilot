@@ -668,13 +668,12 @@ class PTRSSPlugin(PluginBase):
                 if freed >= needed:
                     break
 
-        await asyncio.sleep(2)
-        try:
-            end_space = await qb.free_space_gb()
-        except Exception:
-            end_space = start_space + freed
+        calculated = start_space + freed
+        ok = calculated >= target_free_gb
+        logger.info("Cleanup: start=%.1f GB, freed=%.1f GB, calculated=%.1f GB, target=%.1f GB → %s",
+                   start_space, freed, calculated, target_free_gb, "OK" if ok else "SKIP")
 
-        return {"ok": end_space >= target_free_gb or start_space + freed >= target_free_gb, "deleted": deleted, "start_space": start_space, "end_space": max(end_space, start_space + freed)}
+        return {"ok": ok, "deleted": deleted, "start_space": start_space, "end_space": calculated}
 
     async def _run_cycle(self) -> dict[str, Any]:
         qb_cfg = self.config.get("qbittorrent", {})
@@ -706,10 +705,7 @@ class PTRSSPlugin(PluginBase):
             fallback_local_dir=self.config.get("space_fallback_dir") or None,
         ) as qb:
             logger.debug("qB login OK")
-            emergency_result = await self._cleanup_for_new_task(qb)
-            # Add cleanup deletions to notification
-            for item in emergency_result.get("deleted", []):
-                notify_evicted.append(f"🧹 {item['name']} ({item['size']}GB, {item['reason']})")
+            # ── 1. RSS check ──
             rss_items, failed_sources = await self._collect_rss_items()
             rss_tid_set = {item.tid for item in rss_items}
             logger.debug("RSS sources=%d, parsed=%d, unique_tids=%d",
@@ -717,8 +713,9 @@ class PTRSSPlugin(PluginBase):
 
             added = 0
             max_active = int(self.config.get("max_active_downloads", 0) or 0)
-            # Fetch torrents list once — reused across all RSS items
             torrents_cache = await qb.torrents()
+
+            # ── 2. Try adding new downloads ──
             for item in rss_items:
                 if max_active and added >= max_active:
                     break
@@ -769,9 +766,7 @@ class PTRSSPlugin(PluginBase):
                     notify_added.append(f"♻️ 已存在：{item.title[:50]}")
                     continue
 
-                if not emergency_result.get("ok", True):
-                    continue
-
+                # Try to add — always attempt, cleanup handles space afterwards
                 added_ok = False
                 last_error = ""
                 urls_to_try = [item.url]
@@ -811,6 +806,12 @@ class PTRSSPlugin(PluginBase):
                     torrents_cache = await qb.torrents()
                 except Exception:
                     pass
+
+            # ── 3. Space cleanup (after adding new downloads) ──
+            emergency_result = await self._cleanup_for_new_task(qb)
+            for item in emergency_result.get("deleted", []):
+                notify_evicted.append(f"🧹 {item['name']} ({item['size']}GB, {item['reason']})")
+                daily["stats"]["deleted_space"] = daily["stats"].get("deleted_space", 0) + 1
 
             logger.debug("[RSS] Eviction check, RSS has %d tids, %d source(s) failed",
                          len(rss_tid_set), len(failed_sources))
