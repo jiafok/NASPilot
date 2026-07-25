@@ -71,7 +71,7 @@ export default function TaskList() {
       </div>
 
       <Table dataSource={tasks} columns={columns} rowKey="id" loading={loading} size="small"
-        pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [5, 10, 20, 50], showTotal: (t: number) => `${t} 条` }}
+        pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [5, 10, 20, 50], showTotal: (t: number) => `${t} 条` }}
         locale={{ emptyText: t('tasks.noTasks') }} />
 
       <Modal title={editingTask ? t('tasks.edit') : t('tasks.create')} open={modalOpen}

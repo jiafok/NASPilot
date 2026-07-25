@@ -83,8 +83,6 @@ export default function LogCenter() {
                     options={['DEBUG','INFO','WARNING','ERROR','CRITICAL'].map(l=>({label:l,value:l}))} />
                   <Select placeholder="来源" allowClear style={{ width: 140 }} value={source} onChange={setSource}
                     options={SOURCE_OPTIONS} />
-                  <Select style={{ width: 90 }} value={limit} onChange={setLimit}
-                    options={[50,100,200,500,1000].map(n=>({label:`${n} 条`,value:n}))} />
                   <Button icon={<ReloadOutlined />} onClick={() => fetchLogs(true)}>刷新</Button>
                   <Button icon={<ExportOutlined />}
                     onClick={() => window.open('/logs/full', '_blank', 'width=1100,height=800')}>全屏日志</Button>
@@ -93,7 +91,8 @@ export default function LogCenter() {
 
               <Table
                 dataSource={logs} rowKey="id" size="small" loading={loading}
-                pagination={{ pageSize: limit, showSizeChanger: true, pageSizeOptions: [50,100,200,500,1000], showTotal: (t: number) => `共 ${t} 条` }}
+                pagination={{ defaultPageSize: 200, showSizeChanger: true, pageSizeOptions: [50,100,200,500,1000], showTotal: (t: number) => `共 ${t} 条`,
+                  onChange: (_page: number, pageSize: number) => { if (pageSize !== limit) setLimit(pageSize); } }}
                 columns={[
                   { title: '时间', dataIndex: 'timestamp', width: 170,
                     render: (t: string) => new Date(t).toLocaleString('zh-CN', { hour12: false }) },

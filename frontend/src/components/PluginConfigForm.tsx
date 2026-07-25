@@ -177,7 +177,7 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
                 dataSource={instance.config.state.run_history}
                 rowKey="time"
                 size="small"
-                pagination={{ pageSize: 5, showSizeChanger: true, pageSizeOptions: [5, 10, 20, 50], showTotal: (t: number) => `${t} 条` }}
+                pagination={{ defaultPageSize: 5, showSizeChanger: true, pageSizeOptions: [5, 10, 20, 50], showTotal: (t: number) => `${t} 条` }}
                 columns={[
                   { title: 'Time', dataIndex: 'time', width: 170, render: (v: string) => new Date(v).toLocaleString('zh-CN', { hour12: false }) },
                   { title: 'Status', dataIndex: 'status', width: 80, render: (s: string) => <Tag color={s === 'ok' ? 'green' : 'red'}>{s}</Tag> },
