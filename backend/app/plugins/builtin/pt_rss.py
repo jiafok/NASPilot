@@ -681,6 +681,118 @@ class PTRSSPlugin(PluginBase):
 
         return {"ok": ok, "deleted": deleted, "start_space": start_space, "end_space": calculated}
 
+    async def _emergency_cleanup(self, qb: AsyncQBClient) -> dict[str, Any]:
+        """Emergency space cleanup — always runs even when no new downloads needed.
+
+        Original external script: cleanup_low_space_with_incomplete()
+        Threshold: 20 GB free → clean to 30 GB (not full 50 GB).
+        """
+        EMERGENCY_THRESHOLD = 20.0
+        CLEANUP_TARGET = 30.0
+        STUCK_DAYS = float(self.config.get("cleanup", {}).get("stuck_download_days", 3))
+        SEED_DAYS = float(self.config.get("cleanup", {}).get("seed_days", 2))
+
+        try:
+            start_space = await qb.free_space_gb()
+        except Exception as exc:
+            logger.warning("紧急清理: 空间检查失败: %s", exc)
+            return {"ok": False, "deleted": [], "start_space": 0.0, "end_space": 0.0}
+
+        if not qb.space_reliable():
+            logger.info("紧急清理: 空间数据不可靠 — 跳过")
+            return {"ok": True, "deleted": [], "start_space": start_space, "end_space": start_space}
+
+        if start_space >= EMERGENCY_THRESHOLD:
+            logger.debug("紧急清理: 空间充足 %.1f GB ≥ %.0f GB — 跳过", start_space, EMERGENCY_THRESHOLD)
+            return {"ok": True, "deleted": [], "start_space": start_space, "end_space": start_space}
+
+        logger.warning("紧急清理触发: 空间 %.1f GB < %.0f GB, 目标 %.0f GB", start_space, EMERGENCY_THRESHOLD, CLEANUP_TARGET)
+
+        torrents = await qb.torrents()
+        deleted: list[dict[str, Any]] = []
+        needed = max(0.0, CLEANUP_TARGET - start_space)
+        freed = 0.0
+
+        async def _delete(torrent: dict[str, Any], reason: str) -> bool:
+            nonlocal freed
+            tid = extract_tid_from_tags(torrent.get("tags", ""))
+            if tid and is_hard_final_status(_processed(self.config).get(tid, {}).get("status", "")):
+                return False
+            await qb.delete(torrent["hash"], delete_files=True)
+            size_gb = float(torrent.get("total_size", 0)) / (1024 ** 3)
+            freed += size_gb
+            name = torrent.get("name", "unknown")[:50]
+            deleted.append({"name": name, "size": round(size_gb, 2), "reason": reason})
+            logger.info("  紧急清理: %s (%.1f GB, %s)", name, size_gb, reason)
+            if tid:
+                rec = _processed(self.config).setdefault(tid, {})
+                rec["status"] = STATUS_EVICTED
+                rec["evicted_time"] = utc_now_iso()
+                rec["evicted_reason"] = f"emergency_{reason}"
+            return True
+
+        # Round 1: stuck
+        for t in sorted(
+            [t for t in torrents if t.get("progress", 0) < 1 and t.get("added_on")],
+            key=lambda t: float(t.get("added_on", 0))
+        ):
+            if days_since(float(t.get("added_on", 0))) >= STUCK_DAYS:
+                await _delete(t, "卡死下载")
+                if freed >= needed:
+                    break
+
+        # Round 2: long-term seeding
+        if freed < needed:
+            for t in sorted(
+                [t for t in torrents if t.get("progress", 0) == 1 and float(t.get("seeding_time", 0)) / 86400 >= SEED_DAYS],
+                key=lambda t: float(t.get("seeding_time", 0)), reverse=True
+            ):
+                await _delete(t, "做种超时")
+                if freed >= needed:
+                    break
+
+        end_space = start_space + freed
+        ok = end_space >= EMERGENCY_THRESHOLD + 5
+        logger.info("紧急清理: start=%.1f GB, freed=%.1f GB, end=%.1f GB → %s",
+                   start_space, freed, end_space, "OK" if ok else "不够")
+        return {"ok": ok, "deleted": deleted, "start_space": start_space, "end_space": end_space}
+
+    async def _periodic_stuck_cleanup(self, qb: AsyncQBClient) -> list[dict[str, Any]]:
+        """Periodic stuck torrent cleanup — always runs (original: cleanup_stuck_periodic)."""
+        STUCK_DAYS = float(self.config.get("cleanup", {}).get("stuck_download_days", 3))
+        torrents = await qb.torrents()
+        deleted: list[dict[str, Any]] = []
+
+        for t in torrents:
+            if t.get("progress", 0) >= 1:
+                continue
+            if not t.get("added_on"):
+                continue
+            if days_since(float(t.get("added_on", 0))) < STUCK_DAYS:
+                continue
+
+            tid = extract_tid_from_tags(t.get("tags", ""))
+            if tid and is_hard_final_status(_processed(self.config).get(tid, {}).get("status", "")):
+                continue
+
+            try:
+                await qb.delete(t["hash"], delete_files=True)
+                size_gb = float(t.get("total_size", 0)) / (1024 ** 3)
+                name = t.get("name", "unknown")[:50]
+                deleted.append({"name": name, "size": round(size_gb, 2), "reason": "定期清理-卡死"})
+                logger.info("  定期清理: %s (%.1f GB)", name, size_gb)
+                if tid:
+                    rec = _processed(self.config).setdefault(tid, {})
+                    rec["status"] = STATUS_EVICTED
+                    rec["evicted_time"] = utc_now_iso()
+                    rec["evicted_reason"] = "periodic_stuck"
+            except Exception as exc:
+                logger.warning("定期清理失败: %s", exc)
+
+        if deleted:
+            logger.info("定期清理: 删除了 %d 个卡死任务", len(deleted))
+        return deleted
+
     async def _run_cycle(self) -> dict[str, Any]:
         qb_cfg = self.config.get("qbittorrent", {})
         if not qb_cfg.get("url"):
@@ -728,6 +840,13 @@ class PTRSSPlugin(PluginBase):
             fallback_local_dir=self.config.get("space_fallback_dir") or None,
         ) as qb:
             logger.debug("qB login OK")
+
+            # ── 0. Emergency cleanup (always runs, same as original script) ──
+            emergency_result = await self._emergency_cleanup(qb)
+            for item in emergency_result.get("deleted", []):
+                notify_evicted.append(f"🧹 紧急清理: {item['name']} ({item['size']}GB, {item['reason']})")
+                daily["stats"]["deleted_emergency"] = daily["stats"].get("deleted_emergency", 0) + 1
+
             # ── 1. RSS check ──
             rss_items, failed_sources = await self._collect_rss_items()
             rss_tid_set = {item.tid for item in rss_items}
@@ -773,9 +892,15 @@ class PTRSSPlugin(PluginBase):
                 logger.info("  evicted: tid=%s, name=%s (RSS缺席)", tid, torrent.get("name", "")[:50])
                 notify_evicted.append(f"{tid} | {torrent.get('name', '')[:50]} | RSS缺席")
 
+            # ── 2b. Periodic stuck cleanup (always runs, same as original script) ──
+            periodic_deleted = await self._periodic_stuck_cleanup(qb)
+            for item in periodic_deleted:
+                notify_evicted.append(f"🧹 定期清理: {item['name']} ({item['size']}GB, {item['reason']})")
+                daily["stats"]["deleted_periodic"] = daily["stats"].get("deleted_periodic", 0) + 1
+
             # ── 3. Space cleanup — free disk before adding new downloads ──
-            emergency_result = await self._cleanup_for_new_task(qb)
-            for item in emergency_result.get("deleted", []):
+            space_result = await self._cleanup_for_new_task(qb)
+            for item in space_result.get("deleted", []):
                 notify_evicted.append(f"🧹 {item['name']} ({item['size']}GB, {item['reason']})")
                 daily["stats"]["deleted_space"] = daily["stats"].get("deleted_space", 0) + 1
 
