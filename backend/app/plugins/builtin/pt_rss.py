@@ -714,6 +714,10 @@ class PTRSSPlugin(PluginBase):
             torrents_cache = await qb.torrents()
 
             # ── 2. Try adding new downloads ──
+            # Check space once before attempting new downloads
+            pre_space = await qb.free_space_gb()
+            space_ok = qb.space_reliable() and pre_space > 0.1
+
             for item in rss_items:
                 if max_active and added >= max_active:
                     break
@@ -764,7 +768,12 @@ class PTRSSPlugin(PluginBase):
                     notify_added.append(f"♻️ 已存在：{item.title[:50]}")
                     continue
 
-                # Try to add — always attempt, cleanup handles space afterwards
+                # Skip adding if qB space data is unreliable — downloads would fail anyway
+                if not space_ok:
+                    logger.info("  skip add: tid=%s, space unreliable (%s)", item.tid, qb.last_space_source())
+                    notify_skipped.append(f"{item.tid} | 空间不可靠({qb.last_space_source()})")
+                    continue
+
                 added_ok = False
                 last_error = ""
                 urls_to_try = [item.url]
@@ -855,6 +864,8 @@ class PTRSSPlugin(PluginBase):
             notif_parts.append(f"🗑️ 清理 {len(notify_evicted)} 个:\n" + "\n".join(notify_evicted[:10]))
         if notify_failed:
             notif_parts.append(f"❌ 失败 {len(notify_failed)} 个:\n" + "\n".join(notify_failed[:5]))
+        if notify_skipped:
+            notif_parts.append(f"⚠️ 跳过 {len(notify_skipped)} 个:\n" + "\n".join(notify_skipped[:5]))
         if notif_parts:
             await self.notify(
                 title="📡 PT RSS 运行结果",
