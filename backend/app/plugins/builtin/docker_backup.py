@@ -1,9 +1,7 @@
 """Docker App Backup Plugin — exact port of backup_docker_all_core.sh.
 
-Scans /volume1/docker/ for app directories (those containing config/data/conf/db).
-Excludes media/downloads/cache/logs/transcode/imagecache/trickplay.
-v2raya gets white-list treatment.
-Copies docker-compose*.yml / .env alongside.
+Scans /volume1/docker/ for app directories (those containing config/data/conf/db/vfs).
+Excludes media/downloads/cache/logs/transcode/imagecache/trickplay/metadata.
 Archives everything to a single .tgz.
 """
 
@@ -24,7 +22,7 @@ logger = logging.getLogger("naspilot.plugin.docker_backup")
 LOCAL_TZ = timezone(timedelta(hours=8))
 
 # Directories that mark an "app" in /volume1/docker/
-DATA_DIR_NAMES = ("config", "data", "conf", "db", "appdata", "AppData")
+DATA_DIR_NAMES = ("config", "data", "conf", "db", "appdata", "AppData", "vfs")
 
 # Directories excluded at top level (media/downloads etc.)
 # NOTE: "data" is NOT here — it's a valid app data directory, only excluded
@@ -33,9 +31,6 @@ EXCLUDED_TOP_DIRS = {"media", "downloads", "download", "movies", "tv", "music", 
 
 # Directories excluded at any depth (cache/tmp/logs etc.)
 EXCLUDED_SUBDIR_NAMES = {"cache", "tmp", "temp", "log", "logs", "transcode", "imagecache", "trickplay", "metadata"}
-
-# v2raya white-list file name prefixes
-V2RAYA_WHITELIST_PREFIXES = ("config.json", "subscribe", "routing")
 
 # Compose-related files to always include
 COMPOSE_FILES = {"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", ".env"}
@@ -119,29 +114,6 @@ def _copy_app(src: str, dst: str, app_name: str) -> dict[str, Any]:
     return {"app": app_name, "files": copied_files}
 
 
-def _copy_v2raya(src_dir: str, dst_dir: str) -> dict[str, Any]:
-    """v2raya white-list — only config.json, subscribe*.json, routing*.json."""
-    config_src = os.path.join(src_dir, "config")
-    config_dst = os.path.join(dst_dir, "config")
-    os.makedirs(config_dst, exist_ok=True)
-
-    if not os.path.isdir(config_src):
-        return {"app": "v2raya", "files": 0, "mode": "whitelist"}
-
-    copied = 0
-    for fname in os.listdir(config_src):
-        full = os.path.join(config_src, fname)
-        if not os.path.isfile(full):
-            continue
-        for prefix in V2RAYA_WHITELIST_PREFIXES:
-            if fname.startswith(prefix):
-                shutil.copy2(full, os.path.join(config_dst, fname))
-                copied += 1
-                break
-
-    return {"app": "v2raya", "files": copied, "mode": "whitelist"}
-
-
 def _backup_sync(cfg: dict[str, Any]) -> dict[str, Any]:
     """Synchronous backup — complete port of backup_docker_all_core.sh."""
 
@@ -199,10 +171,7 @@ def _backup_sync(cfg: dict[str, Any]) -> dict[str, Any]:
             app_dest = os.path.join(tmp_dir, app_name)
             logger.info(f"Collecting: {app_name}")
 
-            if app_name == "v2raya":
-                result = _copy_v2raya(app_path, app_dest)
-            else:
-                result = _copy_app(app_path, app_dest, app_name)
+            result = _copy_app(app_path, app_dest, app_name)
 
             # Copy compose / .env files
             for fname in COMPOSE_FILES:

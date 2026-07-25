@@ -34,7 +34,7 @@ export default function DockerBackup() {
       <PluginConfigForm
         slug="docker_backup"
         title="Docker 应用备份"
-        description="备份 /volume1/docker 下每个应用的配置和数据目录（排除 media/downloads/cache/logs）。v2raya 采用白名单备份。完全对应 backup_docker_all_core.sh 的行为。"
+        description="备份 /volume1/docker 下每个应用的配置和数据目录（排除 media/downloads/cache/logs）。完全对应 backup_docker_all_core.sh 的行为。"
         fields={FIELDS}
         onRun={handleRun}
         running={running}
