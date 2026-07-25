@@ -110,6 +110,10 @@ async def start_scheduler() -> None:
         sched.start()
     await sync_all_tasks()
     await sync_plugin_schedules()
+    # Heartbeat — confirm scheduler is alive
+    jobs = sched.get_jobs()
+    logger.info("Scheduler started with %d job(s): %s",
+                len(jobs), ", ".join(j.id for j in jobs))
 
 
 async def shutdown_scheduler() -> None:
