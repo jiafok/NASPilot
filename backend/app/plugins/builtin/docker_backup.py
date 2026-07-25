@@ -1,7 +1,7 @@
 """Docker App Backup Plugin — exact port of backup_docker_all_core.sh.
 
 Scans /volume1/docker/ for app directories (those containing config/data/conf/db).
-Excludes media/downloads/cache/logs/transcode/imagecache.
+Excludes media/downloads/cache/logs/transcode/imagecache/trickplay.
 v2raya gets white-list treatment.
 Copies docker-compose*.yml / .env alongside.
 Archives everything to a single .tgz.
@@ -32,7 +32,7 @@ DATA_DIR_NAMES = ("config", "data", "conf", "db", "appdata", "AppData")
 EXCLUDED_TOP_DIRS = {"media", "downloads", "download", "movies", "tv", "music", "Music", "Movies"}
 
 # Directories excluded at any depth (cache/tmp/logs etc.)
-EXCLUDED_SUBDIR_NAMES = {"cache", "tmp", "temp", "logs", "transcode", "imagecache"}
+EXCLUDED_SUBDIR_NAMES = {"cache", "tmp", "temp", "logs", "transcode", "imagecache", "trickplay"}
 
 # v2raya white-list file name prefixes
 V2RAYA_WHITELIST_PREFIXES = ("config.json", "subscribe", "routing")
