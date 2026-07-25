@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, Tag, Button, Space, message, Typography, Row, Col, Spin, Modal, Descriptions } from 'antd';
 import { PoweroffOutlined, ReloadOutlined, SettingOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -27,6 +28,7 @@ const TOOL_PAGE_MAP: Record<string, string> = {
 };
 
 export default function PluginList() {
+  const { t } = useTranslation();
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [loading, setLoading] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -38,7 +40,7 @@ export default function PluginList() {
     try {
       const res = await api.get('/plugins');
       setPlugins(res.data);
-    } catch { message.error('获取插件列表失败'); }
+    } catch { message.error(t('plugins.fetchFailed')); }
     finally { setLoading(false); }
   }, []);
 
@@ -48,9 +50,9 @@ export default function PluginList() {
     const endpoint = enabled ? `/plugins/${id}/enable` : `/plugins/${id}/disable`;
     try {
       await api.post(endpoint);
-      message.success(enabled ? '已启用' : '已禁用');
+      message.success(enabled ? t('common.enabled') : t('common.disabled'));
       fetchPlugins();
-    } catch { message.error('操作失败'); }
+    } catch { message.error(t('common.operationFailed')); }
   };
 
   const getStatusTag = (p: Plugin) => {
@@ -74,7 +76,7 @@ export default function PluginList() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>插件中心</Title>
-        <Button icon={<ReloadOutlined />} onClick={fetchPlugins}>刷新</Button>
+        <Button icon={<ReloadOutlined />} onClick={fetchPlugins}>{t('common.refresh')}</Button>
       </div>
 
       <Row gutter={[16, 16]}>
@@ -110,7 +112,7 @@ export default function PluginList() {
           selectedPlugin && TOOL_PAGE_MAP[selectedPlugin.slug] ? (
             <Button type="primary" icon={<SettingOutlined />}
               onClick={() => { setDetailOpen(false); navigate(TOOL_PAGE_MAP[selectedPlugin.slug]); }}>
-              打开配置
+              {t('plugins.openConfig')}
             </Button>
           ) : null
         }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Button, Space, Typography, Switch, Spin, Collapse, Select, Tag } from 'antd';
 import { PauseCircleOutlined, PlayCircleOutlined, ClearOutlined, WifiOutlined, CodeOutlined, ExportOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import { getToken } from '../utils/auth';
 
 const { Text } = Typography;
@@ -30,7 +31,11 @@ interface Props {
 const LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
 const LEVEL_COLORS: Record<string, string> = { DEBUG: 'default', INFO: 'blue', WARNING: 'orange', ERROR: 'red', CRITICAL: 'magenta' };
 
-export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, placeholder = '暂无日志', collapsible = false, defaultOpen = false, label = '📋 日志', showFilters = true, showOpenWindow = false }: Props) {
+export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, placeholder, collapsible = false, defaultOpen = false, label, showFilters = true, showOpenWindow = false }: Props) {
+  const { t } = useTranslation();
+  const finalPlaceholder = placeholder || t('logs.noLogs');
+  const finalLabel = label || t('common.logs');
+
   const [lines, setLines] = useState<LogLine[]>([]);
   const [paused, setPaused] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -181,12 +186,12 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
         <Space size={4}>
           <WifiOutlined style={{ color: connected ? '#52c41a' : '#ff4d4f' }} />
           <Text type="secondary" style={{ fontSize: 12 }}>
-            {connected ? '已连接' : '断开'
-            } · {levelFilter.length ? filtered.length + '/' : ''}{lines.length} 行
+            {connected ? t('logs.connected') : t('logs.disconnected')
+            } · {levelFilter.length ? filtered.length + '/' : ''}{lines.length} {t('common.lines')}
           </Text>
           {showFilters && (
             <Select
-              mode="multiple" size="small" placeholder="级别"
+              mode="multiple" size="small" placeholder={t('logs.level')}
               style={{ minWidth: 90, maxWidth: 180 }}
               value={levelFilter}
               onChange={(v) => setLevelFilter(v)}
@@ -200,11 +205,11 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
         <Space size={4}>
           <Switch size="small" checked={!paused} onChange={(v) => setPaused(!v)}
             checkedChildren={<PlayCircleOutlined />} unCheckedChildren={<PauseCircleOutlined />} />
-          <Button size="small" icon={<ClearOutlined />} onClick={() => setLines([])}>清空</Button>
+          <Button size="small" icon={<ClearOutlined />} onClick={() => setLines([])}>{t('common.clear')}</Button>
           {showOpenWindow && (
             <Button size="small" icon={<ExportOutlined />}
               onClick={() => { const u = source ? `/logs/full?source=${encodeURIComponent(source)}` : '/logs/full'; window.open(u, '_blank', 'width=1100,height=800'); }}>
-              新窗口
+              {t('logs.newWindow')}
             </Button>
           )}
         </Space>
@@ -217,7 +222,7 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
       }}>
         {filtered.length === 0 ? (
           <div style={{ color: '#666', textAlign: 'center', padding: '40px 0' }}>
-            {connected ? placeholder : <Spin size="small" />}
+            {connected ? finalPlaceholder : <Spin size="small" />}
           </div>
         ) : (
           filtered.map((line, i) => (
@@ -244,7 +249,7 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
     return (
       <Collapse defaultActiveKey={defaultOpen ? ['log'] : []} items={[{
         key: 'log',
-        label: <span><CodeOutlined /> {label} · {lines.length} 行</span>,
+        label: <span><CodeOutlined /> {t('logs.lineCount', { label: finalLabel, count: lines.length })}</span>,
         children: body,
       }]} />
     );

@@ -57,7 +57,7 @@ export default function TaskList() {
     { title: t('tasks.lastRun'), dataIndex: 'last_run_at', key: 'last_run_at', width: 150, render: (v: string|null) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
     { title: t('common.actions'), key: 'actions', width: 210, render: (_: any, r: Task) => (
       <Space size="small">
-        <Tooltip title="查看日志"><Button size="small" icon={<FileTextOutlined />} onClick={() => handleViewLog(r)} /></Tooltip>
+        <Tooltip title={t('common.viewLogs')}><Button size="small" icon={<FileTextOutlined />} onClick={() => handleViewLog(r)} /></Tooltip>
         <Tooltip title={t('tasks.runNow')}><Button size="small" icon={<PlayCircleOutlined />} onClick={() => handleRun(r.id)} /></Tooltip>
         <Button size="small" onClick={() => { setEditingTask(r); form.setFieldsValue(r); setModalOpen(true); }}>{t('common.edit')}</Button>
         <Popconfirm title={t('tasks.deleteConfirm')} onConfirm={() => handleDelete(r.id)}><Button size="small" danger icon={<DeleteOutlined />} /></Popconfirm>
@@ -73,7 +73,7 @@ export default function TaskList() {
       const res = await api.get(`/tasks/${task.id}/log`, { params: { tail: 300 } });
       setLogLines(res.data.lines || []);
     } catch {
-      message.error('无法加载日志');
+      message.error(t('tasks.logLoadFailed'));
     }
     finally { setLogLoading(false); }
   };
@@ -91,7 +91,7 @@ export default function TaskList() {
       </div>
 
       <Table dataSource={tasks} columns={columns} rowKey="id" loading={loading} size="small"
-        pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [5, 10, 20, 50], showTotal: (t: number) => `${t} 条` }}
+        pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [5, 10, 20, 50], showTotal: (n: number) => t('common.items', { count: n }) }}
         locale={{ emptyText: t('tasks.noTasks') }} />
 
       <Modal title={editingTask ? t('tasks.edit') : t('tasks.create')} open={modalOpen}
@@ -113,19 +113,19 @@ export default function TaskList() {
             <TextArea rows={2} placeholder={t('tasks.commandPlaceholder')} />
           </Form.Item>
           <Form.Item name="args" label="Args (JSON)"
-            tooltip="额外参数，JSON 数组格式。例如 [&quot;--verbose&quot;, &quot;--config&quot;, &quot;/scripts/config.yaml&quot;]">
+            tooltip={t('tasks.argsHelp')}>
             <Input placeholder='["--config", "/scripts/config.yaml"]' />
           </Form.Item>
-          <Form.Item name="working_dir" label="工作目录"
-            tooltip="脚本执行时的工作目录。默认使用 $HOME。例如 /scripts">
+          <Form.Item name="working_dir" label={t('tasks.workingDir')}
+            tooltip={t('tasks.workingDirHelp')}>
             <Input placeholder="/scripts" />
           </Form.Item>
           <Form.Item name="cron_expr" label={t('tasks.cronExpr')}
             tooltip={t('tasks.cronHelp')}>
             <Input placeholder={t('tasks.cronPlaceholder')} />
           </Form.Item>
-          <Form.Item name="env_vars" label="环境变量 (JSON)"
-            tooltip='形如 {"KEY": "VALUE"}，会传递给脚本。例如 {"DOWNLOAD_DIR": "/downloads"}'>
+          <Form.Item name="env_vars" label={t('tasks.envVars')}
+            tooltip={t('tasks.envVarsHelp')}>
             <TextArea rows={2} placeholder='{"QB_URL": "http://10.0.0.5:8080"}' />
           </Form.Item>
           <Space wrap>
@@ -137,13 +137,13 @@ export default function TaskList() {
             </Form.Item>
           </Space>
           <Alert type="info" showIcon style={{ fontSize: 12 }}
-            message="脚本放在 /scripts 目录下（容器内路径），通过 docker-compose volumes 挂载。输出日志保存在 /app/logs/{任务名}.log。" />
+            message={t('tasks.scriptInfo')} />
         </Form>
       </Modal>
 
       {/* Log Viewer Modal */}
       <Modal
-        title={`📋 ${logTaskName} — 执行日志`}
+        title={t('tasks.executionLogs', { name: logTaskName })}
         open={logModalOpen}
         onCancel={() => { setLogModalOpen(false); setLogLines([]); }}
         footer={[
@@ -151,17 +151,17 @@ export default function TaskList() {
             onClick={() => {
               const task = tasks.find(t => t.name === logTaskName);
               if (task) handleViewLog(task);
-            }}>刷新</Button>,
-          <Button key="close" onClick={() => { setLogModalOpen(false); setLogLines([]); }}>关闭</Button>,
+            }}>{t('common.refresh')}</Button>,
+          <Button key="close" onClick={() => { setLogModalOpen(false); setLogLines([]); }}>{t('common.close')}</Button>,
         ]}
         width="90%"
         style={{ top: 20 }}
       >
         {logLoading ? (
-          <Paragraph style={{ textAlign: 'center', padding: 40 }}>加载中...</Paragraph>
+          <Paragraph style={{ textAlign: 'center', padding: 40 }}>{t('common.loading')}</Paragraph>
         ) : logLines.length === 0 ? (
           <Paragraph type="secondary" style={{ textAlign: 'center', padding: 40 }}>
-            暂无日志 — 任务可能尚未执行，或日志文件还未生成。
+            {t('tasks.noLogs')}
           </Paragraph>
         ) : (
           <pre style={{

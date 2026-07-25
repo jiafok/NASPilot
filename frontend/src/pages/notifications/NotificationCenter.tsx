@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Table, Button, Modal, Form, Input, Select, Switch, Space, Tag,
   Popconfirm, message, Typography, Badge,
@@ -18,6 +19,7 @@ interface NotificationChannel {
 }
 
 export default function NotificationCenter() {
+  const { t } = useTranslation();
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -30,7 +32,7 @@ export default function NotificationCenter() {
     try {
       const res = await api.get('/notifications/channels');
       setChannels(res.data);
-    } catch { message.error('获取通知渠道失败'); }
+    } catch { message.error(t('notifications.fetchFailed')); }
     finally { setLoading(false); }
   }, []);
 
@@ -41,10 +43,10 @@ export default function NotificationCenter() {
     try {
       if (editing) {
         await api.put(`/notifications/channels/${editing.id}`, values);
-        message.success('已更新');
+        message.success(t('common.updated'));
       } else {
         await api.post('/notifications/channels', values);
-        message.success('已创建');
+        message.success(t('common.created'));
       }
       setModalOpen(false); setEditing(null); form.resetFields(); fetchChannels();
     } catch (err: any) {
@@ -56,7 +58,7 @@ export default function NotificationCenter() {
     setTesting(id);
     try {
       await api.post(`/notifications/channels/${id}/test`);
-      message.success('测试通知已发送');
+      message.success(t('notifications.testSent'));
     } catch (err: any) {
       message.error(err?.response?.data?.detail || '测试失败');
     } finally { setTesting(null); }
@@ -65,9 +67,9 @@ export default function NotificationCenter() {
   const handleDelete = async (id: number) => {
     try {
       await api.delete(`/notifications/channels/${id}`);
-      message.success('已删除');
+      message.success(t('common.deleted'));
       fetchChannels();
-    } catch { message.error('删除失败'); }
+    } catch { message.error(t('common.deleteFailed')); }
   };
 
   const typeColor = (t: string) => {
@@ -104,9 +106,9 @@ export default function NotificationCenter() {
       render: (_: any, record: NotificationChannel) => (
         <Space>
           <Button size="small" icon={<SendOutlined />} loading={testing === record.id}
-            onClick={() => handleTest(record.id)}>测试</Button>
-          <Button size="small" onClick={() => handleEdit(record)}>编辑</Button>
-          <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>
+            onClick={() => handleTest(record.id)}>{t('common.test')}</Button>
+          <Button size="small" onClick={() => handleEdit(record)}>{t('common.edit')}</Button>
+          <Popconfirm title={t('common.confirmDelete')} onConfirm={() => handleDelete(record.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
@@ -140,15 +142,15 @@ export default function NotificationCenter() {
         <Space>
           <Button icon={<ReloadOutlined />} onClick={fetchChannels}>刷新</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleNew}>
-            新建渠道
+            {t('notifications.createChannel')}
           </Button>
         </Space>
       </div>
       <Table dataSource={channels} columns={columns} rowKey="id" loading={loading} size="small"
-        pagination={{ defaultPageSize: 5, showSizeChanger: true, pageSizeOptions: [5, 10, 20], showTotal: (t: number) => `${t} 条` }} />
+        pagination={{ defaultPageSize: 5, showSizeChanger: true, pageSizeOptions: [5, 10, 20], showTotal: (n: number) => t('common.items', { count: n }) }} />
 
       <Modal
-        title={editing ? '编辑渠道' : '新建渠道'}
+        title={editing ? t('notifications.editChannel') : t('notifications.createChannel')}
         open={modalOpen}
         onOk={handleSave}
         onCancel={() => { setModalOpen(false); setEditing(null); }}

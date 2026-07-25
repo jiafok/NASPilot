@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Table, Button, Breadcrumb, Typography, Spin, Modal, Space, message } from 'antd';
 import { FolderOutlined, FileOutlined, HomeOutlined, ReloadOutlined, DownloadOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import api from '../../utils/api';
@@ -17,6 +18,7 @@ interface DirEntry {
 }
 
 export default function FileBrowser() {
+  const { t } = useTranslation();
   const [path, setPath] = useState('/');
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -109,15 +111,15 @@ export default function FileBrowser() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <Title level={4} style={{ margin: 0 }}>📂 文件浏览</Title>
+        <Title level={4} style={{ margin: 0 }}>{t('system.fileBrowser')}</Title>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => fetchDir(path)}>刷新</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => fetchDir(path)}>{t('common.refresh')}</Button>
         </Space>
       </div>
 
       <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <Button size="small" icon={<HomeOutlined />} onClick={() => setPath('/')}>/</Button>
-        <Button size="small" icon={<ArrowLeftOutlined />} onClick={goUp} disabled={path === '/'}>上级</Button>
+        <Button size="small" icon={<ArrowLeftOutlined />} onClick={goUp} disabled={path === '/'}>{t('system.parentDir')}</Button>
         <Breadcrumb
           style={{ fontSize: 13 }}
           items={[
@@ -143,8 +145,8 @@ export default function FileBrowser() {
         rowKey="name"
         size="small"
         loading={loading}
-        pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200], showTotal: (t: number) => `${t} 项` }}
-        locale={{ emptyText: '目录为空' }}
+        pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200], showTotal: (n: number) => t('common.items', { count: n }) }}
+        locale={{ emptyText: t('system.emptyDir') }}
         onRow={(record) => ({
           onDoubleClick: () => record.is_dir ? navigateTo(record) : openFile(record),
           style: { cursor: 'pointer' },
@@ -160,8 +162,8 @@ export default function FileBrowser() {
             onClick={() => {
               const token = getToken();
               window.open(`/api/v1/files/download?path=${encodeURIComponent(viewFilePath)}&token=${token}`, '_blank');
-            }}>下载</Button>,
-          <Button key="close" onClick={() => { setViewFile(null); setViewContent(''); }}>关闭</Button>,
+            }}>{t('common.download')}</Button>,
+          <Button key="close" onClick={() => { setViewFile(null); setViewContent(''); }}>{t('common.close')}</Button>,
         ]}
         width="90%"
         style={{ top: 20 }}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Form, Input, Button, Switch, message, Typography, Card, Spin, Tabs, Modal, Space, Row, Col, Statistic } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
@@ -16,6 +17,7 @@ interface Setting {
 }
 
 export default function SystemSettings() {
+  const { t } = useTranslation();
   const [settings, setSettings] = useState<Setting[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -97,7 +99,7 @@ export default function SystemSettings() {
   const tabItems = [
     {
       key: 'general',
-      label: <span><SettingOutlined /> 常规</span>,
+      label: <span><SettingOutlined /> {t('system.general')}</span>,
       children: (
         <Row gutter={[16, 0]}>
           {catSettings('general').map(s => {
@@ -125,7 +127,7 @@ export default function SystemSettings() {
           </Paragraph>
           <Row gutter={[16, 0]}>
             <Col xs={24} sm={12}>
-              <Form.Item name="AI_API_KEY" label="AI API Key" help="OpenAI / 兼容 API 的密钥">
+              <Form.Item name="AI_API_KEY" label={t('system.aiApiKey')} help={t('system.aiApiKeyHelp')}>
                 <Input.Password />
               </Form.Item>
             </Col>

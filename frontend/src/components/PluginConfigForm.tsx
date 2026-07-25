@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Form, Input, Select, Switch, InputNumber, Button, Card, Space, Typography, message, Tag, Divider, Table, Collapse } from 'antd';
 import { SaveOutlined, PlayCircleOutlined, ReloadOutlined, ClockCircleOutlined, SettingOutlined } from '@ant-design/icons';
 import api from '../utils/api';
@@ -41,6 +42,7 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
+  const { t } = useTranslation();
 
   const load = async () => {
     setLoading(true);
@@ -177,7 +179,7 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
                 dataSource={instance.config.state.run_history}
                 rowKey="time"
                 size="small"
-                pagination={{ defaultPageSize: 5, showSizeChanger: true, pageSizeOptions: [5, 10, 20, 50], showTotal: (t: number) => `${t} 条` }}
+                pagination={{ defaultPageSize: 5, showSizeChanger: true, pageSizeOptions: [5, 10, 20, 50], showTotal: (n: number) => t('common.items', { count: n }) }}
                 columns={[
                   { title: 'Time', dataIndex: 'time', width: 170, render: (v: string) => new Date(v).toLocaleString('zh-CN', { hour12: false }) },
                   { title: 'Status', dataIndex: 'status', width: 80, render: (s: string) => <Tag color={s === 'ok' ? 'green' : 'red'}>{s}</Tag> },
@@ -205,10 +207,10 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
                 <Form.Item name="_enabled" label="Enabled" valuePropName="checked"><Switch /></Form.Item>
                 {fields.map(renderField)}
                 <Divider><Space><ClockCircleOutlined /> Schedule (Optional)</Space></Divider>
-                <Form.Item name="schedule_enabled" label="Enable Schedule" valuePropName="checked" tooltip="开启后按 Cron 表达式定时自动执行此插件">
+                <Form.Item name="schedule_enabled" label="Enable Schedule" valuePropName="checked" tooltip={t('plugins.scheduleHelp')}>
                   <Switch />
                 </Form.Item>
-                <Form.Item name="schedule_cron" label="Cron Expression" tooltip="分 时 日 月 周。留空则只手动执行。例如 */30 * * * * 每30分钟，0 3 * * * 每天凌晨3点">
+                <Form.Item name="schedule_cron" label="Cron Expression" tooltip={t('plugins.cronExprHelp')}>
                   <Input placeholder="*/30 * * * *" style={{ width: 220 }} />
                 </Form.Item>
                 <Divider />

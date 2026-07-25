@@ -62,7 +62,7 @@ export default function Dashboard() {
     { title: t('dashboard.cpu'), value: stats?.cpu_percent ?? 0, icon: <CloudServerOutlined />, color: '#667eea' },
     { title: t('dashboard.memory'), value: stats?.memory_percent ?? 0, icon: <ThunderboltOutlined />, color: '#34d399', detail: `${fmtBytes(stats?.memory_used || 0)} / ${fmtBytes(stats?.memory_total || 0)}` },
     { title: t('dashboard.disk'), value: stats?.disk_percent ?? 0, icon: null, color: '#f59e0b', detail: `${fmtBytes(stats?.disk_used || 0)} / ${fmtBytes(stats?.disk_total || 0)}` },
-    { title: '运行时长', value: fmtUptime(stats?.uptime_hours ?? 0), icon: <ClockCircleOutlined />, color: '#8b5cf6', detail: '', valueStyle: { fontSize: 22 } },
+    { title: t('dashboard.uptime'), value: fmtUptime(stats?.uptime_hours ?? 0), icon: <ClockCircleOutlined />, color: '#8b5cf6', detail: '', valueStyle: { fontSize: 22 } },
   ];
 
   const totalExecs = summary.reduce((s, t) => s + t.total, 0);
@@ -87,19 +87,19 @@ export default function Dashboard() {
       {/* ── Task Summary ── */}
       <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
         <Col xs={24} lg={14}>
-          <Card title={<Space><BarChartOutlined /> 近期任务统计</Space>}
-            extra={<Space size="small"><Text type="secondary">共 {totalExecs} 次</Text><Text style={{ color: '#52c41a' }}>{totalSuccess} 成功</Text><Text style={{ color: '#ff4d4f' }}>{totalFailed} 失败</Text></Space>}>
+          <Card title={<Space><BarChartOutlined /> {t('dashboard.taskStats')}</Space>}
+            extra={<Space size="small"><Text type="secondary">{t('dashboard.totalExecutions', { count: totalExecs })}</Text><Text style={{ color: '#52c41a' }}>{totalSuccess} {t('common.success')}</Text><Text style={{ color: '#ff4d4f' }}>{totalFailed} {t('common.failed')}</Text></Space>}>
             <Table dataSource={summary} rowKey="task_name" size="small" pagination={false}
               columns={[
-                { title: '任务', dataIndex: 'task_name', ellipsis: true },
-                { title: '总运行', dataIndex: 'total', width: 70, align: 'center' as const },
-                { title: '成功', dataIndex: 'success', width: 60, align: 'center' as const, render: (v: number) => <Text style={{ color: '#52c41a' }}>{v}</Text> },
-                { title: '失败', dataIndex: 'failed', width: 60, align: 'center' as const, render: (v: number) => v > 0 ? <Text style={{ color: '#ff4d4f' }}>{v}</Text> : <Text type="secondary">0</Text> },
-                { title: '成功率', key: 'rate', width: 80, align: 'center' as const, render: (_:any, r: TaskSummary) => {
+                { title: t('tasks.title'), dataIndex: 'task_name', ellipsis: true },
+                { title: t('dashboard.totalRuns'), dataIndex: 'total', width: 70, align: 'center' as const },
+                { title: t('common.success'), dataIndex: 'success', width: 60, align: 'center' as const, render: (v: number) => <Text style={{ color: '#52c41a' }}>{v}</Text> },
+                { title: t('common.failed'), dataIndex: 'failed', width: 60, align: 'center' as const, render: (v: number) => v > 0 ? <Text style={{ color: '#ff4d4f' }}>{v}</Text> : <Text type="secondary">0</Text> },
+                { title: t('dashboard.successRate'), key: 'rate', width: 80, align: 'center' as const, render: (_:any, r: TaskSummary) => {
                   const rate = r.total > 0 ? Math.round((r.success / r.total) * 100) : 0;
                   return <Text style={{ color: rate >= 80 ? '#52c41a' : rate >= 50 ? '#faad14' : '#ff4d4f' }}>{rate}%</Text>;
                 }},
-                { title: '最近运行', dataIndex: 'last_run', width: 160,
+                { title: t('tasks.lastRun'), dataIndex: 'last_run', width: 160,
                   render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
               ]} />
           </Card>
@@ -110,7 +110,7 @@ export default function Dashboard() {
               columns={[
                 { title: t('tasks.name'), dataIndex: 'task_name', ellipsis: true, width: 120 },
                 { title: t('common.status'), dataIndex: 'status', width: 80, render: (s: string) => <Tag color={sc(s)} icon={si(s)} style={{ margin: 0, fontSize: 11 }}>{s}</Tag> },
-                { title: '耗时', dataIndex: 'duration_ms', width: 60, render: (ms: number|null) => ms ? `${(ms/1000).toFixed(1)}s` : '-' },
+                { title: t('common.duration'), dataIndex: 'duration_ms', width: 60, render: (ms: number|null) => ms ? `${(ms/1000).toFixed(1)}s` : '-' },
               ]} />
           </Card>
         </Col>
