@@ -222,7 +222,8 @@ export default function LogViewer({ source, maxHeight = 400, maxLines = 5000, pl
         ) : (
           filtered.map((line, i) => (
             <div key={i} style={{
-              padding: '1px 12px', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+              padding: '1px 12px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere',
+              maxWidth: '100%', overflow: 'hidden',
               color: line.level === 'ERROR' || line.level === 'CRITICAL' ? '#ff6b6b'
                    : line.level === 'WARNING' ? '#ffd93d'
                    : line.level === 'DEBUG' ? '#888' : '#e0e0e0',

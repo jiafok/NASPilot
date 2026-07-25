@@ -18,6 +18,7 @@ import LogFullPage from './pages/system/LogFullPage';
 import SystemSettings from './pages/system/SystemSettings';
 import AIAssistant from './pages/AIAssistant';
 import LogCleanup from './pages/plugins/LogCleanup';
+import FileBrowser from './pages/system/FileBrowser';
 
 function App() {
   return (
@@ -42,9 +43,11 @@ function App() {
                 <Route path="tools/cloudflare" element={<CloudflareDDNS />} />
                 <Route path="tools/docker-backup" element={<DockerBackup />} />
                 <Route path="tools/log-cleanup" element={<LogCleanup />} />
+                <Route path="tools/file-browser" element={<FileBrowser />} />
                 <Route path="plugins" element={<PluginList />} />
                 <Route path="notifications" element={<NotificationCenter />} />
                 <Route path="logs" element={<LogCenter />} />
+                <Route path="files" element={<FileBrowser />} />
                 <Route path="settings" element={<SystemSettings />} />
                 <Route path="ai" element={<AIAssistant />} />
               </Route>

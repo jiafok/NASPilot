@@ -46,6 +46,11 @@ class SettingUpdate(BaseModel):
     value: str
 
 
+class SettingBulkEntry(BaseModel):
+    key: str
+    value: str
+
+
 class PaginatedResponse(BaseModel):
     """Generic paginated response wrapper."""
     items: list[Any]

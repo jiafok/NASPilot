@@ -16,6 +16,7 @@ import {
   LogoutOutlined,
   RobotOutlined,
   MenuOutlined,
+  FolderOpenOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../hooks/useAuth';
@@ -54,6 +55,7 @@ export default function MainLayout() {
     { key: '/plugins', icon: <AppstoreOutlined />, label: t('nav.plugins') },
     { key: '/notifications', icon: <BellOutlined />, label: t('nav.notifications') },
     { key: '/logs', icon: <FileTextOutlined />, label: t('nav.logs') },
+    { key: '/files', icon: <FolderOpenOutlined />, label: '文件浏览' },
     { key: '/settings', icon: <SettingOutlined />, label: t('nav.settings') },
     { key: '/ai', icon: <RobotOutlined />, label: t('nav.aiAssistant') },
   ];

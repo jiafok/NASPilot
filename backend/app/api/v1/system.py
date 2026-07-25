@@ -15,7 +15,7 @@ from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.logging_config import LOG_FILE
 from app.models import LogEntry, Setting
-from app.schemas.system import LogEntryOut, SettingOut, SettingUpdate, SystemStats
+from app.schemas.system import LogEntryOut, SettingOut, SettingUpdate, SettingBulkEntry, SystemStats
 from app.services.system_service import get_system_stats
 
 router = APIRouter(prefix="/system", tags=["system"])
@@ -190,6 +190,22 @@ async def public_settings(db: Annotated[AsyncSession, Depends(get_db)]):
     """Settings visible without auth (e.g. app name, version)."""
     result = await db.execute(select(Setting).where(Setting.is_public.is_(True)))
     return result.scalars().all()
+
+
+@router.put("/settings", summary="Batch update settings")
+async def batch_update_settings(
+    body: list[SettingBulkEntry],
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Update multiple settings at once."""
+    for entry in body:
+        result = await db.execute(select(Setting).where(Setting.key == entry.key))
+        setting = result.scalar_one_or_none()
+        if setting:
+            setting.value = entry.value
+    await db.commit()
+    return {"message": "saved", "count": len(body)}
 
 
 @router.put("/settings/{key}", response_model=SettingOut, summary="Update setting")
