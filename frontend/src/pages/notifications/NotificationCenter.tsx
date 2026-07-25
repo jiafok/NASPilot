@@ -144,7 +144,8 @@ export default function NotificationCenter() {
           </Button>
         </Space>
       </div>
-      <Table dataSource={channels} columns={columns} rowKey="id" loading={loading} size="small" />
+      <Table dataSource={channels} columns={columns} rowKey="id" loading={loading} size="small"
+        pagination={{ pageSize: 5, showSizeChanger: true, pageSizeOptions: [5, 10, 20], showTotal: (t: number) => `${t} 条` }} />
 
       <Modal
         title={editing ? '编辑渠道' : '新建渠道'}
