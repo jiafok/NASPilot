@@ -858,6 +858,20 @@ class PTRSSPlugin(PluginBase):
         if purged:
             logger.info("Processed GC: purged %d old records (evicted≥%dd, expired_free≥%dd)", purged, evicted_days, expired_days)
 
+        # ── Expire stale pending_free (independent of RSS — catches seeds no longer in feed) ──
+        free_ttl_hours = float(self.config.get("free_ttl_hours", 48))
+        expired_pre = 0
+        for tid, rec in processed.items():
+            if rec.get("status") == STATUS_PENDING_FREE:
+                if hours_since_iso(rec.get("first_seen", "")) > free_ttl_hours:
+                    rec["status"] = STATUS_EXPIRED_FREE
+                    rec["expired_time"] = utc_now_iso()
+                    daily["stats"]["expired_free"] += 1
+                    expired_pre += 1
+                    logger.debug("  expired free: tid=%s", tid)
+        if expired_pre:
+            logger.info("Expired %d pending_free records (>%dh)", expired_pre, free_ttl_hours)
+
         notify_added: list[str] = []
         notify_evicted: list[str] = []
         notify_failed: list[str] = []
@@ -955,14 +969,6 @@ class PTRSSPlugin(PluginBase):
 
                 if is_final_status(rec.get("status", "")):
                     logger.debug("  skip: tid=%s, status=%s (final)", item.tid, rec.get("status"))
-                    continue
-
-                free_ttl_hours = float(self.config.get("free_ttl_hours", 48))
-                if rec.get("status") == STATUS_PENDING_FREE and hours_since_iso(rec.get("first_seen", "")) > free_ttl_hours:
-                    rec["status"] = STATUS_EXPIRED_FREE
-                    rec["expired_time"] = utc_now_iso()
-                    daily["stats"]["expired_free"] += 1
-                    logger.debug("  expired free: tid=%s", item.tid)
                     continue
 
                 if rec.get("status") != STATUS_PENDING_FREE:
