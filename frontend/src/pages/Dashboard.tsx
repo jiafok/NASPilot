@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Component, type ReactNode } from 'react';
 import { Row, Col, Card, Statistic, Progress, Table, Tag, Typography, Spin, Space, Divider } from 'antd';
 import { CloudServerOutlined, ThunderboltOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, ReloadOutlined, BarChartOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -6,6 +6,16 @@ import api from '../utils/api';
 import ResourceMonitor from '../components/ResourceMonitor';
 
 const { Title, Text } = Typography;
+
+// Error boundary to prevent ResourceMonitor from blanking the whole page
+class MonitorErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() {
+    if (this.state.hasError) return <Text type="secondary">资源监控加载失败，请刷新页面。</Text>;
+    return this.props.children;
+  }
+}
 
 interface SystemStats { cpu_percent: number; memory_percent: number; memory_used: number; memory_total: number; disk_percent: number; disk_used: number; disk_total: number; uptime_hours: number; }
 interface RecentExecution { id: number; task_name: string; status: string; start_time: string; duration_ms: number | null; }
@@ -36,7 +46,6 @@ export default function Dashboard() {
         setStats(s.data);
         const execs: RecentExecution[] = e.data || [];
         setRecent(execs.slice(0, 10));
-        // Build task summary from 50 recent executions grouped by task_name
         const grouped: Record<string, TaskSummary> = {};
         for (const ex of execs) {
           const name = ex.task_name || 'Unknown';
@@ -85,16 +94,18 @@ export default function Dashboard() {
         ))}
       </Row>
 
-      {/* ── Real-time Resource Monitor ── */}
+      {/* ── Resource Monitor ── */}
       <Divider />
-      <ResourceMonitor />
+      <MonitorErrorBoundary>
+        <ResourceMonitor />
+      </MonitorErrorBoundary>
 
-      {/* ── Task Summary ── */}
+      {/* ── Task Summary + Recent ── */}
       <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
         <Col xs={24} lg={14}>
           <Card title={<Space><BarChartOutlined /> {t('dashboard.taskStats')}</Space>}
             extra={<Space size="small"><Text type="secondary">{t('dashboard.totalExecutions', { count: totalExecs })}</Text><Text style={{ color: '#52c41a' }}>{totalSuccess} {t('common.success')}</Text><Text style={{ color: '#ff4d4f' }}>{totalFailed} {t('common.failed')}</Text></Space>}>
-            <Table dataSource={summary} rowKey="task_name" size="small" pagination={false}
+            <Table dataSource={summary} rowKey="task_name" size="small" pagination={false} scroll={{ x: 'max-content' }}
               columns={[
                 { title: t('tasks.title'), dataIndex: 'task_name', ellipsis: true },
                 { title: t('dashboard.totalRuns'), dataIndex: 'total', width: 70, align: 'center' as const },
@@ -111,26 +122,7 @@ export default function Dashboard() {
         </Col>
         <Col xs={24} lg={10}>
           <Card title={t('dashboard.recentTasks')} extra={<ReloadOutlined onClick={fetchData} style={{ cursor: 'pointer' }} />}>
-            <Table dataSource={recent} rowKey="id" size="small" pagination={false}
-              columns={[
-                { title: t('tasks.name'), dataIndex: 'task_name', ellipsis: true, width: 120 },
-                { title: t('common.status'), dataIndex: 'status', width: 80, render: (s: string) => <Tag color={sc(s)} icon={si(s)} style={{ margin: 0, fontSize: 11 }}>{s}</Tag> },
-                { title: t('common.duration'), dataIndex: 'duration_ms', width: 60, render: (ms: number|null) => ms ? `${(ms/1000).toFixed(1)}s` : '-' },
-              ]} />
-          </Card>
-        </Col>
-      </Row>
-
-      {/* ── Resource Monitor ── */}
-      <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
-        <Col xs={24} lg={14}>
-          <Card title={t('dashboard.resourceMonitor')}>
-            <ResourceMonitor />
-          </Card>
-        </Col>
-        <Col xs={24} lg={10}>
-          <Card title={t('dashboard.recentTasks')} extra={<ReloadOutlined onClick={fetchData} style={{ cursor: 'pointer' }} />}>
-            <Table dataSource={recent} rowKey="id" size="small" pagination={false}
+            <Table dataSource={recent} rowKey="id" size="small" pagination={false} scroll={{ x: 'max-content' }}
               columns={[
                 { title: t('tasks.name'), dataIndex: 'task_name', ellipsis: true, width: 120 },
                 { title: t('common.status'), dataIndex: 'status', width: 80, render: (s: string) => <Tag color={sc(s)} icon={si(s)} style={{ margin: 0, fontSize: 11 }}>{s}</Tag> },

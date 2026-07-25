@@ -49,13 +49,13 @@ export default function TaskList() {
   const handleToggle = async (id: number, enabled: boolean) => { try { await api.put(`/tasks/${id}`, { enabled }); fetchTasks(); } catch { message.error(t('common.failed')); } };
 
   const columns = [
-    { title: t('tasks.name'), dataIndex: 'name', key: 'name', ellipsis: true },
-    { title: t('common.type'), dataIndex: 'task_type', key: 'task_type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
-    { title: t('tasks.cronExpr'), dataIndex: 'cron_expr', key: 'cron_expr', width: 110, ellipsis: true, render: (v: string|null) => v || <Tag color="default">manual</Tag> },
-    { title: t('tasks.timeout'), dataIndex: 'timeout', key: 'timeout', width: 70, render: (v: number) => `${v}s` },
+    { title: t('tasks.name'), dataIndex: 'name', key: 'name', ellipsis: true, minWidth: 100 },
+    { title: t('common.type'), dataIndex: 'task_type', key: 'task_type', width: 70, responsive: ['md' as const], render: (v: string) => <Tag>{v}</Tag> },
+    { title: t('tasks.cronExpr'), dataIndex: 'cron_expr', key: 'cron_expr', width: 110, ellipsis: true, responsive: ['lg' as const], render: (v: string|null) => v || <Tag color="default">manual</Tag> },
+    { title: t('tasks.timeout'), dataIndex: 'timeout', key: 'timeout', width: 60, responsive: ['md' as const], render: (v: number) => `${v}s` },
     { title: t('common.status'), dataIndex: 'enabled', key: 'enabled', width: 70, render: (enabled: boolean, r: Task) => <Switch size="small" checked={enabled} onChange={(v) => handleToggle(r.id, v)} /> },
-    { title: t('tasks.lastRun'), dataIndex: 'last_run_at', key: 'last_run_at', width: 150, render: (v: string|null) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
-    { title: t('common.actions'), key: 'actions', width: 210, render: (_: any, r: Task) => (
+    { title: t('tasks.lastRun'), dataIndex: 'last_run_at', key: 'last_run_at', width: 150, responsive: ['md' as const], render: (v: string|null) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
+    { title: t('common.actions'), key: 'actions', width: 200, fixed: 'right' as const, render: (_: any, r: Task) => (
       <Space size="small">
         <Tooltip title={t('common.viewLogs')}><Button size="small" icon={<FileTextOutlined />} onClick={() => handleViewLog(r)} /></Tooltip>
         <Tooltip title={t('tasks.runNow')}><Button size="small" icon={<PlayCircleOutlined />} onClick={() => handleRun(r.id)} /></Tooltip>
@@ -91,6 +91,7 @@ export default function TaskList() {
       </div>
 
       <Table dataSource={tasks} columns={columns} rowKey="id" loading={loading} size="small"
+        scroll={{ x: 'max-content' }}
         pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [5, 10, 20, 50], showTotal: (n: number) => t('common.items', { count: n }) }}
         locale={{ emptyText: t('tasks.noTasks') }} />
 

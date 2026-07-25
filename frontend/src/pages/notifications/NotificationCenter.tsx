@@ -146,7 +146,7 @@ export default function NotificationCenter() {
           </Button>
         </Space>
       </div>
-      <Table dataSource={channels} columns={columns} rowKey="id" loading={loading} size="small"
+      <Table dataSource={channels} columns={columns} rowKey="id" loading={loading} size="small" scroll={{ x: 'max-content' }}
         pagination={{ defaultPageSize: 5, showSizeChanger: true, pageSizeOptions: [5, 10, 20], showTotal: (n: number) => t('common.items', { count: n }) }} />
 
       <Modal
