@@ -1,7 +1,6 @@
 """File browser — browse directories, read text files on the NAS."""
 
 import os
-import mimetypes
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,8 +10,22 @@ from app.core.deps import CurrentUser
 
 router = APIRouter(prefix="/files", tags=["files"])
 
-SAFE_ROOTS = ["/", "/app", "/volume1", "/volumeUSB1", "/scripts"]
+# Only allow browsing Docker-mapped volumes — not the container filesystem
+SAFE_ROOTS = [
+    "/app/data",       # NASPilot data (config + logs)
+    "/volume1",         # NAS docker volumes
+    "/volumeUSB1",      # USB backup
+    "/scripts",         # User scripts (read-only)
+]
 
+
+# Human-readable labels for the top-level mount points
+ROOT_LABELS: dict[str, str] = {
+    "/app/data": "📁 NASPilot 数据",
+    "/volume1": "💾 NAS 存储池",
+    "/volumeUSB1": "🔌 USB 外接存储",
+    "/scripts": "📜 脚本目录",
+}
 
 def _safe_path(path: str) -> str:
     """Resolve and validate a path against safe roots."""
@@ -29,7 +42,29 @@ async def list_dir(
     user: CurrentUser,
     path: str = Query("/", description="Directory path to list"),
 ):
-    """List files and directories at the given path."""
+    """List files and directories at the given path.
+    
+    At the root level (/), returns only the Docker-mapped mount points
+    (SAFE_ROOTS) instead of the real container filesystem.
+    """
+    # Virtual root: show only safe mount points that actually exist
+    if path == "/":
+        entries = []
+        for root in SAFE_ROOTS:
+            real_root = os.path.realpath(root)
+            if os.path.isdir(real_root):
+                label = ROOT_LABELS.get(root, os.path.basename(root) or root)
+                entries.append({
+                    "name": label,
+                    "real_path": root,
+                    "is_dir": True,
+                    "size": 0,
+                    "mtime": 0,
+                    "is_text": False,
+                    "is_root": True,  # frontend uses this to show special styling
+                })
+        return {"path": "/", "entries": entries}
+
     try:
         safe = _safe_path(path)
     except HTTPException:
@@ -61,10 +96,12 @@ async def list_dir(
                              ".env", ".cfg", ".conf", ".ini", ".sh", ".sql", ".toml")
             entries.append({
                 "name": name,
+                "real_path": os.path.join(safe, name),
                 "is_dir": is_dir,
                 "size": size,
                 "mtime": mtime,
                 "is_text": is_text,
+                "is_root": False,
             })
     except PermissionError:
         return {"path": safe, "entries": [], "error": "Permission denied"}

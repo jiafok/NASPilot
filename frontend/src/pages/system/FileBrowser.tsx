@@ -12,6 +12,8 @@ interface DirEntry {
   size: number;
   mtime: number;
   is_text: boolean;
+  real_path: string;
+  is_root?: boolean;
 }
 
 export default function FileBrowser() {
@@ -21,6 +23,7 @@ export default function FileBrowser() {
   const [error, setError] = useState<string | null>(null);
   // File viewer
   const [viewFile, setViewFile] = useState<string | null>(null);
+  const [viewFilePath, setViewFilePath] = useState<string>('');
   const [viewContent, setViewContent] = useState('');
   const [viewLoading, setViewLoading] = useState(false);
 
@@ -40,18 +43,22 @@ export default function FileBrowser() {
 
   useEffect(() => { fetchDir(path); }, [path, fetchDir]);
 
-  const navigateTo = (name: string) => {
-    const newPath = path === '/' ? `/${name}` : `${path}/${name}`;
-    setPath(newPath);
+  const navigateTo = (entry: DirEntry) => {
+    setPath(entry.real_path);
   };
 
   const goUp = () => {
     if (path === '/') return;
-    const parent = path.substring(0, path.lastIndexOf('/')) || '/';
-    setPath(parent);
+    const parts = path.split('/').filter(Boolean);
+    if (parts.length <= 1) {
+      setPath('/');
+    } else {
+      setPath('/' + parts.slice(0, -1).join('/'));
+    }
   };
 
-  const breadcrumbParts = path.split('/').filter(Boolean);
+  // Build breadcrumbs from the real path
+  const breadcrumbParts = path === '/' ? [] : path.split('/').filter(Boolean);
 
   const formatSize = (size: number) => {
     if (size === 0) return '-';
@@ -64,16 +71,15 @@ export default function FileBrowser() {
   const openFile = async (entry: DirEntry) => {
     if (!entry.is_text) {
       // Download non-text files
-      const filePath = path === '/' ? `/${entry.name}` : `${path}/${entry.name}`;
       const token = getToken();
-      window.open(`/api/v1/files/download?path=${encodeURIComponent(filePath)}&token=${token}`, '_blank');
+      window.open(`/api/v1/files/download?path=${encodeURIComponent(entry.real_path)}&token=${token}`, '_blank');
       return;
     }
     setViewFile(entry.name);
+    setViewFilePath(entry.real_path);
     setViewLoading(true);
     try {
-      const filePath = path === '/' ? `/${entry.name}` : `${path}/${entry.name}`;
-      const res = await api.get('/files/read', { params: { path: filePath, limit: 50000 } });
+      const res = await api.get('/files/read', { params: { path: entry.real_path, limit: 50000 } });
       setViewContent(res.data);
     } catch {
       message.error('Cannot read file');
@@ -86,7 +92,7 @@ export default function FileBrowser() {
       title: '名称', dataIndex: 'name', ellipsis: true,
       render: (name: string, record: DirEntry) => (
         record.is_dir
-          ? <Button type="link" icon={<FolderOutlined />} onClick={() => navigateTo(name)} style={{ padding: 0, color: '#faad14' }}>{name}</Button>
+          ? <Button type="link" icon={<FolderOutlined />} onClick={() => navigateTo(record)} style={{ padding: 0, color: record.is_root ? '#1890ff' : '#faad14' }}>{name}</Button>
           : <Button type="link" icon={<FileOutlined />} onClick={() => openFile(record)} style={{ padding: 0 }}>{name}</Button>
       ),
     },
@@ -140,7 +146,7 @@ export default function FileBrowser() {
         pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200], showTotal: (t: number) => `${t} 项` }}
         locale={{ emptyText: '目录为空' }}
         onRow={(record) => ({
-          onDoubleClick: () => record.is_dir ? navigateTo(record.name) : openFile(record),
+          onDoubleClick: () => record.is_dir ? navigateTo(record) : openFile(record),
           style: { cursor: 'pointer' },
         })}
       />
@@ -152,9 +158,8 @@ export default function FileBrowser() {
         footer={[
           <Button key="download" icon={<DownloadOutlined />}
             onClick={() => {
-              const filePath = path === '/' ? `/${viewFile}` : `${path}/${viewFile}`;
               const token = getToken();
-              window.open(`/api/v1/files/download?path=${encodeURIComponent(filePath)}&token=${token}`, '_blank');
+              window.open(`/api/v1/files/download?path=${encodeURIComponent(viewFilePath)}&token=${token}`, '_blank');
             }}>下载</Button>,
           <Button key="close" onClick={() => { setViewFile(null); setViewContent(''); }}>关闭</Button>,
         ]}
