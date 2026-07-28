@@ -27,6 +27,9 @@ import {
   FileTextOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import '@xterm/xterm/css/xterm.css';
 import api from '../utils/api';
 
 const { Title, Text } = Typography;
@@ -45,12 +48,6 @@ interface ContainerItem {
   ownership: string;
   ip_addresses: string[];
   ports: string[];
-}
-
-interface ExecResult {
-  exit_code: number | null;
-  running: boolean;
-  output: string;
 }
 
 interface ContainerStat {
@@ -90,14 +87,14 @@ export default function ContainerManager() {
   const [logsLoading, setLogsLoading] = useState(false);
 
   const [execOpen, setExecOpen] = useState(false);
-  const [execResult, setExecResult] = useState<ExecResult | null>(null);
   const [execForm] = Form.useForm();
 
-  const [terminalOutput, setTerminalOutput] = useState('');
   const [terminalConnected, setTerminalConnected] = useState(false);
   const [terminalConnecting, setTerminalConnecting] = useState(false);
-  const [terminalInput, setTerminalInput] = useState('');
   const terminalWsRef = useRef<WebSocket | null>(null);
+  const terminalPanelRef = useRef<HTMLDivElement | null>(null);
+  const xtermRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
 
   const fetchContainers = async () => {
     setLoading(true);
@@ -201,11 +198,51 @@ export default function ContainerManager() {
 
   const openExec = (row: ContainerItem) => {
     setSelected(row);
-    setExecResult(null);
     execForm.setFieldsValue({ user: '', workdir: '' });
-    setTerminalOutput('');
-    setTerminalInput('');
     setExecOpen(true);
+  };
+
+  const ensureXterm = () => {
+    if (xtermRef.current || !terminalPanelRef.current) return;
+    const term = new Terminal({
+      cursorBlink: true,
+      fontFamily: 'Consolas, Menlo, Monaco, "Courier New", monospace',
+      fontSize: 13,
+      convertEol: true,
+      allowProposedApi: true,
+      scrollback: 8000,
+      theme: {
+        background: '#111827',
+        foreground: '#e5e7eb',
+        cursor: '#60a5fa',
+        selectionBackground: '#334155',
+      },
+    });
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(terminalPanelRef.current);
+    fitAddon.fit();
+    term.focus();
+    xtermRef.current = term;
+    fitAddonRef.current = fitAddon;
+
+    term.onData((data) => {
+      const ws = terminalWsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: 'raw', data }));
+    });
+  };
+
+  const disposeXterm = () => {
+    fitAddonRef.current = null;
+    if (xtermRef.current) {
+      xtermRef.current.dispose();
+      xtermRef.current = null;
+    }
+  };
+
+  const writeTerminal = (text: string) => {
+    xtermRef.current?.write(text);
   };
 
   const closeTerminal = () => {
@@ -225,7 +262,10 @@ export default function ContainerManager() {
     }
     closeTerminal();
     setTerminalConnecting(true);
-    setTerminalOutput('');
+    if (xtermRef.current) {
+      xtermRef.current.clear();
+      xtermRef.current.writeln('$ connecting...');
+    }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const params = new URLSearchParams({
@@ -242,62 +282,71 @@ export default function ContainerManager() {
     ws.onopen = () => {
       setTerminalConnecting(false);
       setTerminalConnected(true);
-      setTerminalOutput((prev) => prev + '$ connected\n');
+      writeTerminal('\r\n$ connected\r\n');
+      requestAnimationFrame(() => {
+        fitAddonRef.current?.fit();
+        xtermRef.current?.focus();
+      });
     };
 
     ws.onmessage = (ev) => {
       try {
         const payload = JSON.parse(String(ev.data || '{}'));
         if (payload.type === 'stdout') {
-          setTerminalOutput((prev) => prev + String(payload.data || ''));
+          writeTerminal(String(payload.data || ''));
         } else if (payload.type === 'error') {
-          setTerminalOutput((prev) => prev + `\n[error] ${String(payload.message || '')}\n`);
+          writeTerminal(`\r\n[error] ${String(payload.message || '')}\r\n`);
         } else if (payload.type === 'status') {
-          setTerminalOutput((prev) => prev + `\n[${payload.status}]\n`);
+          writeTerminal(`\r\n[${payload.status}]\r\n`);
         }
       } catch {
-        setTerminalOutput((prev) => prev + String(ev.data || ''));
+        writeTerminal(String(ev.data || ''));
       }
-      requestAnimationFrame(() => {
-        const el = document.getElementById('container-terminal-panel');
-        if (el) el.scrollTop = el.scrollHeight;
-      });
     };
 
     ws.onerror = () => {
-      setTerminalOutput((prev) => prev + '\n[error] websocket connection failed\n');
+      writeTerminal('\r\n[error] websocket connection failed\r\n');
     };
 
     ws.onclose = () => {
       setTerminalConnected(false);
       setTerminalConnecting(false);
       terminalWsRef.current = null;
-      setTerminalOutput((prev) => prev + '\n$ disconnected\n');
+      writeTerminal('\r\n$ disconnected\r\n');
     };
   };
 
-  const sendTerminalInput = (value?: string) => {
+  const sendRaw = (value: string) => {
     const ws = terminalWsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      message.warning('终端未连接');
       return;
     }
-    const toSend = typeof value === 'string' ? value : terminalInput;
-    if (!toSend) return;
-    ws.send(JSON.stringify({ type: 'stdin', data: `${toSend}\n` }));
-    setTerminalInput('');
+    ws.send(JSON.stringify({ type: 'raw', data: value }));
   };
 
   const sendCtrlC = () => {
-    const ws = terminalWsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ type: 'stdin', data: '\u0003' }));
+    sendRaw('\u0003');
+  };
+
+  const clearTerminal = () => {
+    if (xtermRef.current) {
+      xtermRef.current.clear();
+      xtermRef.current.focus();
+    }
   };
 
   useEffect(() => {
     if (!execOpen || !selected?.id) return;
+    ensureXterm();
     connectTerminal();
+    requestAnimationFrame(() => {
+      fitAddonRef.current?.fit();
+      xtermRef.current?.focus();
+    });
+    const onResize = () => fitAddonRef.current?.fit();
+    window.addEventListener('resize', onResize);
     return () => {
+      window.removeEventListener('resize', onResize);
       closeTerminal();
     };
   }, [execOpen, selected?.id]);
@@ -305,28 +354,9 @@ export default function ContainerManager() {
   useEffect(() => {
     return () => {
       closeTerminal();
+      disposeXterm();
     };
   }, []);
-
-  const runExec = async () => {
-    if (!selected) return;
-    const values = await execForm.validateFields();
-    setExecResult(null);
-    try {
-      const res = await api.post(`/system/docker/containers/${selected.id}/exec`, {
-        command: values.command,
-        user: values.user || null,
-        workdir: values.workdir || null,
-      });
-      setExecResult(res.data);
-      setTerminalOutput((prev) => `${prev}\n$ one-shot command done (exit ${res.data?.exit_code ?? '-'})\n`);
-      if (logsOpen) {
-        await fetchLogs(selected.id, true);
-      }
-    } catch (err: any) {
-      message.error(err?.response?.data?.detail || '执行命令失败');
-    }
-  };
 
   const filteredData = useMemo(() => {
     return containers.filter((row) => {
@@ -565,14 +595,8 @@ export default function ContainerManager() {
         title={selected ? `Interactive Terminal - ${selected.name}` : 'Interactive Terminal'}
         open={execOpen}
         onCancel={() => { closeTerminal(); setExecOpen(false); }}
-        onOk={() => {
-          if (!terminalConnected) {
-            connectTerminal();
-            return;
-          }
-          sendTerminalInput();
-        }}
-        okText={terminalConnected ? '发送' : '重连'}
+        onOk={() => connectTerminal()}
+        okText="重连"
         cancelText="取消"
         confirmLoading={terminalConnecting}
         width={isMobile ? '100%' : 980}
@@ -594,77 +618,35 @@ export default function ContainerManager() {
             {terminalConnected && (
               <Button size="small" onClick={sendCtrlC}>Ctrl+C</Button>
             )}
-            <Button size="small" onClick={() => setTerminalOutput('')}>清空输出</Button>
+            <Button size="small" onClick={clearTerminal}>清空输出</Button>
             <Button size="small" onClick={() => connectTerminal()}>重连</Button>
           </Space>
         </Space>
 
-        <pre
+        <div
+          ref={terminalPanelRef}
           id="container-terminal-panel"
           style={{
             margin: 0,
             maxHeight: 420,
             minHeight: 300,
-            overflow: 'auto',
+            height: 420,
             background: '#111827',
-            color: '#e5e7eb',
-            padding: 12,
+            padding: 0,
             borderRadius: 8,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-            fontSize: 12,
-            lineHeight: 1.45,
+            overflow: 'hidden',
           }}
-        >
-          {terminalOutput || '(terminal output)'}
-        </pre>
-
-        <Input
-          style={{ marginTop: 10 }}
-          value={terminalInput}
-          onChange={(e) => setTerminalInput(e.target.value)}
-          onPressEnter={() => terminalConnected ? sendTerminalInput() : connectTerminal()}
-          placeholder={terminalConnected ? '输入命令后回车发送' : '先点击“连接终端”'}
-          disabled={terminalConnecting}
         />
 
+        <Text type="secondary" style={{ display: 'block', marginTop: 10 }}>
+          终端已切换为 xterm 模式：可直接输入，支持方向键、Tab、历史、粘贴、Ctrl+C。
+        </Text>
+
         <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-          <Button size="small" onClick={() => setTerminalInput('ls -lah')}>ls -lah</Button>
-          <Button size="small" onClick={() => setTerminalInput('pwd')}>pwd</Button>
-          <Button size="small" onClick={() => setTerminalInput('env | head')}>env | head</Button>
+          <Button size="small" onClick={() => sendRaw('ls -lah\r')}>ls -lah</Button>
+          <Button size="small" onClick={() => sendRaw('pwd\r')}>pwd</Button>
+          <Button size="small" onClick={() => sendRaw('env | head\r')}>env | head</Button>
         </div>
-
-        <div style={{ marginTop: 12 }}>
-          <Card size="small" title="单次命令执行（可选）">
-            <Form form={execForm} layout="vertical">
-              <Form.Item name="command" label="Command" rules={[{ required: true, message: '请输入命令' }]}
-              >
-                <Input.TextArea rows={3} placeholder="例如: ls -lah /" />
-              </Form.Item>
-            </Form>
-            <Button type="primary" onClick={runExec}>执行单次命令</Button>
-          </Card>
-        </div>
-
-        {execResult && (
-          <Card size="small" style={{ marginTop: 10 }} title={`Exit Code: ${execResult.exit_code ?? '-'} | Running: ${String(execResult.running)}`}>
-            <pre
-              style={{
-                margin: 0,
-                maxHeight: 220,
-                overflow: 'auto',
-                background: '#111827',
-                color: '#e5e7eb',
-                padding: 12,
-                borderRadius: 8,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
-            >
-              {execResult.output || '(no output)'}
-            </pre>
-          </Card>
-        )}
       </Modal>
     </div>
   );

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import socket
 from typing import Any
 
 import docker
@@ -268,15 +267,13 @@ class DockerExecSession:
             raise RuntimeError("Failed to create interactive exec session")
         self._sock_wrapper = self.api.exec_start(self.exec_id, tty=True, socket=True)
         self._raw_sock = getattr(self._sock_wrapper, "_sock", self._sock_wrapper)
-        try:
-            self._raw_sock.settimeout(0.03)
-        except Exception:
-            pass
+        # Keep socket blocking; websocket layer reads it in a worker thread
+        # for lower latency and less CPU overhead than timeout polling.
 
     def read(self, size: int = 4096) -> bytes:
         try:
             return self._raw_sock.recv(size)
-        except socket.timeout:
+        except OSError:
             return b""
 
     def write(self, data: str) -> None:

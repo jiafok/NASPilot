@@ -238,8 +238,7 @@ async def ws_docker_exec(websocket: WebSocket):
         while not stop_event.is_set():
             data = await asyncio.to_thread(session.read, 8192)
             if not data:
-                await asyncio.sleep(0.01)
-                continue
+                break
             text = data.decode("utf-8", errors="replace")
             await websocket.send_text(json.dumps({"type": "stdout", "data": text}, ensure_ascii=False))
 
@@ -259,6 +258,16 @@ async def ws_docker_exec(websocket: WebSocket):
                 continue
 
             if payload.get("type") == "stdin":
+                session.write(str(payload.get("data") or ""))
+                continue
+
+            if payload.get("type") == "raw":
+                session.write(str(payload.get("data") or ""))
+                continue
+
+            # Fallback: if client sends unknown object payload with a data field
+            # treat it as terminal stdin to keep compatibility with simple clients.
+            if "data" in payload:
                 session.write(str(payload.get("data") or ""))
     except WebSocketDisconnect:
         pass
