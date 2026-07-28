@@ -48,66 +48,69 @@ async def list_dir(
     At the root level (/), returns only the Docker-mapped mount points
     (SAFE_ROOTS) instead of the real container filesystem.
     """
-    # Virtual root: show only safe mount points that actually exist
-    if path == "/":
-        entries = []
-        for root in SAFE_ROOTS:
-            real_root = os.path.realpath(root)
-            if os.path.isdir(real_root):
-                label = ROOT_LABELS.get(root, os.path.basename(root) or root)
-                entries.append({
-                    "name": label,
-                    "real_path": root,
-                    "is_dir": True,
-                    "size": 0,
-                    "mtime": 0,
-                    "is_text": False,
-                    "is_root": True,  # frontend uses this to show special styling
-                })
-        return {"path": "/", "entries": entries}
+    
+    def _list_dir_sync(dir_path: str) -> dict:
+        """Synchronous directory listing."""
+        # Virtual root: show only safe mount points that actually exist
+        if dir_path == "/":
+            entries = []
+            for root in SAFE_ROOTS:
+                real_root = os.path.realpath(root)
+                if os.path.isdir(real_root):
+                    label = ROOT_LABELS.get(root, os.path.basename(root) or root)
+                    entries.append({
+                        "name": label,
+                        "real_path": root,
+                        "is_dir": True,
+                        "size": 0,
+                        "mtime": 0,
+                        "is_text": False,
+                        "is_root": True,
+                    })
+            return {"path": "/", "entries": entries}
 
-    try:
-        safe = _safe_path(path)
-    except HTTPException:
-        safe = "/"
         try:
-            safe = _safe_path("/")
+            safe = _safe_path(dir_path)
         except HTTPException:
-            return {"path": "/", "entries": [], "error": "Cannot access path"}
-
-    if not os.path.isdir(safe):
-        # If it's a file, show its parent directory
-        safe = os.path.dirname(safe)
-
-    entries = []
-    try:
-        for name in sorted(os.listdir(safe)):
-            full = os.path.join(safe, name)
-            is_dir = os.path.isdir(full)
+            safe = "/"
             try:
-                size = os.path.getsize(full) if not is_dir else 0
-                mtime = os.path.getmtime(full)
-            except OSError:
-                size = 0
-                mtime = 0
-            # Determine if text file
-            ext = os.path.splitext(name)[1].lower()
-            is_text = ext in (".txt", ".log", ".json", ".yml", ".yaml", ".xml", ".csv",
-                             ".md", ".py", ".js", ".ts", ".tsx", ".html", ".css",
-                             ".env", ".cfg", ".conf", ".ini", ".sh", ".sql", ".toml")
-            entries.append({
-                "name": name,
-                "real_path": os.path.join(safe, name),
-                "is_dir": is_dir,
-                "size": size,
-                "mtime": mtime,
-                "is_text": is_text,
-                "is_root": False,
-            })
-    except PermissionError:
-        return {"path": safe, "entries": [], "error": "Permission denied"}
+                safe = _safe_path("/")
+            except HTTPException:
+                return {"path": "/", "entries": [], "error": "Cannot access path"}
 
-    return {"path": safe, "entries": entries}
+        if not os.path.isdir(safe):
+            safe = os.path.dirname(safe)
+
+        entries = []
+        try:
+            for name in sorted(os.listdir(safe)):
+                full = os.path.join(safe, name)
+                is_dir = os.path.isdir(full)
+                try:
+                    size = os.path.getsize(full) if not is_dir else 0
+                    mtime = os.path.getmtime(full)
+                except OSError:
+                    size = 0
+                    mtime = 0
+                ext = os.path.splitext(name)[1].lower()
+                is_text = ext in (".txt", ".log", ".json", ".yml", ".yaml", ".xml", ".csv",
+                                 ".md", ".py", ".js", ".ts", ".tsx", ".html", ".css",
+                                 ".env", ".cfg", ".conf", ".ini", ".sh", ".sql", ".toml")
+                entries.append({
+                    "name": name,
+                    "real_path": os.path.join(safe, name),
+                    "is_dir": is_dir,
+                    "size": size,
+                    "mtime": mtime,
+                    "is_text": is_text,
+                    "is_root": False,
+                })
+        except PermissionError:
+            return {"path": safe, "entries": [], "error": "Permission denied"}
+
+        return {"path": safe, "entries": entries}
+    
+    return await asyncio.to_thread(_list_dir_sync, path)
 
 
 @router.get("/read", summary="Read a text file", response_class=PlainTextResponse)

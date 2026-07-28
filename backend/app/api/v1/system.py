@@ -97,7 +97,9 @@ def _get_log_path() -> str:
 @router.get("/stats", response_model=SystemStats, summary="System stats")
 async def stats(user: CurrentUser):
     """Return real-time CPU/memory/disk/docker/qB stats for the dashboard."""
-    return get_system_stats()
+    # Wrap system stats collection in thread to avoid blocking event loop
+    # psutil.cpu_percent(interval=0.5) alone blocks for 500ms
+    return await asyncio.to_thread(get_system_stats)
 
 
 # ── Real-time metrics ────────────────────────────────────────────────────
