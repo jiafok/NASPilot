@@ -8,7 +8,8 @@ import json
 import logging
 import os
 import re
-import subprocess
+import ipaddress
+import socket
 import tempfile
 from datetime import datetime
 from typing import Any
@@ -131,28 +132,48 @@ async def _run_cmd(
 
 
 async def _detect_ipv6(iface: str) -> str:
-    cmd = ["ip", "-6", "addr", "show"]
-    if iface:
-        cmd.extend(["dev", iface])
-    cmd.extend(["scope", "global"])
-    result = await asyncio.to_thread(
-        subprocess.run,
-        cmd,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=12,
-    )
-    candidates: list[str] = []
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line.startswith("inet6 "):
-            continue
-        ip = line.split()[1].split("/")[0]
-        low = ip.lower()
-        if low.startswith("fe80:") or low.startswith("fd") or low.startswith("fc"):
-            continue
-        candidates.append(ip)
+    """Detect a public IPv6 address without requiring the ``ip`` utility.
+
+    Minimal container images often do not include iproute2. Linux exposes
+    interface IPv6 addresses through /proc/net/if_inet6, so use that first and
+    fall back to hostname resolution for non-Linux environments.
+    """
+
+    def _read_ipv6_addresses() -> list[str]:
+        candidates: list[str] = []
+        try:
+            with open("/proc/net/if_inet6", encoding="ascii") as f:
+                for line in f:
+                    fields = line.split()
+                    if len(fields) < 6:
+                        continue
+                    address_hex, scope, interface = fields[0], fields[3], fields[5]
+                    # Scope 00 is global; scope 20 is link-local.
+                    if iface and interface != iface:
+                        continue
+                    if scope != "00":
+                        continue
+                    address = str(ipaddress.IPv6Address(address_hex))
+                    if ipaddress.IPv6Address(address).is_global:
+                        candidates.append(address)
+        except (FileNotFoundError, OSError, ValueError):
+            pass
+
+        if candidates:
+            return candidates
+
+        try:
+            hostname = socket.gethostname()
+            for item in socket.getaddrinfo(hostname, None, socket.AF_INET6):
+                address = item[4][0].split("%", 1)[0]
+                parsed = ipaddress.IPv6Address(address)
+                if parsed.is_global and address not in candidates:
+                    candidates.append(address)
+        except (OSError, ValueError):
+            pass
+        return candidates
+
+    candidates = await asyncio.to_thread(_read_ipv6_addresses)
     return candidates[0] if candidates else ""
 
 
