@@ -1,5 +1,6 @@
 """File browser — browse directories, read text files on the NAS."""
 
+import asyncio
 import os
 from typing import Annotated
 
@@ -127,14 +128,19 @@ async def read_file(
                  ".env", ".cfg", ".conf", ".ini", ".sh", ".sql", ".toml"}
     if ext not in text_exts and size > 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large or not a text file")
-    try:
-        with open(safe, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Cannot read file")
-    if len(lines) > limit:
-        lines = lines[-limit:]
-    return PlainTextResponse("".join(lines))
+    
+    def _read_file_content() -> str:
+        try:
+            with open(safe, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+            if len(lines) > limit:
+                lines = lines[-limit:]
+            return "".join(lines)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Cannot read file")
+    
+    content = await asyncio.to_thread(_read_file_content)
+    return PlainTextResponse(content)
 
 
 @router.get("/download", summary="Download a file")

@@ -263,15 +263,17 @@ class CloudflarePagesPlugin(PluginBase):
             return {"status": "failed", "deployed": False, "error": "Unable to resolve wrangler command"}
 
         html_doc = _build_html(services, current_ipv6)
-        with tempfile.TemporaryDirectory() as outdir:
-            with open(os.path.join(outdir, "index.html"), "w", encoding="utf-8") as f:
+        
+        def _write_deployment_files(outdir_path: str) -> None:
+            """Write all deployment files to directory (synchronous)."""
+            with open(os.path.join(outdir_path, "index.html"), "w", encoding="utf-8") as f:
                 f.write(html_doc)
-            with open(os.path.join(outdir, "404.html"), "w", encoding="utf-8") as f:
+            with open(os.path.join(outdir_path, "404.html"), "w", encoding="utf-8") as f:
                 f.write(
                     "<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
                     "<title>404</title><body><h1>404</h1><a href='/'>Back</a></body>"
                 )
-            with open(os.path.join(outdir, "_headers"), "w", encoding="utf-8") as f:
+            with open(os.path.join(outdir_path, "_headers"), "w", encoding="utf-8") as f:
                 f.write(
                     "/*\n"
                     "  X-Frame-Options: DENY\n"
@@ -279,9 +281,9 @@ class CloudflarePagesPlugin(PluginBase):
                     "  Referrer-Policy: strict-origin-when-cross-origin\n"
                     "  Cache-Control: no-store\n"
                 )
-            with open(os.path.join(outdir, "_redirects"), "w", encoding="utf-8") as f:
+            with open(os.path.join(outdir_path, "_redirects"), "w", encoding="utf-8") as f:
                 f.write("/*    /index.html   200\n")
-            with open(os.path.join(outdir, "_routes.json"), "w", encoding="utf-8") as f:
+            with open(os.path.join(outdir_path, "_routes.json"), "w", encoding="utf-8") as f:
                 f.write('{"version": 1, "include": ["/*"], "exclude": []}')
 
             if basic_auth_enabled and auth_mode == "worker":
@@ -303,8 +305,11 @@ class CloudflarePagesPlugin(PluginBase):
                     "  }\\n"
                     "}\\n"
                 )
-                with open(os.path.join(outdir, "_worker.js"), "w", encoding="utf-8") as f:
+                with open(os.path.join(outdir_path, "_worker.js"), "w", encoding="utf-8") as f:
                     f.write(worker)
+        
+        with tempfile.TemporaryDirectory() as outdir:
+            await asyncio.to_thread(_write_deployment_files, outdir)
 
             env = {
                 **os.environ,

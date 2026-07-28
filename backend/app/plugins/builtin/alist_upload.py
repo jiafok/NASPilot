@@ -358,12 +358,17 @@ class AListClient:
                     "As-Task": "true",
                 }
                 async def _file_stream(_path: str, _chunk: int = 65536):
-                    with open(_path, "rb") as _f:
-                        while True:
-                            _data = _f.read(_chunk)
-                            if not _data:
-                                break
-                            yield _data
+                    def _read_file_chunks():
+                        with open(_path, "rb") as _f:
+                            while True:
+                                _data = _f.read(_chunk)
+                                if not _data:
+                                    break
+                                yield _data
+                    
+                    # Run file reading in thread pool and yield chunks
+                    for chunk in await asyncio.to_thread(_read_file_chunks):
+                        yield chunk
 
                 resp = await self._client.put(
                     f"{self.base}/api/fs/put",

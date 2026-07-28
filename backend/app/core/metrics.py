@@ -159,15 +159,18 @@ def _read_disk_io_kbps() -> tuple[float, float]:
         return 0.0, 0.0
 
 
-def _read_partitions() -> list[dict[str, Any]]:
+async def _read_partitions() -> list[dict[str, Any]]:
     """Read disk partitions via df command or /proc/mounts."""
     parts: list[dict[str, Any]] = []
     try:
         # Try df first (more human-readable)
         import subprocess
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["df", "-B1", "--output=source,target,size,used,avail,pcent"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         for line in result.stdout.strip().split("\n")[1:]:
             fields = line.split()
@@ -206,7 +209,7 @@ async def _collect_loop() -> None:
             mem_pct, mem_mb = _read_mem()
             net_rx, net_tx = _read_net_kbps()
             disk_r, disk_w = _read_disk_io_kbps()
-            parts = _read_partitions()
+            parts = await _read_partitions()
 
             snap = MetricSnapshot(
                 ts=time.time(),

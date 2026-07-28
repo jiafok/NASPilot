@@ -141,18 +141,24 @@ async def list_logs(
         return []
 
     matched: list[dict[str, Any]] = []
-    with open(log_path, "r", encoding="utf-8", errors="replace") as f:
-        for line in f:
-            parsed = _parse_line(line)
-            if parsed is None:
-                continue  # skip traceback continuation lines and blank lines
-            if level and parsed["level"].upper() != level.upper():
-                continue
-            if source and parsed["source"] != source:
-                continue
-            if search and search.lower() not in parsed["message"].lower():
-                continue
-            matched.append(parsed)
+    
+    def _read_log_file() -> list[dict[str, Any]]:
+        result = []
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                parsed = _parse_line(line)
+                if parsed is None:
+                    continue
+                if level and parsed["level"].upper() != level.upper():
+                    continue
+                if source and parsed["source"] != source:
+                    continue
+                if search and search.lower() not in parsed["message"].lower():
+                    continue
+                result.append(parsed)
+        return result
+    
+    matched = await asyncio.to_thread(_read_log_file)
 
     # Reverse: newest first (matching old DB ORDER BY id DESC)
     matched.reverse()
@@ -195,21 +201,24 @@ async def raw_logs(
     if not os.path.isfile(log_path):
         return PlainTextResponse(f"Log file not found.\n", status_code=200)
 
-    lines: list[str] = []
-    with open(log_path, "r", encoding="utf-8", errors="replace") as f:
-        for line in f:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            if source and source not in stripped:
-                continue
-            if level and f"[{level.upper()}" not in stripped:
-                continue
-            lines.append(line)
-            if len(lines) >= limit:
-                break
-
-    return PlainTextResponse("".join(lines[-limit:]))
+    def _read_raw_log() -> str:
+        lines: list[str] = []
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if source and source not in stripped:
+                    continue
+                if level and f"[{level.upper()}" not in stripped:
+                    continue
+                lines.append(line)
+                if len(lines) >= limit:
+                    break
+        return "".join(lines[-limit:])
+    
+    content = await asyncio.to_thread(_read_raw_log)
+    return PlainTextResponse(content)
 
 
 # ── Settings ────────────────────────────────────────────────────────────

@@ -108,40 +108,70 @@ class ConnectionManager:
         """Single global file tailer — reads log file once, broadcasts to all."""
         log_path = _resolve_log_path()
         logger.info("WebSocket log tailer started: %s", log_path)
+        
+        # Synchronous function to be run in thread pool
+        def _read_log_chunk(path: str, current_inode: int | None) -> tuple[list[dict[str, Any]], int | None]:
+            """Read one chunk of log file, return entries and updated inode."""
+            if not os.path.isfile(path):
+                return [], None
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    if current_inode is None:
+                        f.seek(0, os.SEEK_END)  # Start from end on first run
+                    try:
+                        new_inode = os.fstat(f.fileno()).st_ino
+                    except:
+                        new_inode = current_inode
+                    
+                    lines = []
+                    for _ in range(1000):  # Read up to 1000 lines per chunk
+                        line = f.readline()
+                        if not line:
+                            break
+                        entry = _parse_line(line)
+                        if entry:
+                            lines.append(entry)
+                    
+                    # Check for rotation
+                    rotated = False
+                    try:
+                        if current_inode is not None and os.stat(path).st_ino != new_inode:
+                            rotated = True
+                    except:
+                        pass
+                    
+                    return lines, (new_inode if not rotated else None)
+            except Exception:
+                return [], current_inode
 
+        current_inode = None
         while True:
             if not os.path.isfile(log_path):
                 await asyncio.sleep(2)
+                current_inode = None
                 continue
+            
             try:
-                with open(log_path, "r", encoding="utf-8", errors="replace") as f:
-                    f.seek(0, os.SEEK_END)  # live tail only
-                    while True:
-                        line = f.readline()
-                        if line:
-                            entry = _parse_line(line)
-                            if not entry:
-                                continue
-                            # Push to every subscriber's queue (non-blocking)
-                            msg = {"type": "log", **entry}
-                            stale: list[WebSocket] = []
-                            for ws, q in self._subscribers.items():
-                                try:
-                                    q.put_nowait(msg)
-                                except asyncio.QueueFull:
-                                    stale.append(ws)
-                            for ws in stale:
-                                self.disconnect(ws)
-                            continue
-                        # No new data — check for rotation
-                        try:
-                            if os.stat(log_path).st_ino != os.fstat(f.fileno()).st_ino:
-                                f.close()
-                                f = open(log_path, "r", encoding="utf-8", errors="replace")
-                                logger.info("Log file rotated, re-opening")
-                        except Exception:
-                            pass
-                        await asyncio.sleep(0.5)
+                # Run file read in thread to avoid blocking event loop
+                entries, current_inode = await asyncio.to_thread(_read_log_chunk, log_path, current_inode)
+                
+                # Broadcast entries to all subscribers
+                for entries_chunk in [entries[i:i+10] for i in range(0, len(entries), 10)]:
+                    stale: list[WebSocket] = []
+                    for ws, q in self._subscribers.items():
+                        for entry in entries_chunk:
+                            try:
+                                msg = {"type": "log", **entry}
+                                q.put_nowait(msg)
+                            except asyncio.QueueFull:
+                                stale.append(ws)
+                                break
+                    for ws in stale:
+                        self.disconnect(ws)
+                
+                # Sleep briefly between reads to avoid spinning
+                if not entries:
+                    await asyncio.sleep(0.5)
             except Exception:
                 logger.exception("Tailer error, retrying in 2s")
                 await asyncio.sleep(2)
