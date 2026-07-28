@@ -224,9 +224,9 @@ export default function PT_RSS() {
         label: <span><UnorderedListOutlined /> {t('plugins.ptRss.trackingRecords', { count: processedEntries.length })}</span>,
         children: processedEntries.length === 0
           ? <Typography.Text type="secondary">{t('plugins.ptRss.noRecords')}</Typography.Text>
-          : <div style={{ overflow: 'visible' }}>
+          : <div style={{ overflowX: 'auto' }}>
             <Table dataSource={processedEntries} columns={processedColumns} size="small" rowKey="tid"
-              scroll={{ x: 600 }}
+              scroll={{ x: 900 }}
               pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (n: number) => t('common.items', { count: n }) }} />
           </div>,
       }]}>

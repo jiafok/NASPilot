@@ -139,19 +139,22 @@ export default function FileBrowser() {
 
       {error && <Text type="danger" style={{ display: 'block', marginBottom: 8 }}>{error}</Text>}
 
-      <Table
-        dataSource={entries}
-        columns={columns}
-        rowKey="name"
-        size="small"
-        loading={loading}
-        pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200], showTotal: (n: number) => t('common.items', { count: n }) }}
-        locale={{ emptyText: t('system.emptyDir') }}
-        onRow={(record) => ({
-          onDoubleClick: () => record.is_dir ? navigateTo(record) : openFile(record),
-          style: { cursor: 'pointer' },
-        })}
-      />
+      <div style={{ overflowX: 'auto' }}>
+        <Table
+          dataSource={entries}
+          columns={columns}
+          rowKey="name"
+          size="small"
+          loading={loading}
+          scroll={{ x: 900 }}
+          pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200], showTotal: (n: number) => t('common.items', { count: n }) }}
+          locale={{ emptyText: t('system.emptyDir') }}
+          onRow={(record) => ({
+            onDoubleClick: () => record.is_dir ? navigateTo(record) : openFile(record),
+            style: { cursor: 'pointer' },
+          })}
+        />
+      </div>
 
       <Modal
         title={viewFile}

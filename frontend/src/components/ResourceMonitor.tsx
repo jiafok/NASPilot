@@ -219,14 +219,17 @@ export default function ResourceMonitor() {
 
       {/* Disk Partitions */}
       <Card size="small" title={<><HddOutlined /> {t('system.diskPartitions')}</>} style={{ marginTop: 16 }}>
-        <Table
-          dataSource={current?.partitions || []}
-          columns={partCols}
-          rowKey="mount"
-          size="small"
-          pagination={false}
-          locale={{ emptyText: t('common.noData') }}
-        />
+        <div style={{ overflowX: 'auto' }}>
+          <Table
+            dataSource={current?.partitions || []}
+            columns={partCols}
+            rowKey="mount"
+            size="small"
+            pagination={false}
+            scroll={{ x: 900 }}
+            locale={{ emptyText: t('common.noData') }}
+          />
+        </div>
       </Card>
     </div>
   );

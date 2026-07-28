@@ -146,8 +146,10 @@ export default function NotificationCenter() {
           </Button>
         </Space>
       </div>
-      <Table dataSource={channels} columns={columns} rowKey="id" loading={loading} size="small" scroll={{ x: 550 }}
-        pagination={{ defaultPageSize: 5, showSizeChanger: true, pageSizeOptions: [5, 10, 20], showTotal: (n: number) => t('common.items', { count: n }) }} />
+      <div style={{ overflowX: 'auto' }}>
+        <Table dataSource={channels} columns={columns} rowKey="id" loading={loading} size="small" scroll={{ x: 700 }}
+          pagination={{ defaultPageSize: 5, showSizeChanger: true, pageSizeOptions: [5, 10, 20], showTotal: (n: number) => t('common.items', { count: n }) }} />
+      </div>
 
       <Modal
         title={editing ? t('notifications.editChannel') : t('notifications.createChannel')}

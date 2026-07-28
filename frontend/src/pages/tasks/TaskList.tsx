@@ -90,10 +90,12 @@ export default function TaskList() {
         </Space>
       </div>
 
-      <Table dataSource={tasks} columns={columns} rowKey="id" loading={loading} size="small"
-        scroll={{ x: 'max-content' }}
-        pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [5, 10, 20, 50], showTotal: (n: number) => t('common.items', { count: n }) }}
-        locale={{ emptyText: t('tasks.noTasks') }} />
+      <div style={{ overflowX: 'auto' }}>
+        <Table dataSource={tasks} columns={columns} rowKey="id" loading={loading} size="small"
+          scroll={{ x: 980 }}
+          pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [5, 10, 20, 50], showTotal: (n: number) => t('common.items', { count: n }) }}
+          locale={{ emptyText: t('tasks.noTasks') }} />
+      </div>
 
       <Modal title={editingTask ? t('tasks.edit') : t('tasks.create')} open={modalOpen}
         onOk={handleSave} onCancel={() => { setModalOpen(false); setEditingTask(null); }} width={640}>
