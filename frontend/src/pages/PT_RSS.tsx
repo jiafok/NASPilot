@@ -176,9 +176,9 @@ export default function PT_RSS() {
   }));
 
   const processedColumns: any[] = [
-    { title: 'TID', dataIndex: 'tid', width: 70, ellipsis: true, responsive: ['md'] },
+    { title: 'TID', dataIndex: 'tid', width: 70, ellipsis: true },
     { title: t('common.title'), dataIndex: 'title', ellipsis: true },
-    { title: t('common.status'), dataIndex: 'status', width: 85, responsive: ['md'],
+    { title: t('common.status'), dataIndex: 'status', width: 85,
       render: (s: string) => {
         const color = s === 'added' ? 'blue' : s === 'completed' ? 'green' : s === 'evicted' ? 'red' : s === 'expired_free' ? 'orange' : 'default';
         const label = { pending_free: t('plugins.ptRss.status.pending_free'), added: t('plugins.ptRss.status.added'), completed: t('plugins.ptRss.status.completed'), evicted: t('plugins.ptRss.status.evicted'), expired_free: t('plugins.ptRss.status.expired_free') }[s] || s;
@@ -187,12 +187,11 @@ export default function PT_RSS() {
     },
     { title: t('plugins.ptRss.missing'), dataIndex: 'missingCount', width: 50, align: 'center' as const },
     { title: t('plugins.ptRss.firstSeen'), dataIndex: 'firstSeen', width: 130,
-      responsive: ['md'],
       render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-' },
     { title: t('plugins.ptRss.evictedTime'), dataIndex: 'evictedTime', width: 130,
       render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '-' },
     { title: t('common.reason'), dataIndex: 'evictedReason', width: 100, ellipsis: true,
-      responsive: ['md'], render: (v: string) => v || '-' },
+      render: (v: string) => v || '-' },
     {
       title: '操作', key: 'actions', width: 60, fixed: 'right' as const,
       render: (_: any, record: any) => (

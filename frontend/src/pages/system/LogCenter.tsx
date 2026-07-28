@@ -87,7 +87,7 @@ export default function LogCenter() {
           { title: t('logs.level'), dataIndex: 'level', width: 80,
             render: (l: string) => <Tag color={LEVEL_COLORS[l]||'default'}>{l}</Tag> },
           { title: t('logs.source'), dataIndex: 'source', width: 130 },
-          { title: 'Logger', dataIndex: 'logger', width: 150, ellipsis: true, responsive: ['md' as const] },
+          { title: 'Logger', dataIndex: 'logger', width: 150, ellipsis: true },
           { title: t('common.message'), dataIndex: 'message', ellipsis: true,
             render: (m: string) => <span style={{ fontSize: 12, fontFamily: 'monospace' }}>{m}</span> },
         ]}

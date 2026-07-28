@@ -99,11 +99,11 @@ export default function FileBrowser() {
       ),
     },
     {
-      title: '大小', dataIndex: 'size', width: 100, responsive: ['md' as const],
+      title: '大小', dataIndex: 'size', width: 100,
       render: (size: number) => <Text type="secondary" style={{ fontSize: 12 }}>{formatSize(size)}</Text>,
     },
     {
-      title: '修改时间', dataIndex: 'mtime', width: 160, responsive: ['md' as const],
+      title: '修改时间', dataIndex: 'mtime', width: 160,
       render: (mtime: number) => mtime ? new Date(mtime * 1000).toLocaleString('zh-CN', { hour12: false }) : '-',
     },
   ];
