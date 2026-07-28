@@ -169,9 +169,9 @@ class ConnectionManager:
                     for ws in stale:
                         self.disconnect(ws)
                 
-                # Sleep briefly between reads to avoid spinning
-                if not entries:
-                    await asyncio.sleep(0.5)
+                # Always sleep between reads to throttle log streaming and prevent UI thrashing
+                # when containers produce rapid output (e.g., during startup)
+                await asyncio.sleep(0.1 if entries else 0.5)
             except Exception:
                 logger.exception("Tailer error, retrying in 2s")
                 await asyncio.sleep(2)
