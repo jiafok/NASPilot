@@ -9,8 +9,10 @@ import Dashboard from './pages/Dashboard';
 import TaskList from './pages/tasks/TaskList';
 import PT_RSS from './pages/PT_RSS';
 import AlistUpload from './pages/AlistUpload';
-import CloudflareDDNS from './pages/CloudflareDDNS';
+import CloudflarePages from './pages/CloudflarePages';
+import CloudflareDDNSPage from './pages/CloudflareDDNSPage';
 import DockerBackup from './pages/DockerBackup';
+import ContainerManager from './pages/ContainerManager';
 import PluginList from './pages/plugins/PluginList';
 import NotificationCenter from './pages/notifications/NotificationCenter';
 import LogCenter from './pages/system/LogCenter';
@@ -40,8 +42,10 @@ function App() {
                 <Route path="tasks" element={<TaskList />} />
                 <Route path="tools/pt-rss" element={<PT_RSS />} />
                 <Route path="tools/alist" element={<AlistUpload />} />
-                <Route path="tools/cloudflare" element={<CloudflareDDNS />} />
+                <Route path="tools/cloudflare" element={<CloudflarePages />} />
+                <Route path="tools/cloudflare-ddns" element={<CloudflareDDNSPage />} />
                 <Route path="tools/docker-backup" element={<DockerBackup />} />
+                <Route path="tools/containers" element={<ContainerManager />} />
                 <Route path="tools/log-cleanup" element={<LogCleanup />} />
                 <Route path="tools/file-browser" element={<FileBrowser />} />
                 <Route path="plugins" element={<PluginList />} />

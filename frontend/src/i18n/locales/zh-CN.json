@@ -3,6 +3,7 @@
   "nav": {
     "dashboard": "仪表盘", "tasks": "任务中心", "tools": "集成工具",
     "ptRss": "PT RSS 下载", "alistUpload": "AList 上传", "ddns": "Cloudflare DDNS",
+    "cloudflarePages": "Cloudflare Pages", "containerManager": "容器管理",
     "dockerBackup": "Docker 备份", "logCleanup": "日志清理", "plugins": "插件中心",
     "notifications": "通知中心", "logs": "日志中心", "settings": "系统设置",
     "aiAssistant": "AI 助手", "fileBrowser": "文件浏览"

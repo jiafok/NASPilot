@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Any
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -57,3 +58,54 @@ class PaginatedResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class DockerContainerOut(BaseModel):
+    id: str
+    short_id: str
+    name: str
+    image: str
+    status: str
+    state: str
+    running: bool
+    created_at: str | None = None
+    stack: str = ""
+    ownership: str = ""
+    ip_addresses: list[str] = Field(default_factory=list)
+    ports: list[str] = Field(default_factory=list)
+
+
+class DockerExecRequest(BaseModel):
+    command: str = Field(min_length=1)
+    user: str | None = None
+    workdir: str | None = None
+
+
+class DockerExecResult(BaseModel):
+    exit_code: int | None = None
+    running: bool = False
+    output: str = ""
+
+
+class DockerActionRequest(BaseModel):
+    action: Literal["start", "stop", "restart", "pause", "unpause", "kill", "remove"]
+
+
+class DockerBulkActionRequest(BaseModel):
+    action: Literal["start", "stop", "restart", "pause", "unpause", "kill", "remove"]
+    container_ids: list[str] = Field(default_factory=list)
+
+
+class DockerStatsOut(BaseModel):
+    id: str
+    short_id: str
+    name: str
+    cpu_percent: float
+    memory_usage: int
+    memory_limit: int
+    memory_percent: float
+    net_rx: int
+    net_tx: int
+    blk_read: int
+    blk_write: int
+    pids: int

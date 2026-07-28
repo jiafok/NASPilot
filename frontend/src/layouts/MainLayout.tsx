@@ -48,7 +48,8 @@ export default function MainLayout() {
     { key: '/tools', icon: <ToolOutlined />, label: t('nav.tools'), children: [
       { key: '/tools/pt-rss', label: t('nav.ptRss') },
       { key: '/tools/alist', label: t('nav.alistUpload') },
-      { key: '/tools/cloudflare', label: t('nav.ddns') },
+      { key: '/tools/cloudflare', label: t('nav.cloudflarePages') },
+      { key: '/tools/containers', label: t('nav.containerManager') },
       { key: '/tools/docker-backup', label: t('nav.dockerBackup') },
       { key: '/tools/log-cleanup', label: t('nav.logCleanup') },
     ]},

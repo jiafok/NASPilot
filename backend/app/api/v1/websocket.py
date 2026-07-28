@@ -11,12 +11,14 @@ import json
 import logging
 import os
 import re
+from contextlib import suppress
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core.database import async_session_factory
 from app.core.deps import get_current_user_ws
+from app.services.docker_service import DockerExecSession, DockerException, NotFound
 from app.core.logging_config import LOG_FILE
 from app.core.config import settings
 import pathlib
@@ -181,3 +183,95 @@ async def ws_logs(websocket: WebSocket):
         logger.exception("WS send loop error")
     finally:
         manager.disconnect(websocket)
+
+
+@router.websocket("/ws/docker/exec")
+async def ws_docker_exec(websocket: WebSocket):
+    """Interactive container shell over WebSocket.
+
+    Query params:
+    - token: JWT
+    - container_id: docker container ID/name
+    - user: optional user
+    - workdir: optional workdir
+    """
+    async with async_session_factory() as db:
+        user = await get_current_user_ws(websocket, db)
+    if not user:
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+
+    container_id = websocket.query_params.get("container_id", "").strip()
+    exec_user = websocket.query_params.get("user", "").strip()
+    workdir = websocket.query_params.get("workdir", "").strip()
+    if not container_id:
+        await websocket.close(code=4400, reason="container_id is required")
+        return
+
+    await websocket.accept()
+
+    try:
+        session = DockerExecSession(
+            container_id=container_id,
+            user=exec_user or None,
+            workdir=workdir or None,
+            shell="/bin/sh",
+        )
+    except NotFound:
+        await websocket.send_text(json.dumps({"type": "error", "message": "Container not found"}, ensure_ascii=False))
+        await websocket.close(code=4404)
+        return
+    except DockerException as exc:
+        await websocket.send_text(json.dumps({"type": "error", "message": f"Docker unavailable: {exc}"}, ensure_ascii=False))
+        await websocket.close(code=4503)
+        return
+    except Exception as exc:
+        await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=False))
+        await websocket.close(code=4500)
+        return
+
+    await websocket.send_text(json.dumps({"type": "status", "status": "connected"}, ensure_ascii=False))
+
+    stop_event = asyncio.Event()
+
+    async def pump_output() -> None:
+        while not stop_event.is_set():
+            data = await asyncio.to_thread(session.read, 8192)
+            if not data:
+                await asyncio.sleep(0.05)
+                continue
+            text = data.decode("utf-8", errors="replace")
+            await websocket.send_text(json.dumps({"type": "stdout", "data": text}, ensure_ascii=False))
+
+    output_task = asyncio.create_task(pump_output())
+
+    try:
+        while True:
+            incoming = await websocket.receive_text()
+            payload: dict[str, Any] | None = None
+            try:
+                payload = json.loads(incoming)
+            except json.JSONDecodeError:
+                payload = {"type": "stdin", "data": incoming}
+
+            if payload.get("type") == "ping":
+                await websocket.send_text(json.dumps({"type": "pong"}))
+                continue
+
+            if payload.get("type") == "stdin":
+                session.write(str(payload.get("data") or ""))
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logger.exception("Docker exec websocket error")
+    finally:
+        stop_event.set()
+        output_task.cancel()
+        with suppress(Exception):
+            await output_task
+        inspect = {}
+        with suppress(Exception):
+            inspect = session.inspect()
+        with suppress(Exception):
+            await websocket.send_text(json.dumps({"type": "status", "status": "closed", "exit_code": inspect.get("ExitCode")}, ensure_ascii=False))
+        session.close()

@@ -10,6 +10,8 @@
     "ptRss": "PT RSS Download",
     "alistUpload": "AList Upload",
     "ddns": "Cloudflare DDNS",
+    "cloudflarePages": "Cloudflare Pages",
+    "containerManager": "Container Manager",
     "dockerBackup": "Docker Backup",
     "logCleanup": "Log Cleanup",
     "plugins": "Plugin Center",

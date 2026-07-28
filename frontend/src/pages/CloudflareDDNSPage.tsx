@@ -10,7 +10,7 @@ const FIELDS: PluginField[] = [
   { key: 'zones', label: 'Zones', type: 'textarea', placeholder: '[{"zone_id":"xxx","records":["home.example.com"],"ip_type":"both","proxied":false}]', help: 'JSON 数组，每项包含 zone_id、records、ip_type（ipv4/ipv6/both）、proxied' },
 ];
 
-export default function CloudflareDDNS() {
+export default function CloudflareDDNSPage() {
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState<any>(null);
 
@@ -23,7 +23,9 @@ export default function CloudflareDDNS() {
       if (!p) return;
       const res = await api.post(`/plugins/${p.id}/run`, null, { timeout: 300000 });
       setRunResult(res.data?.result);
-    } catch {}
+    } catch {
+      // handled globally
+    }
     finally { setRunning(false); }
   };
 
@@ -32,7 +34,7 @@ export default function CloudflareDDNS() {
       <PluginConfigForm
         slug="cloudflare_ddns"
         title="Cloudflare DDNS"
-        description="Auto-update IPv4/IPv6 DNS records on Cloudflare. Web UI for update_cloudflare.sh."
+        description="Auto-update IPv4/IPv6 DNS records on Cloudflare."
         fields={FIELDS}
         onRun={handleRun}
         running={running}

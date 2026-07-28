@@ -15,8 +15,30 @@ from app.core.database import get_db
 from app.core.deps import CurrentUser
 from app.core.logging_config import LOG_FILE
 from app.models import LogEntry, Setting
-from app.schemas.system import LogEntryOut, SettingOut, SettingUpdate, SettingBulkEntry, SystemStats
+from app.schemas.system import (
+    DockerActionRequest,
+    DockerBulkActionRequest,
+    DockerContainerOut,
+    DockerExecRequest,
+    DockerExecResult,
+    DockerStatsOut,
+    LogEntryOut,
+    SettingBulkEntry,
+    SettingOut,
+    SettingUpdate,
+    SystemStats,
+)
 from app.services.system_service import get_system_stats
+from app.services.docker_service import (
+    DockerException,
+    NotFound,
+    apply_container_action,
+    bulk_container_action,
+    exec_in_container,
+    get_containers_stats,
+    get_container_logs,
+    list_containers,
+)
 
 router = APIRouter(prefix="/system", tags=["system"])
 
@@ -243,3 +265,74 @@ async def update_setting(
     await db.commit()
     await db.refresh(setting)
     return setting
+
+
+# ── Docker container management ──────────────────────────────────────────
+
+
+@router.get("/docker/containers", response_model=list[DockerContainerOut], summary="List Docker containers")
+async def docker_containers(user: CurrentUser, all: bool = Query(True, description="Include stopped containers")):
+    try:
+        return list_containers(include_all=all)
+    except DockerException as exc:
+        raise HTTPException(status_code=503, detail=f"Docker unavailable: {exc}")
+
+
+@router.get("/docker/stats", response_model=list[DockerStatsOut], summary="Container resource stats")
+async def docker_stats(user: CurrentUser, running_only: bool = Query(True, description="Only running containers")):
+    try:
+        return get_containers_stats(running_only=running_only)
+    except DockerException as exc:
+        raise HTTPException(status_code=503, detail=f"Docker unavailable: {exc}")
+
+
+@router.get(
+    "/docker/containers/{container_id}/logs",
+    response_class=PlainTextResponse,
+    summary="Read container logs",
+)
+async def docker_logs(
+    container_id: str,
+    user: CurrentUser,
+    tail: int = Query(500, ge=10, le=5000),
+    since: int | None = Query(None, ge=0, description="UNIX timestamp in seconds"),
+):
+    try:
+        text = get_container_logs(container_id, tail=tail, since=since)
+        return PlainTextResponse(text)
+    except NotFound:
+        raise HTTPException(status_code=404, detail="Container not found")
+    except DockerException as exc:
+        raise HTTPException(status_code=503, detail=f"Docker unavailable: {exc}")
+
+
+@router.post("/docker/containers/{container_id}/exec", response_model=DockerExecResult, summary="Execute command in container")
+async def docker_exec(container_id: str, body: DockerExecRequest, user: CurrentUser):
+    try:
+        return exec_in_container(container_id, body.command, body.user, body.workdir)
+    except NotFound:
+        raise HTTPException(status_code=404, detail="Container not found")
+    except DockerException as exc:
+        raise HTTPException(status_code=503, detail=f"Docker unavailable: {exc}")
+
+
+@router.post("/docker/containers/{container_id}/action", summary="Container lifecycle action")
+async def docker_action(container_id: str, body: DockerActionRequest, user: CurrentUser):
+    try:
+        return apply_container_action(container_id, body.action)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except NotFound:
+        raise HTTPException(status_code=404, detail="Container not found")
+    except DockerException as exc:
+        raise HTTPException(status_code=503, detail=f"Docker unavailable: {exc}")
+
+
+@router.post("/docker/containers/bulk-action", summary="Bulk container lifecycle action")
+async def docker_bulk_action(body: DockerBulkActionRequest, user: CurrentUser):
+    if not body.container_ids:
+        raise HTTPException(status_code=400, detail="container_ids is required")
+    try:
+        return bulk_container_action(body.container_ids, body.action)
+    except DockerException as exc:
+        raise HTTPException(status_code=503, detail=f"Docker unavailable: {exc}")

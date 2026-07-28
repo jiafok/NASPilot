@@ -16,7 +16,7 @@ services:
       # Optional: separate logs directory (logs now go to /app/data/logs/)
       # - ./logs:/app/logs
       # Docker socket (manage containers)
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock:rw
       # Your scripts directory
       - ./scripts:/scripts:ro
       # Docker app backup (read)

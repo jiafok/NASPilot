@@ -22,7 +22,8 @@ interface Plugin {
 const TOOL_PAGE_MAP: Record<string, string> = {
   pt_rss: '/tools/pt-rss',
   alist_upload: '/tools/alist',
-  cloudflare_ddns: '/tools/cloudflare',
+  cloudflare_ddns: '/tools/cloudflare-ddns',
+  cloudflare_pages: '/tools/cloudflare',
   docker_backup: '/tools/docker-backup',
   log_cleanup: '/tools/log-cleanup',
 };
