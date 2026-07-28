@@ -95,6 +95,7 @@ export default function ContainerManager() {
   const terminalPanelRef = useRef<HTMLDivElement | null>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);  // Track flush timer for cleanup
 
   const fetchContainers = async () => {
     setLoading(true);
@@ -246,6 +247,11 @@ export default function ContainerManager() {
   };
 
   const closeTerminal = () => {
+    // Clean up any pending flush timer before closing WS
+    if (flushTimerRef.current) {
+      clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
     terminalWsRef.current?.close();
     terminalWsRef.current = null;
     setTerminalConnected(false);
@@ -279,6 +285,23 @@ export default function ContainerManager() {
     const ws = new WebSocket(wsUrl);
     terminalWsRef.current = ws;
 
+    // Batch accumulated stdout messages to prevent frontend freeze
+    // Instead of writing each message immediately, accumulate and flush every 10ms
+    let outputBuffer = '';
+
+    const flushOutput = () => {
+      if (outputBuffer) {
+        writeTerminal(outputBuffer);
+        outputBuffer = '';
+      }
+      flushTimerRef.current = null;
+    };
+
+    const scheduleFlush = () => {
+      if (flushTimerRef.current) return;  // Already scheduled
+      flushTimerRef.current = setTimeout(flushOutput, 10);  // Batch window: 10ms
+    };
+
     ws.onopen = () => {
       setTerminalConnecting(false);
       setTerminalConnected(true);
@@ -293,18 +316,37 @@ export default function ContainerManager() {
       try {
         const payload = JSON.parse(String(ev.data || '{}'));
         if (payload.type === 'stdout') {
-          writeTerminal(String(payload.data || ''));
+          // Accumulate stdout; flush in batches to reduce xterm write overhead
+          outputBuffer += String(payload.data || '');
+          scheduleFlush();
         } else if (payload.type === 'error') {
+          // Flush any pending output before error
+          if (flushTimerRef.current) {
+            clearTimeout(flushTimerRef.current);
+            flushOutput();
+          }
           writeTerminal(`\r\n[error] ${String(payload.message || '')}\r\n`);
         } else if (payload.type === 'status') {
+          // Flush any pending output before status
+          if (flushTimerRef.current) {
+            clearTimeout(flushTimerRef.current);
+            flushOutput();
+          }
           writeTerminal(`\r\n[${payload.status}]\r\n`);
         }
       } catch {
+        // Flush pending on parse error
+        if (flushTimerRef.current) {
+          clearTimeout(flushTimerRef.current);
+          flushOutput();
+        }
         writeTerminal(String(ev.data || ''));
       }
     };
 
     ws.onerror = () => {
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+      flushOutput();
       writeTerminal('\r\n[error] websocket connection failed\r\n');
     };
 

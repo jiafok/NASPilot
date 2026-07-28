@@ -235,12 +235,45 @@ async def ws_docker_exec(websocket: WebSocket):
     stop_event = asyncio.Event()
 
     async def pump_output() -> None:
+        """Read container output and send to frontend with message batching to prevent freeze.
+        
+        Accumulates multiple reads within a 10ms window to reduce message flood.
+        Without this, high-output containers send 100+ messages/sec, causing frontend lag.
+        """
         while not stop_event.is_set():
-            data = await asyncio.to_thread(session.read, 8192)
+            try:
+                # Set a short timeout to enable read batching within that window
+                data = await asyncio.wait_for(
+                    asyncio.to_thread(session.read, 8192),
+                    timeout=0.01  # 10ms window for batching
+                )
+            except asyncio.TimeoutError:
+                # Socket has no data in 10ms; minimal yield and retry
+                await asyncio.sleep(0.001)
+                continue
+            
             if not data:
                 break
-            text = data.decode("utf-8", errors="replace")
+            
+            # Accumulate multiple reads to batch into single message
+            buffer = data
+            deadline = asyncio.get_event_loop().time() + 0.008  # Collect more for ~8ms
+            while asyncio.get_event_loop().time() < deadline and not stop_event.is_set():
+                try:
+                    chunk = await asyncio.wait_for(
+                        asyncio.to_thread(session.read, 8192),
+                        timeout=0.002  # Short timeout for supplemental reads
+                    )
+                    if not chunk:
+                        break
+                    buffer += chunk
+                except asyncio.TimeoutError:
+                    break  # No more data in this batch
+            
+            text = buffer.decode("utf-8", errors="replace")
             await websocket.send_text(json.dumps({"type": "stdout", "data": text}, ensure_ascii=False))
+            # Small delay to throttle message rate and allow frontend to process
+            await asyncio.sleep(0.001)
 
     output_task = asyncio.create_task(pump_output())
 
