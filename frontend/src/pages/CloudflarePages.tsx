@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Alert } from 'antd';
 import PluginConfigForm from '../components/PluginConfigForm';
 import LogViewer from '../components/LogViewer';
 import type { PluginField } from '../components/PluginConfigForm';
@@ -29,8 +30,15 @@ const FIELDS: PluginField[] = [
 export default function CloudflarePages() {
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState<any>(null);
+  const [instance, setInstance] = useState<any>(null);
 
   const handleRun = async () => {
+    // Validate required fields before running
+    if (!instance?.config?.cloudflare_api_token || !instance?.config?.cloudflare_account_id) {
+      alert('请先配置 Cloudflare API Token 和 Account ID，然后保存');
+      return;
+    }
+
     setRunning(true);
     setRunResult(null);
     try {
@@ -48,6 +56,15 @@ export default function CloudflarePages() {
 
   return (
     <>
+      {instance && (!instance.config?.cloudflare_api_token || !instance.config?.cloudflare_account_id) && (
+        <Alert
+          message="未配置"
+          description="请先填入 Cloudflare API Token 和 Account ID，然后点击保存"
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+      )}
       <PluginConfigForm
         slug="cloudflare_pages"
         title="Cloudflare Pages 发布"
@@ -57,6 +74,7 @@ export default function CloudflarePages() {
         running={running}
         runResult={runResult}
         resultRenderer={(r) => <pre style={{ fontSize: 12 }}>{JSON.stringify(r, null, 2)}</pre>}
+        onInstanceLoad={setInstance}
       />
       <div style={{ marginTop: 16 }}>
         <LogViewer source="cloudflare_pages" maxHeight={300} placeholder="等待运行..." collapsible defaultOpen={false} label="运行日志" />
