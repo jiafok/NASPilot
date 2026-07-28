@@ -1,5 +1,6 @@
 """System endpoints — dashboard stats, logs, settings."""
 
+import asyncio
 import json
 import os
 import re
@@ -273,7 +274,8 @@ async def update_setting(
 @router.get("/docker/containers", response_model=list[DockerContainerOut], summary="List Docker containers")
 async def docker_containers(user: CurrentUser, all: bool = Query(True, description="Include stopped containers")):
     try:
-        return list_containers(include_all=all)
+        # Wrap synchronous docker call in thread to avoid blocking event loop
+        return await asyncio.to_thread(list_containers, include_all=all)
     except DockerException as exc:
         raise HTTPException(status_code=503, detail=f"Docker unavailable: {exc}")
 
@@ -281,7 +283,8 @@ async def docker_containers(user: CurrentUser, all: bool = Query(True, descripti
 @router.get("/docker/stats", response_model=list[DockerStatsOut], summary="Container resource stats")
 async def docker_stats(user: CurrentUser, running_only: bool = Query(True, description="Only running containers")):
     try:
-        return get_containers_stats(running_only=running_only)
+        # Wrap synchronous docker call in thread to avoid blocking event loop
+        return await asyncio.to_thread(get_containers_stats, running_only=running_only)
     except DockerException as exc:
         raise HTTPException(status_code=503, detail=f"Docker unavailable: {exc}")
 
@@ -298,7 +301,8 @@ async def docker_logs(
     since: int | None = Query(None, ge=0, description="UNIX timestamp in seconds"),
 ):
     try:
-        text = get_container_logs(container_id, tail=tail, since=since)
+        # Wrap synchronous docker call in thread to avoid blocking event loop
+        text = await asyncio.to_thread(get_container_logs, container_id, tail, since)
         return PlainTextResponse(text)
     except NotFound:
         raise HTTPException(status_code=404, detail="Container not found")
@@ -309,7 +313,8 @@ async def docker_logs(
 @router.post("/docker/containers/{container_id}/exec", response_model=DockerExecResult, summary="Execute command in container")
 async def docker_exec(container_id: str, body: DockerExecRequest, user: CurrentUser):
     try:
-        return exec_in_container(container_id, body.command, body.user, body.workdir)
+        # Wrap synchronous docker call in thread to avoid blocking event loop
+        return await asyncio.to_thread(exec_in_container, container_id, body.command, body.user, body.workdir)
     except NotFound:
         raise HTTPException(status_code=404, detail="Container not found")
     except DockerException as exc:
@@ -319,7 +324,8 @@ async def docker_exec(container_id: str, body: DockerExecRequest, user: CurrentU
 @router.post("/docker/containers/{container_id}/action", summary="Container lifecycle action")
 async def docker_action(container_id: str, body: DockerActionRequest, user: CurrentUser):
     try:
-        return apply_container_action(container_id, body.action)
+        # Wrap synchronous docker call in thread to avoid blocking event loop
+        return await asyncio.to_thread(apply_container_action, container_id, body.action)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except NotFound:
@@ -333,6 +339,7 @@ async def docker_bulk_action(body: DockerBulkActionRequest, user: CurrentUser):
     if not body.container_ids:
         raise HTTPException(status_code=400, detail="container_ids is required")
     try:
-        return bulk_container_action(body.container_ids, body.action)
+        # Wrap synchronous docker call in thread to avoid blocking event loop
+        return await asyncio.to_thread(bulk_container_action, body.container_ids, body.action)
     except DockerException as exc:
         raise HTTPException(status_code=503, detail=f"Docker unavailable: {exc}")
