@@ -110,50 +110,71 @@ class ConnectionManager:
         logger.info("WebSocket log tailer started: %s", log_path)
         
         # Synchronous function to be run in thread pool
-        def _read_log_chunk(path: str, current_inode: int | None) -> tuple[list[dict[str, Any]], int | None]:
-            """Read one chunk of log file, return entries and updated inode."""
+        def _read_log_chunk(path: str, state: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+            """Read new lines from log file, tracking position and inode.
+            
+            Args:
+                path: log file path
+                state: dict with keys 'inode' and 'pos' (file position)
+            
+            Returns:
+                (lines, updated_state)
+            """
             if not os.path.isfile(path):
-                return [], None
+                return [], {"inode": None, "pos": 0}
+            
             try:
+                stat = os.stat(path)
+                current_inode = stat.st_ino
+                current_size = stat.st_size
+                
+                # Check if file was rotated
+                if state["inode"] is not None and state["inode"] != current_inode:
+                    # File rotated, start from end of new file
+                    logger.info("Log file rotated, seeking to end of new file")
+                    return [], {"inode": current_inode, "pos": current_size}
+                
+                # File position jumped backwards (file was truncated), reset
+                if state["pos"] is not None and state["pos"] > current_size:
+                    logger.info("Log file truncated, resetting position from %d to 0", state["pos"])
+                    state["pos"] = 0
+                
+                # Open file and seek to last known position
                 with open(path, "r", encoding="utf-8", errors="replace") as f:
-                    if current_inode is None:
-                        f.seek(0, os.SEEK_END)  # Start from end on first run
-                    try:
-                        new_inode = os.fstat(f.fileno()).st_ino
-                    except:
-                        new_inode = current_inode
+                    if state["pos"] is None:
+                        # First time: start from end
+                        f.seek(0, os.SEEK_END)
+                        lines = []
+                    else:
+                        # Resume from last position
+                        f.seek(state["pos"])
+                        lines = []
+                        for _ in range(1000):  # Read up to 1000 lines per chunk
+                            line = f.readline()
+                            if not line:
+                                break
+                            entry = _parse_line(line)
+                            if entry:
+                                lines.append(entry)
                     
-                    lines = []
-                    for _ in range(1000):  # Read up to 1000 lines per chunk
-                        line = f.readline()
-                        if not line:
-                            break
-                        entry = _parse_line(line)
-                        if entry:
-                            lines.append(entry)
-                    
-                    # Check for rotation
-                    rotated = False
-                    try:
-                        if current_inode is not None and os.stat(path).st_ino != new_inode:
-                            rotated = True
-                    except:
-                        pass
-                    
-                    return lines, (new_inode if not rotated else None)
-            except Exception:
-                return [], current_inode
+                    # Save new position for next call
+                    new_pos = f.tell()
+                
+                return lines, {"inode": current_inode, "pos": new_pos}
+            except Exception as e:
+                logger.exception("Error reading log chunk: %s", e)
+                return [], state
 
-        current_inode = None
+        state = {"inode": None, "pos": None}
         while True:
             if not os.path.isfile(log_path):
                 await asyncio.sleep(2)
-                current_inode = None
+                state = {"inode": None, "pos": None}
                 continue
             
             try:
                 # Run file read in thread to avoid blocking event loop
-                entries, current_inode = await asyncio.to_thread(_read_log_chunk, log_path, current_inode)
+                entries, state = await asyncio.to_thread(_read_log_chunk, log_path, state)
                 
                 # Broadcast entries to all subscribers
                 for entries_chunk in [entries[i:i+10] for i in range(0, len(entries), 10)]:
