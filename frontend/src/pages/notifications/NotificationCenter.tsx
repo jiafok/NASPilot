@@ -174,6 +174,9 @@ export default function NotificationCenter() {
           <Form.Item name={['config', 'secret']} label="Secret">
             <Input placeholder="签名密钥（可选）" />
           </Form.Item>
+          <Form.Item name={['config', 'tag_id']} label="Feishu Tag ID">
+            <Input placeholder="可选，多个用逗号分隔" />
+          </Form.Item>
           <Form.Item name={['config', 'bot_token']} label="Telegram Bot Token">
             <Input placeholder="123456:ABCDEF..." />
           </Form.Item>

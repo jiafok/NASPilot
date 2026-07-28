@@ -40,6 +40,7 @@ function App() {
               <Route path="/" element={<AuthGuard><MainLayout /></AuthGuard>}>
                 <Route index element={<Dashboard />} />
                 <Route path="tasks" element={<TaskList />} />
+                <Route path="containers" element={<ContainerManager />} />
                 <Route path="tools/pt-rss" element={<PT_RSS />} />
                 <Route path="tools/alist" element={<AlistUpload />} />
                 <Route path="tools/cloudflare" element={<CloudflarePages />} />

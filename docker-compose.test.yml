@@ -8,8 +8,13 @@ services:
       - "8080:8000"
     volumes:
       - ./data:/app/data
+      # Docker Desktop socket (enable container management in test env)
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      # Optional scripts mount (keep behavior close to production)
+      - ./scripts:/scripts:ro
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
       - SECRET_KEY=test-key-for-docker-e2e-testing
       - ADMIN_PASSWORD=admin123
       - TZ=Asia/Shanghai
+      - LOG_LEVEL=INFO

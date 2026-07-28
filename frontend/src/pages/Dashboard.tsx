@@ -20,6 +20,44 @@ class MonitorErrorBoundary extends Component<{ children: ReactNode }, { hasError
 interface SystemStats { cpu_percent: number; memory_percent: number; memory_used: number; memory_total: number; disk_percent: number; disk_used: number; disk_total: number; uptime_hours: number; }
 interface RecentExecution { id: number; task_name: string; status: string; start_time: string; duration_ms: number | null; }
 interface TaskSummary { task_name: string; total: number; success: number; failed: number; last_run: string | null; }
+interface ToolStatus { slug: string; name: string; enabled: boolean; status: string; last_run: string | null; metrics: string; }
+
+const TOOL_SLUGS = ['pt_rss', 'alist_upload', 'docker_backup', 'cloudflare_pages', 'cloudflare_ddns', 'log_cleanup'];
+
+function parseSummary(raw: unknown): Record<string, any> {
+  if (raw && typeof raw === 'object') return raw as Record<string, any>;
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw); } catch { return {}; }
+  }
+  return {};
+}
+
+function toolMetrics(slug: string, config: Record<string, any>, summary: Record<string, any>): string {
+  if (slug === 'pt_rss') {
+    const daily = (config?.state?.daily?.stats || {}) as Record<string, any>;
+    const added = Number(daily.added ?? summary.added ?? 0);
+    const deleted = Object.keys(daily)
+      .filter((k) => k.startsWith('deleted'))
+      .reduce((s, k) => s + Number(daily[k] || 0), 0);
+    return `新增 ${added} / 删除 ${deleted}`;
+  }
+  if (slug === 'alist_upload') {
+    return `上传 ${Number(summary.uploaded || 0)} / 删除 ${Number(summary.deleted || 0)} / 失败 ${Number(summary.failed || 0)}`;
+  }
+  if (slug === 'docker_backup') {
+    return `应用 ${Number(summary.apps_count || 0)} / 文件 ${Number(summary.total_files || 0)}`;
+  }
+  if (slug === 'cloudflare_ddns') {
+    return `更新 ${Number(summary.updated || 0)} / 未变更 ${Number(summary.unchanged || 0)}`;
+  }
+  if (slug === 'cloudflare_pages') {
+    return `部署 ${summary.deployed ? '成功' : '失败'} / IPv6 ${summary.ipv6 || '-'}`;
+  }
+  if (slug === 'log_cleanup') {
+    return `删除 ${Number(summary.deleted || 0)} / 截断 ${Number(summary.truncated || 0)}`;
+  }
+  return Object.keys(summary).length ? JSON.stringify(summary).slice(0, 80) : '-';
+}
 
 function fmtBytes(b: number) { if (!b) return '0 GB'; const gb = b / 1024 / 1024 / 1024; return `${gb.toFixed(1)} GB`; }
 function fmtUptime(h: number) {
@@ -34,6 +72,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [recent, setRecent] = useState<RecentExecution[]>([]);
   const [summary, setSummary] = useState<TaskSummary[]>([]);
+  const [toolStatus, setToolStatus] = useState<ToolStatus[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = () => {
@@ -41,8 +80,9 @@ export default function Dashboard() {
     Promise.all([
       api.get('/system/stats'),
       api.get('/tasks/executions?limit=50'),
+      api.get('/plugins'),
     ])
-      .then(([s, e]) => {
+      .then(async ([s, e, p]) => {
         setStats(s.data);
         const execs: RecentExecution[] = e.data || [];
         setRecent(execs.slice(0, 10));
@@ -56,6 +96,34 @@ export default function Dashboard() {
           if (!grouped[name].last_run) grouped[name].last_run = ex.start_time;
         }
         setSummary(Object.values(grouped));
+
+        const plugins = ((p.data || []) as any[]).filter((x) => TOOL_SLUGS.includes(x.slug));
+        const statusRows = await Promise.all(plugins.map(async (pl: any) => {
+          try {
+            const instRes = await api.get(`/plugins/${pl.id}/instances`);
+            const inst = (instRes.data || [])[0];
+            const run = inst?.config?.state?.run_history?.[0] || null;
+            const summaryObj = parseSummary(run?.summary || {});
+            return {
+              slug: pl.slug,
+              name: pl.name,
+              enabled: !!inst?.enabled,
+              status: run?.status || summaryObj.status || (inst?.enabled ? 'idle' : 'disabled'),
+              last_run: run?.time || null,
+              metrics: toolMetrics(pl.slug, inst?.config || {}, summaryObj),
+            } as ToolStatus;
+          } catch {
+            return {
+              slug: pl.slug,
+              name: pl.name,
+              enabled: false,
+              status: 'unknown',
+              last_run: null,
+              metrics: '-',
+            } as ToolStatus;
+          }
+        }));
+        setToolStatus(statusRows);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -102,6 +170,26 @@ export default function Dashboard() {
 
       {/* ── Task Summary + Recent ── */}
       <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
+        <Col xs={24}>
+          <Card title="工具任务状态">
+            <Table
+              dataSource={toolStatus}
+              rowKey="slug"
+              size="small"
+              pagination={false}
+              scroll={{ x: 700 }}
+              columns={[
+                { title: '工具', dataIndex: 'name', width: 180 },
+                { title: t('common.status'), dataIndex: 'status', width: 120, render: (s: string, r: ToolStatus) => {
+                  const color = s === 'ok' || s === 'success' ? 'green' : s === 'failed' || s === 'error' ? 'red' : 'default';
+                  return <Tag color={color}>{r.enabled ? s : 'disabled'}</Tag>;
+                } },
+                { title: '指标', dataIndex: 'metrics', ellipsis: true },
+                { title: t('tasks.lastRun'), dataIndex: 'last_run', width: 180, render: (v: string | null) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
+              ]}
+            />
+          </Card>
+        </Col>
         <Col xs={24} lg={14}>
           <Card title={<Space><BarChartOutlined /> {t('dashboard.taskStats')}</Space>}
             extra={<Space size="small"><Text type="secondary">{t('dashboard.totalExecutions', { count: totalExecs })}</Text><Text style={{ color: '#52c41a' }}>{totalSuccess} {t('common.success')}</Text><Text style={{ color: '#ff4d4f' }}>{totalFailed} {t('common.failed')}</Text></Space>}>

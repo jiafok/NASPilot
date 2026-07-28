@@ -269,7 +269,7 @@ class DockerExecSession:
         self._sock_wrapper = self.api.exec_start(self.exec_id, tty=True, socket=True)
         self._raw_sock = getattr(self._sock_wrapper, "_sock", self._sock_wrapper)
         try:
-            self._raw_sock.settimeout(0.2)
+            self._raw_sock.settimeout(0.03)
         except Exception:
             pass
 

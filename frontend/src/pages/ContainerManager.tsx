@@ -18,22 +18,19 @@ import {
   Switch,
   Row,
   Col,
+  Grid,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  PlayCircleOutlined,
-  PauseCircleOutlined,
   ReloadOutlined,
-  StopOutlined,
-  DeleteOutlined,
   CodeOutlined,
   FileTextOutlined,
-  ThunderboltOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../utils/api';
 
 const { Title, Text } = Typography;
+const { useBreakpoint } = Grid;
 
 interface ContainerItem {
   id: string;
@@ -71,20 +68,11 @@ interface ContainerStat {
   pids: number;
 }
 
-const ACTIONS = [
-  { key: 'start', label: 'Start', icon: <PlayCircleOutlined />, danger: false },
-  { key: 'stop', label: 'Stop', icon: <StopOutlined />, danger: false },
-  { key: 'restart', label: 'Restart', icon: <ReloadOutlined />, danger: false },
-  { key: 'pause', label: 'Pause', icon: <PauseCircleOutlined />, danger: false },
-  { key: 'unpause', label: 'Resume', icon: <PlayCircleOutlined />, danger: false },
-  { key: 'kill', label: 'Kill', icon: <ThunderboltOutlined />, danger: true },
-  { key: 'remove', label: 'Remove', icon: <DeleteOutlined />, danger: true },
-] as const;
-
 export default function ContainerManager() {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [containers, setContainers] = useState<ContainerItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
   const [searchText, setSearchText] = useState('');
@@ -102,7 +90,6 @@ export default function ContainerManager() {
   const [logsLoading, setLogsLoading] = useState(false);
 
   const [execOpen, setExecOpen] = useState(false);
-  const [execRunning, setExecRunning] = useState(false);
   const [execResult, setExecResult] = useState<ExecResult | null>(null);
   const [execForm] = Form.useForm();
 
@@ -180,23 +167,6 @@ export default function ContainerManager() {
     return () => window.clearInterval(timer);
   }, [logsOpen, logsAutoRefresh, selected?.id, tail]);
 
-  const handleAction = async (containerId: string, action: string) => {
-    const key = `${containerId}:${action}`;
-    setActionLoading((s) => ({ ...s, [key]: true }));
-    try {
-      await api.post(`/system/docker/containers/${containerId}/action`, { action });
-      message.success(`${action} 成功`);
-      await fetchContainers();
-      if (selected?.id === containerId && logsOpen) {
-        await fetchLogs(containerId, true);
-      }
-    } catch (err: any) {
-      message.error(err?.response?.data?.detail || `${action} 失败`);
-    } finally {
-      setActionLoading((s) => ({ ...s, [key]: false }));
-    }
-  };
-
   const handleBulkAction = async (action: string) => {
     if (selectedRowKeys.length === 0) {
       message.warning('请先选择容器');
@@ -232,7 +202,9 @@ export default function ContainerManager() {
   const openExec = (row: ContainerItem) => {
     setSelected(row);
     setExecResult(null);
-    execForm.setFieldsValue({ command: 'uname -a', user: '', workdir: '' });
+    execForm.setFieldsValue({ user: '', workdir: '' });
+    setTerminalOutput('');
+    setTerminalInput('');
     setExecOpen(true);
   };
 
@@ -270,7 +242,7 @@ export default function ContainerManager() {
     ws.onopen = () => {
       setTerminalConnecting(false);
       setTerminalConnected(true);
-      setTerminalOutput((prev) => prev + '[connected]\n');
+      setTerminalOutput((prev) => prev + '$ connected\n');
     };
 
     ws.onmessage = (ev) => {
@@ -300,20 +272,35 @@ export default function ContainerManager() {
       setTerminalConnected(false);
       setTerminalConnecting(false);
       terminalWsRef.current = null;
-      setTerminalOutput((prev) => prev + '\n[disconnected]\n');
+      setTerminalOutput((prev) => prev + '\n$ disconnected\n');
     };
   };
 
-  const sendTerminalInput = () => {
+  const sendTerminalInput = (value?: string) => {
     const ws = terminalWsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       message.warning('终端未连接');
       return;
     }
-    if (!terminalInput) return;
-    ws.send(JSON.stringify({ type: 'stdin', data: `${terminalInput}\n` }));
+    const toSend = typeof value === 'string' ? value : terminalInput;
+    if (!toSend) return;
+    ws.send(JSON.stringify({ type: 'stdin', data: `${toSend}\n` }));
     setTerminalInput('');
   };
+
+  const sendCtrlC = () => {
+    const ws = terminalWsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'stdin', data: '\u0003' }));
+  };
+
+  useEffect(() => {
+    if (!execOpen || !selected?.id) return;
+    connectTerminal();
+    return () => {
+      closeTerminal();
+    };
+  }, [execOpen, selected?.id]);
 
   useEffect(() => {
     return () => {
@@ -324,7 +311,6 @@ export default function ContainerManager() {
   const runExec = async () => {
     if (!selected) return;
     const values = await execForm.validateFields();
-    setExecRunning(true);
     setExecResult(null);
     try {
       const res = await api.post(`/system/docker/containers/${selected.id}/exec`, {
@@ -333,14 +319,12 @@ export default function ContainerManager() {
         workdir: values.workdir || null,
       });
       setExecResult(res.data);
-      message.success('命令执行完成');
+      setTerminalOutput((prev) => `${prev}\n$ one-shot command done (exit ${res.data?.exit_code ?? '-'})\n`);
       if (logsOpen) {
         await fetchLogs(selected.id, true);
       }
     } catch (err: any) {
       message.error(err?.response?.data?.detail || '执行命令失败');
-    } finally {
-      setExecRunning(false);
     }
   };
 
@@ -441,45 +425,16 @@ export default function ContainerManager() {
       {
         title: 'Actions',
         key: 'actions',
-        width: 330,
-        fixed: 'right',
+        width: 170,
         render: (_, row) => (
           <Space wrap>
             <Button size="small" icon={<FileTextOutlined />} onClick={() => openLogs(row)}>Logs</Button>
             <Button size="small" icon={<CodeOutlined />} onClick={() => openExec(row)}>Terminal</Button>
-            {ACTIONS.map((a) => {
-              const btn = (
-                <Button
-                  size="small"
-                  key={a.key}
-                  icon={a.icon}
-                  danger={a.danger}
-                  loading={!!actionLoading[`${row.id}:${a.key}`]}
-                  onClick={() => handleAction(row.id, a.key)}
-                >
-                  {a.label}
-                </Button>
-              );
-              if (a.key === 'remove' || a.key === 'kill') {
-                return (
-                  <Popconfirm
-                    key={a.key}
-                    title={`确认执行 ${a.label} ?`}
-                    onConfirm={() => handleAction(row.id, a.key)}
-                  >
-                    <Button size="small" icon={a.icon} danger loading={!!actionLoading[`${row.id}:${a.key}`]}>
-                      {a.label}
-                    </Button>
-                  </Popconfirm>
-                );
-              }
-              return btn;
-            })}
           </Space>
         ),
       },
     ],
-    [actionLoading, statsMap],
+    [statsMap],
   );
 
   return (
@@ -490,7 +445,7 @@ export default function ContainerManager() {
             <Title level={4} style={{ margin: 0 }}>Docker 容器管理</Title>
             <Text type="secondary">类似 Portainer 的容器列表、日志、实时终端、批量操作与资源监控。</Text>
           </div>
-          <Space>
+          <Space wrap>
             <Space>
               <Text>资源自动刷新</Text>
               <Switch checked={statsAutoRefresh} onChange={setStatsAutoRefresh} />
@@ -527,29 +482,37 @@ export default function ContainerManager() {
             />
           </Space>
           <Space wrap>
-            <Button onClick={() => handleBulkAction('start')}>批量 Start</Button>
-            <Button onClick={() => handleBulkAction('stop')}>批量 Stop</Button>
-            <Button onClick={() => handleBulkAction('restart')}>批量 Restart</Button>
+            <Text type="secondary">已选 {selectedRowKeys.length} 项</Text>
+            <Button onClick={() => handleBulkAction('start')}>Start</Button>
+            <Button onClick={() => handleBulkAction('stop')}>Stop</Button>
+            <Button onClick={() => handleBulkAction('restart')}>Restart</Button>
+            <Button onClick={() => handleBulkAction('pause')}>Pause</Button>
+            <Button onClick={() => handleBulkAction('unpause')}>Resume</Button>
+            <Popconfirm title="确认批量 Kill 选中容器？" onConfirm={() => handleBulkAction('kill')}>
+              <Button danger>Kill</Button>
+            </Popconfirm>
             <Popconfirm title="确认批量删除选中容器？" onConfirm={() => handleBulkAction('remove')}>
-              <Button danger>批量 Remove</Button>
+              <Button danger>Remove</Button>
             </Popconfirm>
           </Space>
         </Space>
       </Card>
 
-      <Table
-        rowKey="id"
-        dataSource={filteredData}
-        columns={columns}
-        loading={loading}
-        size="small"
-        scroll={{ x: 1700 }}
-        rowSelection={{
-          selectedRowKeys,
-          onChange: (keys) => setSelectedRowKeys(keys),
-        }}
-        pagination={{ defaultPageSize: 20, showSizeChanger: true, pageSizeOptions: [20, 50, 100] }}
-      />
+      <div style={{ overflowX: 'auto' }}>
+        <Table
+          rowKey="id"
+          dataSource={filteredData}
+          columns={columns}
+          loading={loading}
+          size="small"
+          scroll={{ x: 'max-content' }}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys),
+          }}
+          pagination={{ defaultPageSize: 20, showSizeChanger: true, pageSizeOptions: [20, 50, 100] }}
+        />
+      </div>
 
       <Drawer
         title={selected ? `Container Logs - ${selected.name}` : 'Container Logs'}
@@ -602,36 +565,37 @@ export default function ContainerManager() {
         title={selected ? `Interactive Terminal - ${selected.name}` : 'Interactive Terminal'}
         open={execOpen}
         onCancel={() => { closeTerminal(); setExecOpen(false); }}
-        onOk={terminalConnected ? sendTerminalInput : connectTerminal}
-        okText={terminalConnected ? '发送命令' : '连接终端'}
+        onOk={() => {
+          if (!terminalConnected) {
+            connectTerminal();
+            return;
+          }
+          sendTerminalInput();
+        }}
+        okText={terminalConnected ? '发送' : '重连'}
         cancelText="取消"
-        confirmLoading={terminalConnecting || execRunning}
-        width={880}
+        confirmLoading={terminalConnecting}
+        width={isMobile ? '100%' : 980}
       >
         <Form form={execForm} layout="vertical" style={{ marginTop: 12 }}>
-          <Form.Item
-            name="user"
-            label="User"
-            style={{ minWidth: 220 }}
-          >
-            <Input placeholder="留空使用容器默认用户" />
-          </Form.Item>
-          <Form.Item
-            name="workdir"
-            label="Workdir"
-            style={{ minWidth: 280 }}
-          >
-            <Input placeholder="例如: /app" />
-          </Form.Item>
+          <Space wrap style={{ width: '100%' }}>
+            <Form.Item name="user" label="User" style={{ minWidth: 220 }}>
+              <Input placeholder="留空使用容器默认用户" />
+            </Form.Item>
+            <Form.Item name="workdir" label="Workdir" style={{ minWidth: 280 }}>
+              <Input placeholder="例如: /app" />
+            </Form.Item>
+          </Space>
         </Form>
 
         <Space style={{ width: '100%', marginBottom: 8, justifyContent: 'space-between' }}>
           <Tag color={terminalConnected ? 'green' : 'default'}>{terminalConnected ? 'connected' : 'disconnected'}</Tag>
           <Space>
             {terminalConnected && (
-              <Button size="small" onClick={() => terminalWsRef.current?.send(JSON.stringify({ type: 'stdin', data: '\u0003' }))}>Ctrl+C</Button>
+              <Button size="small" onClick={sendCtrlC}>Ctrl+C</Button>
             )}
             <Button size="small" onClick={() => setTerminalOutput('')}>清空输出</Button>
+            <Button size="small" onClick={() => connectTerminal()}>重连</Button>
           </Space>
         </Space>
 
@@ -639,8 +603,8 @@ export default function ContainerManager() {
           id="container-terminal-panel"
           style={{
             margin: 0,
-            maxHeight: 320,
-            minHeight: 260,
+            maxHeight: 420,
+            minHeight: 300,
             overflow: 'auto',
             background: '#111827',
             color: '#e5e7eb',
@@ -678,7 +642,7 @@ export default function ContainerManager() {
                 <Input.TextArea rows={3} placeholder="例如: ls -lah /" />
               </Form.Item>
             </Form>
-            <Button type="primary" loading={execRunning} onClick={runExec}>执行单次命令</Button>
+            <Button type="primary" onClick={runExec}>执行单次命令</Button>
           </Card>
         </div>
 

@@ -48,6 +48,14 @@ async def _send_feishu(config: dict[str, Any], title: str, message: str) -> tupl
     now_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     # Clean message for lark_md
     clean_message = message.replace("\r\n", "\n").replace("\r", "")[:4000]
+    raw_tag_ids = str(config.get("tag_id", config.get("tagid", ""))).strip()
+    mention_line = ""
+    if raw_tag_ids:
+        tag_ids = [x.strip() for x in raw_tag_ids.split(",") if x.strip()]
+        mentions = " ".join([f"<at id={tid}></at>" for tid in tag_ids])
+        if mentions:
+            mention_line = f"\n\n{mentions}"
+
     body: dict[str, Any] = {
         "msg_type": "interactive",
         "card": {
@@ -56,7 +64,7 @@ async def _send_feishu(config: dict[str, Any], title: str, message: str) -> tupl
                 "template": "blue",
             },
             "elements": [
-                {"tag": "div", "text": {"tag": "lark_md", "content": clean_message}},
+                {"tag": "div", "text": {"tag": "lark_md", "content": f"{clean_message}{mention_line}"}},
                 {"tag": "hr"},
                 {"tag": "note", "elements": [
                     {"tag": "plain_text", "content": f"⏰ {now_str}"},

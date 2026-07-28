@@ -35,6 +35,19 @@ async def create_channel(
     db.add(ch)
     await db.commit()
     await db.refresh(ch)
+    tag_id = ""
+    if ch.channel_type == "feishu" and isinstance(ch.config, dict):
+        tag_id = str(ch.config.get("tag_id") or ch.config.get("tagid") or "").strip()
+    await notify_default_channels(
+        db,
+        title="➕ 通知渠道已新增",
+        message=(
+            f"通知渠道「{ch.name}」({ch.channel_type}, ID:{ch.id}) 已创建"
+            + (f"\nTagID: {tag_id}" if tag_id else "")
+        ),
+        level="info",
+        event_type="channel_created",
+    )
     return ch
 
 
@@ -64,13 +77,19 @@ async def delete_channel(channel_id: int, user: CurrentUser, db: Annotated[Async
         raise HTTPException(status_code=404, detail="Channel not found")
     ch_name = ch.name
     ch_type = ch.channel_type
+    tag_id = ""
+    if ch_type == "feishu" and isinstance(ch.config, dict):
+        tag_id = str(ch.config.get("tag_id") or ch.config.get("tagid") or "").strip()
     await db.delete(ch)
     await db.commit()
     # ── Notify other default channels ──
     await notify_default_channels(
         db,
         title="🗑️ 通知渠道已删除",
-        message=f"通知渠道「{ch_name}」({ch_type}, ID:{channel_id}) 已被删除",
+        message=(
+            f"通知渠道「{ch_name}」({ch_type}, ID:{channel_id}) 已被删除"
+            + (f"\nTagID: {tag_id}" if tag_id else "")
+        ),
         level="warn",
         event_type="channel_deleted",
     )
