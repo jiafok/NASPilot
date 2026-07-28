@@ -211,11 +211,14 @@ async def ws_docker_exec(websocket: WebSocket):
     await websocket.accept()
 
     try:
-        session = DockerExecSession(
-            container_id=container_id,
-            user=exec_user or None,
-            workdir=workdir or None,
-            shell="/bin/sh",
+        # Wrap session creation in thread to avoid blocking event loop
+        session = await asyncio.to_thread(
+            lambda: DockerExecSession(
+                container_id=container_id,
+                user=exec_user or None,
+                workdir=workdir or None,
+                shell="/bin/sh",
+            )
         )
     except NotFound:
         await websocket.send_text(json.dumps({"type": "error", "message": "Container not found"}, ensure_ascii=False))
@@ -313,7 +316,8 @@ async def ws_docker_exec(websocket: WebSocket):
             await output_task
         inspect = {}
         with suppress(Exception):
-            inspect = session.inspect()
+            inspect = await asyncio.to_thread(session.inspect)
         with suppress(Exception):
             await websocket.send_text(json.dumps({"type": "status", "status": "closed", "exit_code": inspect.get("ExitCode")}, ensure_ascii=False))
-        session.close()
+        with suppress(Exception):
+            await asyncio.to_thread(session.close)

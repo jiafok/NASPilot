@@ -302,7 +302,16 @@ export default function ContainerManager() {
       flushTimerRef.current = setTimeout(flushOutput, 10);  // Batch window: 10ms
     };
 
+    // Set connection timeout: if no onopen within 15 seconds, abort
+    const connectionTimeoutRef = { current: setTimeout(() => {
+      if (ws.readyState === WebSocket.CONNECTING) {
+        writeTerminal('\r\n[error] websocket connection timeout (backend may not be responding)\r\n');
+        ws.close();
+      }
+    }, 15000) };
+
     ws.onopen = () => {
+      clearTimeout(connectionTimeoutRef.current);
       setTerminalConnecting(false);
       setTerminalConnected(true);
       writeTerminal('\r\n$ connected\r\n');
