@@ -115,13 +115,19 @@ async def _run_cmd(
     cwd: str | None = None,
     env: dict[str, str] | None = None,
 ) -> tuple[int, str, str]:
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=cwd,
-        env=env,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+            env=env,
+        )
+    except FileNotFoundError as exc:
+        # Command binary not present in container, e.g. missing wrangler/npx.
+        return 127, "", f"Command not found: {cmd[0]} ({exc})"
+    except OSError as exc:
+        return 127, "", f"Unable to start command {' '.join(cmd)}: {exc}"
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
     except asyncio.TimeoutError:
