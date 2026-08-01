@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import subprocess
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import docker
@@ -58,6 +59,11 @@ def list_containers(include_all: bool = True) -> list[dict[str, Any]]:
                 for net in networks.values()
                 if isinstance(net, dict) and net.get("IPAddress")
             ]
+            # Host-networked containers share the host's network stack
+            # and don't have their own IP via Docker SDK
+            network_mode = (attrs.get("HostConfig") or {}).get("NetworkMode", "")
+            if not ip_addrs and network_mode == "host":
+                ip_addrs = ["共享宿主机网络"]
             items.append(
                 {
                     "id": c.id,
@@ -106,8 +112,11 @@ def _calc_memory_percent(mem_usage: int, mem_limit: int) -> float:
     return 0.0
 
 
-def _sample_container_stats(container: Any, delay: float = 0.35) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """Capture two successive stats snapshots for environments where a single snapshot is zeroed."""
+def _sample_container_stats(container: Any, delay: float = 1.5) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Capture two successive stats snapshots for environments where a single snapshot is zeroed.
+
+    Synology Docker daemon may not update counters fast enough at 0.35s;
+    using 1.5s to give it time to populate precpu_stats."""
     try:
         first = container.stats(stream=False)
     except Exception:
@@ -120,28 +129,55 @@ def _sample_container_stats(container: Any, delay: float = 0.35) -> tuple[dict[s
     return first, second
 
 
-def _calc_blkio(stats: dict[str, Any]) -> tuple[int, int]:
-    read_b = 0
-    write_b = 0
-    for item in ((stats.get("blkio_stats") or {}).get("io_service_bytes_recursive") or []):
-        op = str(item.get("op") or "").lower()
-        value = int(item.get("value") or 0)
-        if op == "read":
-            read_b += value
-        elif op == "write":
-            write_b += value
-    return read_b, write_b
+def _fallback_stats_via_cli(container_name: str) -> dict[str, Any] | None:
+    """Last-resort fallback: use `docker stats` CLI when SDK stats are all zero.
+
+    Some Synology Docker engines do not update cpu_stats.system_cpu_usage
+    between consecutive SDK calls, leaving us with cpu_delta == 0.
+    The CLI parses cgroup files directly and is more reliable."""
+    import json as _json
+
+    try:
+        result = subprocess.run(
+            ["docker", "stats", "--no-stream", "--format", "{{json .}}", container_name],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode != 0:
+            return None
+        data = _json.loads(result.stdout.strip())
+        cp = float(str(data.get("CPUPerc", "0")).rstrip("%"))
+        mp = float(str(data.get("MemPerc", "0")).rstrip("%"))
+        mu_raw = str(data.get("MemUsage", "0 / 0")).split("/")[0].strip()
+        # Convert "12.5MiB" to bytes
+        mem_usage = _parse_mem(mu_raw)
+        return {
+            "cpu_percent": round(cp, 2),
+            "memory_percent": round(mp, 2),
+            "memory_usage": mem_usage,
+        }
+    except Exception:
+        return None
 
 
-def _calc_net(stats: dict[str, Any]) -> tuple[int, int]:
-    rx = 0
-    tx = 0
-    for value in ((stats.get("networks") or {}).values()):
-        if not isinstance(value, dict):
-            continue
-        rx += int(value.get("rx_bytes") or 0)
-        tx += int(value.get("tx_bytes") or 0)
-    return rx, tx
+def _parse_mem(raw: str) -> int:
+    """Parse docker stats memory like '12.5MiB' or '1.2GiB' to bytes."""
+    import re
+
+    raw = raw.strip().upper()
+    m = re.match(r"([\d.]+)\s*(\w+)", raw)
+    if not m:
+        return 0
+    val = float(m.group(1))
+    unit = m.group(2)
+    if unit in ("KIB", "KB"):
+        return int(val * 1024)
+    if unit in ("MIB", "MB"):
+        return int(val * 1024 * 1024)
+    if unit in ("GIB", "GB"):
+        return int(val * 1024 * 1024 * 1024)
+    if unit == "B":
+        return int(val)
+    return 0
 
 
 def get_containers_stats(container_ids: list[str] | None = None, running_only: bool = True) -> list[dict[str, Any]]:
@@ -175,6 +211,14 @@ def get_containers_stats(container_ids: list[str] | None = None, running_only: b
                     mem_usage = int(mem.get("usage") or mem_usage or 0)
                     mem_limit = int(mem.get("limit") or mem_limit or 0)
                     mem_percent = _calc_memory_percent(mem_usage, mem_limit)
+
+                # Synology fallback: SDK still returned 0s → try docker stats CLI
+                if cpu_percent <= 0.0 and mem_percent <= 0.0:
+                    cli = _fallback_stats_via_cli(c.name)
+                    if cli:
+                        cpu_percent = cli["cpu_percent"]
+                        mem_percent = cli["memory_percent"]
+                        mem_usage = cli["memory_usage"]
 
             net_rx, net_tx = _calc_net(stats)
             blk_read, blk_write = _calc_blkio(stats)
