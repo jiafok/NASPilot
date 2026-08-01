@@ -7,6 +7,7 @@ This avoids N tailers × N connections = N² duplicate broadcasts.
 """
 
 import asyncio
+import concurrent.futures
 import json
 import logging
 import os
@@ -26,6 +27,15 @@ import pathlib
 router = APIRouter(tags=["websocket"])
 
 logger = logging.getLogger("naspilot.websocket")
+
+# ── Dedicated executor for Docker exec I/O ──────────────────────────────
+# The default asyncio thread pool is shared with DB operations (via
+# asyncio.to_thread).  When Docker terminal I/O floods the pool, DB
+# connections queue up → pool exhaustion → QueuePool timeout.
+# This executor isolates Docker read/write from DB operations.
+_docker_exec_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=4, thread_name_prefix="docker-exec-io"
+)
 
 # Regex to parse a formatted log line:
 # "2026-07-23 16:30:09 [INFO    ] naspilot.plugin.pt_rss — message text"
@@ -262,8 +272,9 @@ async def ws_docker_exec(websocket: WebSocket):
     await websocket.accept()
 
     try:
-        # Wrap session creation in thread to avoid blocking event loop
-        session = await asyncio.to_thread(
+        # Create Docker exec session in dedicated executor — avoid blocking default pool
+        session = await asyncio.get_running_loop().run_in_executor(
+            _docker_exec_executor,
             lambda: DockerExecSession(
                 container_id=container_id,
                 user=exec_user or None,
@@ -292,13 +303,13 @@ async def ws_docker_exec(websocket: WebSocket):
         """Read container output and send to frontend with message batching to prevent freeze.
         
         Accumulates multiple reads within a 10ms window to reduce message flood.
-        Without this, high-output containers send 100+ messages/sec, causing frontend lag.
+        Uses _docker_exec_executor to avoid starving the default thread pool (and DB pool).
         """
+        loop = asyncio.get_running_loop()
         while not stop_event.is_set():
             try:
-                # Set a short timeout to enable read batching within that window
                 data = await asyncio.wait_for(
-                    asyncio.to_thread(session.read, 8192),
+                    loop.run_in_executor(_docker_exec_executor, session.read, 8192),
                     timeout=0.01  # 10ms window for batching
                 )
             except asyncio.TimeoutError:
@@ -311,11 +322,11 @@ async def ws_docker_exec(websocket: WebSocket):
             
             # Accumulate multiple reads to batch into single message
             buffer = data
-            deadline = asyncio.get_event_loop().time() + 0.008  # Collect more for ~8ms
-            while asyncio.get_event_loop().time() < deadline and not stop_event.is_set():
+            deadline = loop.time() + 0.008  # Collect more for ~8ms
+            while loop.time() < deadline and not stop_event.is_set():
                 try:
                     chunk = await asyncio.wait_for(
-                        asyncio.to_thread(session.read, 8192),
+                        loop.run_in_executor(_docker_exec_executor, session.read, 8192),
                         timeout=0.002  # Short timeout for supplemental reads
                     )
                     if not chunk:
@@ -367,8 +378,12 @@ async def ws_docker_exec(websocket: WebSocket):
             await output_task
         inspect = {}
         with suppress(Exception):
-            inspect = await asyncio.to_thread(session.inspect)
+            inspect = await asyncio.get_running_loop().run_in_executor(
+                _docker_exec_executor, session.inspect
+            )
         with suppress(Exception):
             await websocket.send_text(json.dumps({"type": "status", "status": "closed", "exit_code": inspect.get("ExitCode")}, ensure_ascii=False))
         with suppress(Exception):
-            await asyncio.to_thread(session.close)
+            await asyncio.get_running_loop().run_in_executor(
+                _docker_exec_executor, session.close
+            )
