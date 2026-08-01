@@ -250,7 +250,7 @@ export default function Dashboard() {
       <Row gutter={[16, 16]}>
         {/* ── 6. Activity Timeline ── */}
         <Col xs={24} xl={14}>
-          <Card title="📋 Recent Activity Timeline" extra={<Tag color="blue">Phase 3</Tag>} style={{ marginBottom: 16 }}>
+          <Card title="📋 Recent Activity Timeline" style={{ marginBottom: 16 }}>
             <Timeline
               items={timelineItems as any}
             />

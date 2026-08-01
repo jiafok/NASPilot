@@ -2,8 +2,11 @@ version: "3.9"
 
 services:
   naspilot:
-    image: ghcr.io/jiafok/naspilot:latest
-    pull_policy: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # image: ghcr.io/jiafok/naspilot:latest  ← uncomment after pushing to GHCR
+    pull_policy: build
     container_name: naspilot
     restart: unless-stopped
 
