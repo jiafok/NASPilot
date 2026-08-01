@@ -34,8 +34,8 @@ services:
 
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
-      - SECRET_KEY=${SECRET_KEY:-change-me-to-a-random-string-at-least-32-chars}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required — generate with: openssl rand -hex 32}
+      - FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD:-}
       - TZ=Asia/Shanghai
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
 

@@ -1,5 +1,6 @@
 """Notification service — send messages to various channels."""
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -80,23 +81,39 @@ async def _send_feishu(config: dict[str, Any], title: str, message: str) -> tupl
         body["timestamp"] = ts
         body["sign"] = _feishu_sign(ts, secret)
 
-    async with httpx.AsyncClient(timeout=15) as client:
+    # Retry up to 2 times on network/transient errors (total 3 attempts)
+    last_error = None
+    for attempt in range(3):
         try:
-            resp = await client.post(webhook, json=body)
-            resp.raise_for_status()
-            data = resp.json() if resp.text else {}
-            if not isinstance(data, dict):
-                return False, f"Unexpected response type: {type(data).__name__}"
-            code = data.get("code", data.get("Code", -1))
-            if code != 0:
-                return False, str(data.get("msg", data.get("Msg", f"Feishu returned code={code}")))
-            return True, None
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(webhook, json=body)
+                resp.raise_for_status()
+                data = resp.json() if resp.text else {}
+                if not isinstance(data, dict):
+                    last_error = f"Unexpected response type: {type(data).__name__}"
+                    if attempt < 2:
+                        await asyncio.sleep(1)
+                        continue
+                    return False, last_error
+                code = data.get("code", data.get("Code", -1))
+                if code != 0:
+                    last_error = str(data.get("msg", data.get("Msg", f"Feishu returned code={code}")))
+                    if attempt < 2:
+                        logger.warning("Feishu webhook attempt %d failed: %s — retrying", attempt + 1, last_error)
+                        await asyncio.sleep(1)
+                        continue
+                    return False, last_error
+                return True, None
         except httpx.HTTPStatusError as e:
-            return False, f"HTTP {e.response.status_code}: {e.response.text[:200]}"
+            last_error = f"HTTP {e.response.status_code}: {e.response.text[:200]}"
         except json.JSONDecodeError:
-            return False, f"Feishu returned non-JSON: {resp.text[:200]}"
+            last_error = f"Feishu returned non-JSON: {resp.text[:200]}"
         except Exception as e:
-            return False, str(e)
+            last_error = str(e)
+        if attempt < 2:
+            logger.warning("Feishu webhook attempt %d failed: %s — retrying", attempt + 1, last_error)
+            await asyncio.sleep(1)
+    return False, last_error or "All retries exhausted"
 
 
 async def _send_wechat_work(config: dict[str, Any], title: str, message: str) -> tuple[bool, str | None]:

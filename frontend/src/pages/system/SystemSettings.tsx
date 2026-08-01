@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Form, Input, Button, Switch, message, Typography, Card, Spin, Tabs, Modal, Space, Row, Col, Statistic } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
-import { SaveOutlined, ReloadOutlined, LockOutlined, SettingOutlined, RobotOutlined, FolderOpenOutlined, CopyOutlined } from '@ant-design/icons';
+import { SaveOutlined, ReloadOutlined, LockOutlined, SettingOutlined, RobotOutlined, FolderOpenOutlined, CopyOutlined, AppstoreOutlined, BellOutlined } from '@ant-design/icons';
 
 const { Title, Paragraph } = Typography;
 
@@ -50,6 +50,26 @@ export default function SystemSettings() {
   }, [form]);
 
   useEffect(() => { fetchSettings(); }, [fetchSettings]);
+
+  // Auto-save when leaving the page so AI / other config is not lost
+  useEffect(() => {
+    return () => {
+      const values = form.getFieldsValue();
+      const entries = Object.entries(values)
+        .filter(([, value]) => value !== undefined && value !== null && value !== '')
+        .map(([key, value]) => {
+          const setting = settings.find((s) => s.key === key);
+          let strValue = String(value);
+          if (setting?.value_type === 'bool') strValue = value ? 'true' : 'false';
+          else if (setting?.value_type === 'json') strValue = JSON.stringify(value);
+          return { key, value: strValue };
+        });
+      if (entries.length > 0) {
+        // Fire-and-forget: use sendBeacon-style fetch, don't block navigation
+        api.put('/system/settings', entries).catch(() => {});
+      }
+    };
+  }, [form, settings]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -163,6 +183,24 @@ export default function SystemSettings() {
       label: <span><FolderOpenOutlined /> 工具</span>,
       children: (
         <Row gutter={[16, 16]}>
+          <Col xs={24} sm={12} lg={8}>
+            <Card hoverable onClick={() => navigate('/applications')}>
+              <Statistic title="集成工具" value="🧩" prefix={<AppstoreOutlined />} />
+              <Paragraph type="secondary" style={{ marginTop: 8 }}>统一管理内置应用入口与运行状态</Paragraph>
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} lg={8}>
+            <Card hoverable onClick={() => navigate('/applications')}>
+              <Statistic title="Integrations" value="🔌" prefix={<SettingOutlined />} />
+              <Paragraph type="secondary" style={{ marginTop: 8 }}>插件安装、启用、禁用与维护（集成至 Settings）</Paragraph>
+            </Card>
+          </Col>
+          <Col xs={24} sm={12} lg={8}>
+            <Card hoverable onClick={() => navigate('/notifications')}>
+              <Statistic title="通知中心" value="🔔" prefix={<BellOutlined />} />
+              <Paragraph type="secondary" style={{ marginTop: 8 }}>配置默认告警渠道与消息测试</Paragraph>
+            </Card>
+          </Col>
           <Col xs={24} sm={12} lg={8}>
             <Card hoverable onClick={() => navigate('/files')}>
               <Statistic title="文件浏览" value="📂" prefix={<FolderOpenOutlined />} />

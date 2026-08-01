@@ -827,6 +827,7 @@ class PTRSSPlugin(PluginBase):
         for rec in processed.values():
             _migrate_old_status(rec)
             rec.setdefault("rss_missing_count", 0)
+            rec.setdefault("rss_consecutive_missing", 0)
 
         # ── GC: purge old evicted & expired_free entries ──
         evicted_days = int(self.config.get("gc", {}).get("evicted_days", 15))
@@ -908,14 +909,15 @@ class PTRSSPlugin(PluginBase):
                 if is_final_status(rec.get("status", "")) or rec.get("status") != STATUS_ADDED:
                     continue
                 if tid in rss_tid_set:
-                    rec["rss_missing_count"] = 0
+                    rec["rss_consecutive_missing"] = 0
                     continue
                 source = rec.get("rss_source", "")
                 if source and source in failed_sources:
                     continue
+                rec["rss_consecutive_missing"] = int(rec.get("rss_consecutive_missing", 0)) + 1
                 rec["rss_missing_count"] = int(rec.get("rss_missing_count", 0)) + 1
-                if rec["rss_missing_count"] < int(self.config.get("rss_missing_threshold", 2)):
-                    notify_skipped.append(f"{tid} | missing {rec['rss_missing_count']}")
+                if rec["rss_consecutive_missing"] < int(self.config.get("rss_missing_threshold", 2)):
+                    notify_skipped.append(f"{tid} | missing {rec['rss_missing_count']} (连续{rec['rss_consecutive_missing']})")
                     continue
                 candidates = [t for t in torrents_cache if has_tag(t, rec.get("tag", f"rss_tid:{tid}"))]
                 if len(candidates) != 1:
@@ -924,13 +926,13 @@ class PTRSSPlugin(PluginBase):
                 if torrent.get("progress", 0) >= 1:
                     rec["status"] = STATUS_COMPLETED
                     rec["completed_time"] = utc_now_iso()
-                    rec["rss_missing_count"] = 0
+                    rec["rss_consecutive_missing"] = 0
                     continue
                 await qb.delete(torrent["hash"], delete_files=True)
                 rec["status"] = STATUS_EVICTED
                 rec["evicted_time"] = utc_now_iso()
                 rec["evicted_reason"] = "rss"
-                rec["rss_missing_count"] = 0
+                rec["rss_consecutive_missing"] = 0
                 daily["stats"]["deleted_rss_missing"] += 1
                 _append_limited(daily["details"]["deleted_items"], {"time": utc_now_iso(), "tid": tid, "name": torrent.get("name", "unknown"), "reason": "rss"})
                 logger.info("  evicted: tid=%s, name=%s (RSS缺席)", tid, torrent.get("name", "")[:50])

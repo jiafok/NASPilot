@@ -426,6 +426,10 @@ export default function ContainerManager() {
 
   const runningCount = useMemo(() => containers.filter((x) => x.running).length, [containers]);
   const stoppedCount = containers.length - runningCount;
+  const errorCount = useMemo(() => containers.filter((c) => {
+    const st = (c.state || c.status || '').toLowerCase();
+    return !c.running || st.includes('unhealthy') || st.includes('restarting') || st.includes('exited') || st.includes('dead');
+  }).length, [containers]);
   const avgCpu = useMemo(() => {
     const values = Object.values(statsMap).map((x) => x.cpu_percent);
     if (!values.length) return 0;
@@ -536,10 +540,18 @@ export default function ContainerManager() {
         </Space>
 
         <Row gutter={[12, 12]} style={{ marginTop: 14 }}>
-          <Col xs={12} sm={6}><Statistic title="总容器" value={containers.length} /></Col>
-          <Col xs={12} sm={6}><Statistic title="运行中" value={runningCount} /></Col>
-          <Col xs={12} sm={6}><Statistic title="已停止" value={stoppedCount} /></Col>
-          <Col xs={12} sm={6}><Statistic title="平均 CPU / MEM" value={`${avgCpu.toFixed(1)}% / ${avgMem.toFixed(1)}%`} /></Col>
+          <Col xs={12} sm={6}><Card size="small"><Statistic title="总容器" value={containers.length} valueStyle={{ fontSize: 22 }} /></Card></Col>
+          <Col xs={12} sm={6}><Card size="small"><Statistic title="运行中" value={runningCount} valueStyle={{ fontSize: 22, color: '#52c41a' }} /></Card></Col>
+          <Col xs={12} sm={6}><Card size="small"><Statistic title="已停止" value={stoppedCount} valueStyle={{ fontSize: 22, color: '#faad14' }} /></Card></Col>
+          <Col xs={12} sm={6}><Card size="small"><Statistic title="异常" value={errorCount} valueStyle={{ fontSize: 22, color: errorCount > 0 ? '#ff4d4f' : '#999' }} /></Card></Col>
+        </Row>
+        <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
+          <Col xs={24} sm={12}>
+            <Card size="small"><Statistic title="平均 CPU" value={avgCpu.toFixed(1)} suffix="%" valueStyle={{ fontSize: 20 }} /><Progress percent={Math.min(100, Math.round(avgCpu))} size="small" strokeColor="#1677ff" /></Card>
+          </Col>
+          <Col xs={24} sm={12}>
+            <Card size="small"><Statistic title="平均内存" value={avgMem.toFixed(1)} suffix="%" valueStyle={{ fontSize: 20 }} /><Progress percent={Math.min(100, Math.round(avgMem))} size="small" strokeColor="#52c41a" /></Card>
+          </Col>
         </Row>
 
         <Space style={{ marginTop: 14, width: '100%', justifyContent: 'space-between', flexWrap: 'wrap' }}>

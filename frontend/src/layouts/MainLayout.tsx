@@ -6,8 +6,6 @@ import {
   DashboardOutlined,
   ThunderboltOutlined,
   DatabaseOutlined,
-  ToolOutlined,
-  BellOutlined,
   AppstoreOutlined,
   FileTextOutlined,
   SettingOutlined,
@@ -45,19 +43,25 @@ export default function MainLayout() {
 
   const menuItems: MenuProps['items'] = [
     { key: '/', icon: <DashboardOutlined />, label: t('nav.dashboard') },
-    { key: '/tasks', icon: <ThunderboltOutlined />, label: t('nav.tasks') },
+    { key: '/automation', icon: <ThunderboltOutlined />, label: '任务中心' },
+    {
+      key: '/applications',
+      icon: <AppstoreOutlined />,
+      label: '集成工具',
+      children: [
+        { key: '/applications/pt-rss', label: 'PT RSS 下载' },
+        { key: '/applications/alist-upload', label: 'AList 上传' },
+        { key: '/applications/cloudflare-ddns', label: 'Cloudflare DDNS' },
+        { key: '/applications/cloudflare-pages', label: 'Cloudflare Pages' },
+        { key: '/applications/docker-backup', label: 'Docker 备份' },
+        { key: '/applications/log-cleanup', label: '日志清理' },
+        { key: '/applications/btrfs-cleanup', label: 'Btrfs 清理' },
+        { key: '/applications/rclone-mount', label: 'Rclone 挂载' },
+      ],
+    },
     { key: '/containers', icon: <DatabaseOutlined />, label: t('nav.containerManager') },
-    { key: '/tools', icon: <ToolOutlined />, label: t('nav.tools'), children: [
-      { key: '/tools/pt-rss', label: t('nav.ptRss') },
-      { key: '/tools/alist', label: t('nav.alistUpload') },
-      { key: '/tools/cloudflare', label: t('nav.cloudflarePages') },
-      { key: '/tools/docker-backup', label: t('nav.dockerBackup') },
-      { key: '/tools/log-cleanup', label: t('nav.logCleanup') },
-    ]},
-    { key: '/plugins', icon: <AppstoreOutlined />, label: t('nav.plugins') },
-    { key: '/notifications', icon: <BellOutlined />, label: t('nav.notifications') },
+    { key: '/files', icon: <FolderOpenOutlined />, label: 'File Manager' },
     { key: '/logs', icon: <FileTextOutlined />, label: t('nav.logs') },
-    { key: '/files', icon: <FolderOpenOutlined />, label: t('nav.fileBrowser') },
     { key: '/settings', icon: <SettingOutlined />, label: t('nav.settings') },
     { key: '/ai', icon: <RobotOutlined />, label: t('nav.aiAssistant') },
   ];
@@ -70,7 +74,23 @@ export default function MainLayout() {
 
   const selectedKey = (() => {
     const p = location.pathname;
-    const m = menuItems.find((x: any) => x.key === p || x.children?.some((c: any) => c.key === p));
+    if (p === '/' || p === '') return '/';
+    if (p.startsWith('/automation') || p.startsWith('/tasks')) return '/automation';
+    if (p === '/applications' || p.startsWith('/plugins')) return '/applications/pt-rss';
+    if (p.startsWith('/applications/pt-rss') || p.startsWith('/tools/pt-rss')) return '/applications/pt-rss';
+    if (p.startsWith('/applications/alist-upload') || p.startsWith('/tools/alist')) return '/applications/alist-upload';
+    if (p.startsWith('/applications/cloudflare-pages') || p.startsWith('/tools/cloudflare')) return '/applications/cloudflare-pages';
+    if (p.startsWith('/applications/docker-backup') || p.startsWith('/tools/docker-backup')) return '/applications/docker-backup';
+    if (p.startsWith('/applications/log-cleanup') || p.startsWith('/tools/log-cleanup')) return '/applications/log-cleanup';
+    if (p.startsWith('/applications/cloudflare-ddns') || p.startsWith('/tools/cloudflare-ddns')) return '/applications/cloudflare-ddns';
+    if (p.startsWith('/applications/btrfs-cleanup')) return '/applications/btrfs-cleanup';
+    if (p.startsWith('/applications/rclone-mount')) return '/applications/rclone-mount';
+    if (p.startsWith('/containers')) return '/containers';
+    if (p.startsWith('/files')) return '/files';
+    if (p.startsWith('/logs')) return '/logs';
+    if (p.startsWith('/settings') || p.startsWith('/notifications')) return '/settings';
+    if (p.startsWith('/ai')) return '/ai';
+    const m = menuItems.find((x: any) => x.key === p);
     return (m as any)?.key || '/';
   })();
 
@@ -82,7 +102,7 @@ export default function MainLayout() {
           <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: collapsed ? 16 : 20, fontWeight: 700 }}>
             {collapsed ? '🚀' : '🚀 NASPilot'}
           </div>
-          <Menu theme="dark" mode="inline" selectedKeys={[selectedKey]} defaultOpenKeys={['/tools']}
+          <Menu theme="dark" mode="inline" selectedKeys={[selectedKey]}
             items={menuItems} onClick={({ key }) => navigate(key)} style={{ background: 'transparent' }} />
         </Sider>
       )}
@@ -105,7 +125,7 @@ export default function MainLayout() {
             <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} onClick={() => setMobileOpen(false)} />
             <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: 260, background: 'linear-gradient(180deg, #1a1a2e 0%, #16213e 100%)', overflow: 'auto' }}>
               <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 20, fontWeight: 700 }}>🚀 NASPilot</div>
-              <Menu theme="dark" mode="inline" selectedKeys={[selectedKey]} defaultOpenKeys={['/tools']}
+              <Menu theme="dark" mode="inline" selectedKeys={[selectedKey]}
                 items={menuItems} onClick={({ key }) => { navigate(key); setMobileOpen(false); }} style={{ background: 'transparent' }} />
             </div>
           </div>

@@ -1,0 +1,77 @@
+# ======================
+# 行为开关
+# ======================
+debug: true           # true 打印详细日志，稳定后改 false
+free_check: false     # true = 只下 FREE；false = 不检查 FREE
+max_active_downloads: 15    #同时下载数
+
+
+rss_urls:
+  - "https://rss.m-team.cc/api/rss/fetch?albumId=53&dl=1&pageSize=50&sign=6b193db2e7cba9c3acbabc276dedaa74&t=1777426496&uid=372725"
+  - "https://rss.m-team.cc/api/rss/fetch?albumId=56&dl=1&pageSize=50&sign=a7eeb10a8d8a5351bb111c54bdff0af7&t=1782643415&uid=372725"
+# 兼容旧配置：仍支持 rss_url（单个字符串），但建议统一用 rss_urls
+
+# ======================
+# PT 站点配置（解决 RSS 下载链接过期问题）
+# ======================
+# M-Team 的 RSS 种子下载链接（dl=1 模式下）包含有时效的 sign/t 参数，
+# 时间久了会过期。配置 passkey 后，脚本会在链接过期时自动构造
+# https://{site_domain}/download.php?id={tid}&passkey={passkey} 重试。
+# passkey 在 M-Team 个人中心 → 密钥 中获取。
+mt_passkey: ""          # 你的 M-Team passkey（留空则跳过 passkey 重试）
+site_domain: "m-team.cc"   # M-Team 站点域名（无需 http://）
+
+# Python 端下载 .torrent 的超时时间（秒）下载一个种子文件通常 10-30s 足够
+download_timeout: 60
+
+download_dir: "D:/QBDownload/others"
+# 当 qB API 返回 -1/0 时，使用本机可访问的挂载目录来计算剩余空间（可选）
+# 例如："/volume1/QBDownload/others" 或 "/mnt/qb_download"
+space_fallback_dir: "D:/"
+min_free_gb: 50           # 最少剩余空间（GB）
+
+qbittorrent:
+  url: "http://192.168.0.114:8080"
+  username: "jeffrey"
+  password: "shasha66"
+
+cleanup:
+  seed_days: 1.5            # 做种超过 2 天才允许删除
+  stuck_download_days: 2.5    # ✅ 下载超过 2 天还没完成就删
+check_interval: 1800       # 30 分钟检查一次
+
+free_ttl_hours: 48     # 小时，超过这个时间仍未添加成功 → 永远放弃
+
+
+# ============================
+# RSS 驱逐（方案 A）
+# ============================
+rss_missing_threshold: 2
+enable_rss_eviction: true
+
+# ============================
+# processed 垃圾回收（GC）
+# ============================
+gc:
+  evicted_days: 5
+  expired_days: 5
+
+# ============================
+# daily summary 审计显示
+# ============================
+audit:
+  max_items: 10
+
+# ======================
+# 飞书通知
+# ======================
+feishu_enable: true  # 总开关；置 False 即完全不发
+feishu_webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/df512440-03e2-4541-83d7-321d6bd62261"
+feishu_secret: "sijqq9M81hVLcPC39thNng"            # 没有就留空
+
+feishu_notify:
+  on_add_task: true
+  on_delete_task: true
+  on_daily_summary: true
+  daily_summary_hour: 22     # 每晚 22:00 发送一次汇总
+

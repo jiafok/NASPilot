@@ -1,221 +1,321 @@
-import { useState, useEffect, Component, type ReactNode } from 'react';
-import { Row, Col, Card, Statistic, Progress, Table, Tag, Typography, Spin, Space, Divider } from 'antd';
-import { CloudServerOutlined, ThunderboltOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, ReloadOutlined, BarChartOutlined } from '@ant-design/icons';
-import { useTranslation } from 'react-i18next';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Alert, Button, Card, Col, List, Progress, Row, Space, Spin, Statistic, Table, Tag, Timeline, Typography } from 'antd';
+import { CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined, DatabaseOutlined, DeleteOutlined, ExclamationCircleOutlined, FolderOpenOutlined, InfoCircleOutlined, ReloadOutlined, ThunderboltOutlined, ToolOutlined, WarningOutlined } from '@ant-design/icons';
 import api from '../utils/api';
-import ResourceMonitor from '../components/ResourceMonitor';
 
 const { Title, Text } = Typography;
 
-// Error boundary to prevent ResourceMonitor from blanking the whole page
-class MonitorErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
-  state = { hasError: false };
-  static getDerivedStateFromError() { return { hasError: true }; }
-  render() {
-    if (this.state.hasError) return null;
-    return this.props.children;
-  }
+interface SystemStats {
+  cpu_percent: number;
+  memory_percent: number;
+  memory_used: number;
+  memory_total: number;
+  disk_percent: number;
+  disk_used: number;
+  disk_total: number;
 }
 
-interface SystemStats { cpu_percent: number; memory_percent: number; memory_used: number; memory_total: number; disk_percent: number; disk_used: number; disk_total: number; uptime_hours: number; }
-interface RecentExecution { id: number; task_name: string; status: string; start_time: string; duration_ms: number | null; }
-interface TaskSummary { task_name: string; total: number; success: number; failed: number; last_run: string | null; }
-interface ToolStatus { slug: string; name: string; enabled: boolean; status: string; last_run: string | null; metrics: string; }
-
-const TOOL_SLUGS = ['pt_rss', 'alist_upload', 'docker_backup', 'cloudflare_pages', 'cloudflare_ddns', 'log_cleanup'];
-
-function parseSummary(raw: unknown): Record<string, any> {
-  if (raw && typeof raw === 'object') return raw as Record<string, any>;
-  if (typeof raw === 'string') {
-    try { return JSON.parse(raw); } catch { return {}; }
-  }
-  return {};
+interface ObservabilityOverview {
+  task: { success_24h: number; failed_24h: number; timeout_24h: number; running_now: number; pending_count: number };
+  container: { running: number; stopped: number; error: number; abnormal_containers: string[] };
+  file: { storage_usage_percent: number; uploaded_success_24h: number; uploaded_failed_24h: number; deleted_24h: number };
+  application: { ok_24h: number; failed_24h: number; skipped_24h: number };
 }
 
-function toolMetrics(slug: string, config: Record<string, any>, summary: Record<string, any>): string {
-  if (slug === 'pt_rss') {
-    const daily = (config?.state?.daily?.stats || {}) as Record<string, any>;
-    const added = Number(daily.added ?? summary.added ?? 0);
-    const deleted = Object.keys(daily)
-      .filter((k) => k.startsWith('deleted'))
-      .reduce((s, k) => s + Number(daily[k] || 0), 0);
-    return `新增 ${added} / 删除 ${deleted}`;
-  }
-  if (slug === 'alist_upload') {
-    return `上传 ${Number(summary.uploaded || 0)} / 删除 ${Number(summary.deleted || 0)} / 失败 ${Number(summary.failed || 0)}`;
-  }
-  if (slug === 'docker_backup') {
-    return `应用 ${Number(summary.apps_count || 0)} / 文件 ${Number(summary.total_files || 0)}`;
-  }
-  if (slug === 'cloudflare_ddns') {
-    return `更新 ${Number(summary.updated || 0)} / 未变更 ${Number(summary.unchanged || 0)}`;
-  }
-  if (slug === 'cloudflare_pages') {
-    return `部署 ${summary.deployed ? '成功' : '失败'} / IPv6 ${summary.ipv6 || '-'}`;
-  }
-  if (slug === 'log_cleanup') {
-    return `删除 ${Number(summary.deleted || 0)} / 截断 ${Number(summary.truncated || 0)}`;
-  }
-  return Object.keys(summary).length ? JSON.stringify(summary).slice(0, 80) : '-';
+interface UnifiedEvent {
+  execution_id: string;
+  domain: string;
+  source_name: string;
+  status: string;
+  event_type: string | null;
+  started_at: string;
+  duration_ms?: number | null;
+  failure_reasons?: string[];
+  counters?: { added: number; deleted: number; uploaded: number; skipped: number; failed: number; unchanged: number; pending: number };
 }
 
-function fmtBytes(b: number) { if (!b) return '0 GB'; const gb = b / 1024 / 1024 / 1024; return `${gb.toFixed(1)} GB`; }
-function fmtUptime(h: number) {
-  if (h < 1) return '< 1h';
-  if (h < 24) return `${h.toFixed(0)}h`;
+interface TimelineEvent {
+  id: string;
+  timestamp: string;
+  event_type: string;
+  domain: string;
+  source: string;
+  summary: string;
+  counters?: { added: number; deleted: number; uploaded: number; skipped: number; failed: number };
+}
+
+interface UnifiedFeed { items: UnifiedEvent[] }
+
+function statusTag(status: string) {
+  if (status === 'ok' || status === 'success') return <Tag color="green">正常</Tag>;
+  if (status === 'running') return <Tag color="blue">运行中</Tag>;
+  if (status === 'warning' || status === 'timeout') return <Tag color="orange">告警</Tag>;
+  if (status === 'failed' || status === 'error') return <Tag color="red">失败</Tag>;
+  return <Tag>{status}</Tag>;
+}
+
+function eventIcon(et: string | null) {
+  if (!et) return <InfoCircleOutlined />;
+  if (et.includes('failed') || et.includes('abnormal')) return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
+  if (et.includes('added') || et.includes('uploaded') || et.includes('succeeded')) return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
+  if (et.includes('deleted')) return <DeleteOutlined style={{ color: '#faad14' }} />;
+  if (et.includes('skipped')) return <WarningOutlined style={{ color: '#faad14' }} />;
+  return <InfoCircleOutlined />;
+}
+
+function eventColor(et: string | null) {
+  if (!et) return 'gray';
+  if (et.includes('failed') || et.includes('abnormal')) return 'red';
+  if (et.includes('succeeded') || et.includes('added') || et.includes('uploaded')) return 'green';
+  if (et.includes('deleted')) return 'orange';
+  if (et.includes('skipped')) return 'gold';
+  return 'gray';
+}
+
+function fmtBytes(bytes: number) {
+  if (!bytes || Number.isNaN(bytes)) return '0 GB';
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
+function fmtRelTime(ts: string) {
+  const ms = Date.now() - new Date(ts).getTime();
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return '刚刚';
+  if (m < 60) return `${m}分钟前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}小时前`;
   const d = Math.floor(h / 24);
-  return `${d}d ${(h % 24).toFixed(0)}h`;
+  return `${d}天前`;
+}
+
+function renderCounterSuffix(c: { added?: number; deleted?: number; uploaded?: number; skipped?: number; failed?: number } | undefined) {
+  if (!c) return null;
+  const parts: string[] = [];
+  if ((c.added ?? 0) > 0) parts.push(`+${c.added}`);
+  if ((c.deleted ?? 0) > 0) parts.push(`-${c.deleted}`);
+  if ((c.uploaded ?? 0) > 0) parts.push(`↑${c.uploaded}`);
+  if ((c.skipped ?? 0) > 0) parts.push(`⏭${c.skipped}`);
+  if ((c.failed ?? 0) > 0) parts.push(`✗${c.failed}`);
+  return parts.length > 0 ? parts.join(' ') : null;
 }
 
 export default function Dashboard() {
-  const { t } = useTranslation();
-  const [stats, setStats] = useState<SystemStats | null>(null);
-  const [recent, setRecent] = useState<RecentExecution[]>([]);
-  const [summary, setSummary] = useState<TaskSummary[]>([]);
-  const [toolStatus, setToolStatus] = useState<ToolStatus[]>([]);
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<SystemStats | null>(null);
+  const [overview, setOverview] = useState<ObservabilityOverview | null>(null);
+  const [feed, setFeed] = useState<UnifiedFeed>({ items: [] });
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [dockerUnavailable, setDockerUnavailable] = useState(false);
 
-  const fetchData = () => {
+  const load = async () => {
     setLoading(true);
-    Promise.all([
+    const [statsRes, overviewRes, feedRes, timelineRes] = await Promise.allSettled([
       api.get('/system/stats'),
-      api.get('/tasks/executions?limit=50'),
-      api.get('/plugins'),
-    ])
-      .then(async ([s, e, p]) => {
-        setStats(s.data);
-        const execs: RecentExecution[] = e.data || [];
-        setRecent(execs.slice(0, 10));
-        const grouped: Record<string, TaskSummary> = {};
-        for (const ex of execs) {
-          const name = ex.task_name || 'Unknown';
-          if (!grouped[name]) grouped[name] = { task_name: name, total: 0, success: 0, failed: 0, last_run: null };
-          grouped[name].total++;
-          if (ex.status === 'success') grouped[name].success++;
-          else if (ex.status === 'failed' || ex.status === 'timeout') grouped[name].failed++;
-          if (!grouped[name].last_run) grouped[name].last_run = ex.start_time;
-        }
-        setSummary(Object.values(grouped));
+      api.get('/observability/overview?hours=24'),
+      api.get('/observability/executions/unified?hours=24&limit=100'),
+      api.get('/observability/timeline?hours=24&limit=50'),
+    ]);
 
-        const plugins = ((p.data || []) as any[]).filter((x) => TOOL_SLUGS.includes(x.slug));
-        const statusRows = await Promise.all(plugins.map(async (pl: any) => {
-          try {
-            const instRes = await api.get(`/plugins/${pl.id}/instances`);
-            const inst = (instRes.data || [])[0];
-            const run = inst?.config?.state?.run_history?.[0] || null;
-            const summaryObj = parseSummary(run?.summary || {});
-            return {
-              slug: pl.slug,
-              name: pl.name,
-              enabled: !!inst?.enabled,
-              status: run?.status || summaryObj.status || (inst?.enabled ? 'idle' : 'disabled'),
-              last_run: run?.time || null,
-              metrics: toolMetrics(pl.slug, inst?.config || {}, summaryObj),
-            } as ToolStatus;
-          } catch {
-            return {
-              slug: pl.slug,
-              name: pl.name,
-              enabled: false,
-              status: 'unknown',
-              last_run: null,
-              metrics: '-',
-            } as ToolStatus;
-          }
-        }));
-        setToolStatus(statusRows);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    if (statsRes.status === 'fulfilled') setStats(statsRes.value.data);
+    if (overviewRes.status === 'fulfilled') setOverview(overviewRes.value.data);
+    if (feedRes.status === 'fulfilled') setFeed(feedRes.value.data || { items: [] });
+    if (timelineRes.status === 'fulfilled') setTimeline((timelineRes.value.data as any)?.events || []);
+
+    // Check Docker availability from overview
+    const hasContainerData = overviewRes.status === 'fulfilled' && overviewRes.value.data?.container !== undefined;
+    setDockerUnavailable(!hasContainerData);
+
+    setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { load(); }, []);
 
-  if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
+  // ── Risk Queue: aggregate failures + warnings from timeline ──
+  const riskQueue = useMemo(() => {
+    return timeline
+      .filter((e) =>
+        e.event_type === 'task_failed' ||
+        e.event_type === 'plugin_failed' ||
+        e.event_type === 'container_abnormal' ||
+        e.event_type === 'execution_failed')
+      .slice(0, 10);
+  }, [timeline]);
 
-  const sc = (s: string) => ({ success: 'green', failed: 'red', running: 'blue' }[s] || 'default') as string;
-  const si = (s: string) => ({ success: <CheckCircleOutlined />, failed: <CloseCircleOutlined />, running: <ClockCircleOutlined spin /> }[s] || <ClockCircleOutlined />);
+  // ── Recent failures from unified feed ──
+  const recentFailures = useMemo(() => {
+    return feed.items
+      .filter((x) => x.status === 'failed' || x.status === 'error' || x.status === 'timeout')
+      .slice(0, 8);
+  }, [feed]);
 
-  const cards = [
-    { title: t('dashboard.cpu'), value: stats?.cpu_percent ?? 0, icon: <CloudServerOutlined />, color: '#667eea' },
-    { title: t('dashboard.memory'), value: stats?.memory_percent ?? 0, icon: <ThunderboltOutlined />, color: '#34d399', detail: `${fmtBytes(stats?.memory_used || 0)} / ${fmtBytes(stats?.memory_total || 0)}` },
-    { title: t('dashboard.disk'), value: stats?.disk_percent ?? 0, icon: null, color: '#f59e0b', detail: `${fmtBytes(stats?.disk_used || 0)} / ${fmtBytes(stats?.disk_total || 0)}` },
-    { title: t('dashboard.uptime'), value: fmtUptime(stats?.uptime_hours ?? 0), icon: <ClockCircleOutlined />, color: '#8b5cf6', detail: '', valueStyle: { fontSize: 22 } },
-  ];
+  // ── Timeline display items (pre-computed to avoid JSX parse issues) ──
+  const timelineItems = useMemo(() => {
+    return timeline.slice(0, 15).map((e) => ({
+      color: eventColor(e.event_type),
+      dot: eventIcon(e.event_type),
+      children: (
+        <div>
+          <Text strong style={{ marginRight: 8 }}>{e.source}</Text>
+          <Tag color={eventColor(e.event_type)} style={{ marginRight: 8 }}>{e.event_type}</Tag>
+          <Text type="secondary">{fmtRelTime(e.timestamp)}</Text>
+          <br />
+          <Text>{e.summary}</Text>
+          {e.counters && (
+            <Text type="secondary" style={{ marginLeft: 8, fontSize: 11 }}>
+              {renderCounterSuffix(e.counters)}
+            </Text>
+          )}
+        </div>
+      ),
+    }));
+  }, [timeline]);
 
-  const totalExecs = summary.reduce((s, t) => s + t.total, 0);
-  const totalSuccess = summary.reduce((s, t) => s + t.success, 0);
-  const totalFailed = summary.reduce((s, t) => s + t.failed, 0);
+  const systemWarn = (stats?.cpu_percent || 0) >= 90 || (stats?.memory_percent || 0) >= 90 || (stats?.disk_percent || 0) >= 90;
+  const taskWarn = (overview?.task.failed_24h || 0) > 0 || (overview?.task.timeout_24h || 0) > 0;
+  const containerWarn = dockerUnavailable || (overview?.container.error || 0) > 0;
+  const storageWarn = (overview?.file.storage_usage_percent || stats?.disk_percent || 0) >= 85;
+
+  const systemLevel = systemWarn ? 'warning' : 'success';
+  const taskLevel = taskWarn ? 'warning' : 'success';
+  const containerLevel = (dockerUnavailable || containerWarn) ? 'warning' : 'success';
+  const storageLevel = storageWarn ? 'warning' : 'success';
+
+  const riskHints: string[] = [];
+  if (riskQueue.length > 0) riskHints.push(`⚠️ 风险队列有 ${riskQueue.length} 项待处理：${riskQueue.slice(0, 3).map((r) => r.source).join('、')}`);
+  if (dockerUnavailable) riskHints.push('Docker API 不可用，容器监控已中断');
+  if (storageWarn) riskHints.push(`磁盘使用率 ${Math.round(overview?.file.storage_usage_percent || stats?.disk_percent || 0)}%，建议释放空间`);
+  if (riskHints.length === 0) riskHints.push('✅ 当前无高风险项，系统运行正常');
+
+  const totalRisks = riskQueue.length + (dockerUnavailable ? 1 : 0) + (storageWarn ? 1 : 0);
+
+  if (loading) {
+    return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
+  }
 
   return (
     <div>
-      <Title level={4} style={{ marginBottom: 20 }}>{t('dashboard.title')}</Title>
-      <Row gutter={[16, 16]}>
-        {cards.map((c, i) => (
-          <Col xs={24} sm={12} lg={6} key={i}>
-            <Card hoverable>
-              <Statistic title={c.title} value={c.value} suffix={c.valueStyle ? '' : '%'} prefix={c.icon} valueStyle={c.valueStyle || { color: c.color }} />
-              {!c.valueStyle && <Progress percent={Math.round(typeof c.value === 'number' ? c.value : 0)} strokeColor={c.color} size="small" showInfo={false} style={{ marginTop: 8 }} />}
-              {c.detail && <div style={{ marginTop: 4, fontSize: 12, color: '#888' }}>{c.detail}</div>}
-            </Card>
-          </Col>
-        ))}
+      <Space style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+        <Title level={4} style={{ margin: 0 }}>📊 Operations Center</Title>
+        <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
+      </Space>
+
+      {/* ── 1. Risk Queue ── */}
+      <Alert
+        type={totalRisks > 0 ? 'warning' : 'success'}
+        showIcon
+        message={`Risk Queue · ${totalRisks} 项`}
+        description={
+          <Space direction="vertical" size={2}>
+            {riskHints.map((item, idx) => <Text key={idx}>{item}</Text>)}
+          </Space>
+        }
+        style={{ marginBottom: 16 }}
+      />
+
+      {/* ── 2-5. Health Cards: System / Container / Task / File ── */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={12} lg={6}>
+          <Card title="🖥 System Health" extra={statusTag(systemLevel)} size="small">
+            <Statistic title="CPU" value={stats?.cpu_percent || 0} suffix="%" valueStyle={{ fontSize: 20 }} />
+            <Progress percent={Math.round(stats?.cpu_percent || 0)} size="small" status={systemWarn ? 'exception' : 'normal'} />
+            <Text type="secondary">Memory: {fmtBytes(stats?.memory_used || 0)} / {fmtBytes(stats?.memory_total || 0)}</Text>
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12} lg={6}>
+          <Card title="🐳 Container Health" extra={statusTag(containerLevel)} size="small">
+            <Statistic title="运行中 / 停止 / 异常" value={`${overview?.container.running || 0} / ${overview?.container.stopped || 0} / ${overview?.container.error || 0}`} valueStyle={{ fontSize: 18 }} />
+            {dockerUnavailable && <Text type="danger">Docker 不可用</Text>}
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12} lg={6}>
+          <Card title="⚡ Task Health" extra={statusTag(taskLevel)} size="small">
+            <Statistic title="24h 成功 / 失败" value={`${overview?.task.success_24h || 0} / ${overview?.task.failed_24h || 0}`} valueStyle={{ fontSize: 20 }} />
+            <Text type="secondary">待执行: {overview?.task.pending_count || 0} | 超时: {overview?.task.timeout_24h || 0}</Text>
+          </Card>
+        </Col>
+
+        <Col xs={24} sm={12} lg={6}>
+          <Card title="📁 File Health" extra={statusTag(storageLevel)} size="small">
+            <Statistic title="磁盘占用" value={overview?.file.storage_usage_percent || stats?.disk_percent || 0} suffix="%" valueStyle={{ fontSize: 20 }} />
+            <Progress percent={Math.round(overview?.file.storage_usage_percent || stats?.disk_percent || 0)} size="small" status={storageWarn ? 'exception' : 'normal'} />
+            <Text type="secondary">24h 上传: {overview?.file.uploaded_success_24h || 0} | 删除: {overview?.file.deleted_24h || 0}</Text>
+          </Card>
+        </Col>
       </Row>
 
-      {/* ── Resource Monitor ── */}
-      <Divider />
-      <MonitorErrorBoundary>
-        <ResourceMonitor />
-      </MonitorErrorBoundary>
+      <Row gutter={[16, 16]}>
+        {/* ── 6. Activity Timeline ── */}
+        <Col xs={24} xl={14}>
+          <Card title="📋 Recent Activity Timeline" extra={<Tag color="blue">Phase 3</Tag>} style={{ marginBottom: 16 }}>
+            <Timeline
+              items={timelineItems as any}
+            />
+            {timeline.length === 0 && <Text type="secondary">暂无活动事件</Text>}
+          </Card>
+        </Col>
 
-      {/* ── Task Summary + Recent ── */}
-      <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
-        <Col xs={24}>
-          <Card title="工具任务状态">
+        {/* ── 7. Risk Queue + Recent Failures ── */}
+        <Col xs={24} xl={10}>
+          <Card title="⚠️ Risk Queue" size="small" style={{ marginBottom: 16 }}>
+            {riskQueue.length > 0 ? (
+              <List
+                size="small"
+                dataSource={riskQueue}
+                renderItem={(e) => (
+                  <List.Item>
+                    <Space>
+                      {eventIcon(e.event_type)}
+                      <div>
+                        <Text>{e.source}</Text>
+                        <br />
+                        <Text type="secondary" style={{ fontSize: 11 }}>{e.summary} · {fmtRelTime(e.timestamp)}</Text>
+                      </div>
+                    </Space>
+                  </List.Item>
+                )}
+              />
+            ) : (
+              <Text type="secondary">✅ 风险队列为空</Text>
+            )}
+          </Card>
+
+          <Card title="❌ Recent Failures" size="small" style={{ marginBottom: 16 }}>
             <Table
-              dataSource={toolStatus}
-              rowKey="slug"
+              rowKey="execution_id"
               size="small"
               pagination={false}
-              scroll={{ x: 700 }}
+              dataSource={recentFailures}
+              locale={{ emptyText: '无近期失败记录' }}
               columns={[
-                { title: '工具', dataIndex: 'name', width: 180 },
-                { title: t('common.status'), dataIndex: 'status', width: 120, render: (s: string, r: ToolStatus) => {
-                  const color = s === 'ok' || s === 'success' ? 'green' : s === 'failed' || s === 'error' ? 'red' : 'default';
-                  return <Tag color={color}>{r.enabled ? s : 'disabled'}</Tag>;
-                } },
-                { title: '指标', dataIndex: 'metrics', ellipsis: true },
-                { title: t('tasks.lastRun'), dataIndex: 'last_run', width: 180, render: (v: string | null) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
+                { title: '来源', dataIndex: 'source_name', ellipsis: true, width: 120 },
+                { title: '域', dataIndex: 'domain', width: 80 },
+                { title: '状态', dataIndex: 'status', width: 70, render: (v: string) => statusTag(v) },
+                {
+                  title: '原因', key: 'reason', ellipsis: true,
+                  render: (_: unknown, r: UnifiedEvent) => r.failure_reasons?.[0] || '-',
+                },
               ]}
             />
           </Card>
-        </Col>
-        <Col xs={24} lg={14}>
-          <Card title={<Space><BarChartOutlined /> {t('dashboard.taskStats')}</Space>}
-            extra={<Space size="small"><Text type="secondary">{t('dashboard.totalExecutions', { count: totalExecs })}</Text><Text style={{ color: '#52c41a' }}>{totalSuccess} {t('common.success')}</Text><Text style={{ color: '#ff4d4f' }}>{totalFailed} {t('common.failed')}</Text></Space>}>
-            <Table dataSource={summary} rowKey="task_name" size="small" pagination={false} scroll={{ x: 700 }}
-              columns={[
-                { title: t('tasks.title'), dataIndex: 'task_name', ellipsis: true },
-                { title: t('dashboard.totalRuns'), dataIndex: 'total', width: 70, align: 'center' as const },
-                { title: t('common.success'), dataIndex: 'success', width: 60, align: 'center' as const, render: (v: number) => <Text style={{ color: '#52c41a' }}>{v}</Text> },
-                { title: t('common.failed'), dataIndex: 'failed', width: 60, align: 'center' as const, render: (v: number) => v > 0 ? <Text style={{ color: '#ff4d4f' }}>{v}</Text> : <Text type="secondary">0</Text> },
-                { title: t('dashboard.successRate'), key: 'rate', width: 80, align: 'center' as const, render: (_:any, r: TaskSummary) => {
-                  const rate = r.total > 0 ? Math.round((r.success / r.total) * 100) : 0;
-                  return <Text style={{ color: rate >= 80 ? '#52c41a' : rate >= 50 ? '#faad14' : '#ff4d4f' }}>{rate}%</Text>;
-                }},
-                { title: t('tasks.lastRun'), dataIndex: 'last_run', width: 160,
-                  render: (v: string) => v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-' },
-              ]} />
-          </Card>
-        </Col>
-        <Col xs={24} lg={10}>
-          <Card title={t('dashboard.recentTasks')} extra={<ReloadOutlined onClick={fetchData} style={{ cursor: 'pointer' }} />}>
-            <Table dataSource={recent} rowKey="id" size="small" pagination={false} scroll={{ x: 340 }}
-              columns={[
-                { title: t('tasks.name'), dataIndex: 'task_name', ellipsis: true, width: 120 },
-                { title: t('common.status'), dataIndex: 'status', width: 80, render: (s: string) => <Tag color={sc(s)} icon={si(s)} style={{ margin: 0, fontSize: 11 }}>{s}</Tag> },
-                { title: t('common.duration'), dataIndex: 'duration_ms', width: 60, render: (ms: number|null) => ms ? `${(ms/1000).toFixed(1)}s` : '-' },
-              ]} />
+
+          {/* ── 8. Next Actions ── */}
+          <Card title="🎯 Next Actions" size="small">
+            <Space direction="vertical" style={{ width: '100%' }}>
+              {riskQueue.length > 0 && (
+                <Button block icon={<ExclamationCircleOutlined />} type="primary" danger onClick={() => navigate('/logs')}>
+                  查看风险日志
+                </Button>
+              )}
+              <Button block icon={<ThunderboltOutlined />} onClick={() => navigate('/automation')}>进入任务中心</Button>
+              <Button block icon={<DatabaseOutlined />} onClick={() => navigate('/containers')}>查看容器状态</Button>
+              <Button block icon={<ToolOutlined />} onClick={() => navigate('/applications/log-cleanup')}>执行日志清理</Button>
+              <Button block icon={<FolderOpenOutlined />} onClick={() => navigate('/files')}>浏览文件系统</Button>
+              <Button block icon={<ClockCircleOutlined />} onClick={load}>立即刷新健康状态</Button>
+            </Space>
           </Card>
         </Col>
       </Row>

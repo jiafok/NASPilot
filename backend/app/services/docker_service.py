@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import time
 from typing import Any
 
 import docker
+import psutil
 from docker.errors import DockerException, NotFound
 
 from app.core.config import settings
@@ -93,6 +95,31 @@ def _calc_cpu_percent(stats: dict[str, Any]) -> float:
     return round((cpu_delta / sys_delta) * cpu_count * 100.0, 2)
 
 
+def _calc_memory_percent(mem_usage: int, mem_limit: int) -> float:
+    if mem_usage <= 0:
+        return 0.0
+    if mem_limit > 0:
+        return round((mem_usage / mem_limit) * 100.0, 2)
+    host_total = int(psutil.virtual_memory().total or 0)
+    if host_total > 0:
+        return round((mem_usage / host_total) * 100.0, 2)
+    return 0.0
+
+
+def _sample_container_stats(container: Any, delay: float = 0.35) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Capture two successive stats snapshots for environments where a single snapshot is zeroed."""
+    try:
+        first = container.stats(stream=False)
+    except Exception:
+        return None, None
+    time.sleep(delay)
+    try:
+        second = container.stats(stream=False)
+    except Exception:
+        return first, None
+    return first, second
+
+
 def _calc_blkio(stats: dict[str, Any]) -> tuple[int, int]:
     read_b = 0
     write_b = 0
@@ -129,10 +156,26 @@ def get_containers_stats(container_ids: list[str] | None = None, running_only: b
             if running_only and c.status != "running":
                 continue
             stats = c.stats(stream=False)
+            cpu_percent = _calc_cpu_percent(stats)
             mem = stats.get("memory_stats") or {}
             mem_usage = int(mem.get("usage") or 0)
             mem_limit = int(mem.get("limit") or 0)
-            mem_percent = round((mem_usage / mem_limit) * 100.0, 2) if mem_limit > 0 else 0.0
+            mem_percent = _calc_memory_percent(mem_usage, mem_limit)
+
+            # Synology and some cgroup setups can return a zeroed first snapshot.
+            # When both CPU and memory are 0 for a running container, take a second sample and retry.
+            if cpu_percent <= 0.0 or (mem_percent <= 0.0 and (mem_usage > 0 or mem_limit == 0)):
+                first_stats, second_stats = _sample_container_stats(c)
+                if first_stats and second_stats:
+                    cpu_percent = _calc_cpu_percent({
+                        "cpu_stats": second_stats.get("cpu_stats") or {},
+                        "precpu_stats": first_stats.get("cpu_stats") or first_stats.get("precpu_stats") or {},
+                    })
+                    mem = second_stats.get("memory_stats") or mem
+                    mem_usage = int(mem.get("usage") or mem_usage or 0)
+                    mem_limit = int(mem.get("limit") or mem_limit or 0)
+                    mem_percent = _calc_memory_percent(mem_usage, mem_limit)
+
             net_rx, net_tx = _calc_net(stats)
             blk_read, blk_write = _calc_blkio(stats)
             result.append(
@@ -140,7 +183,7 @@ def get_containers_stats(container_ids: list[str] | None = None, running_only: b
                     "id": c.id,
                     "short_id": c.short_id,
                     "name": c.name,
-                    "cpu_percent": _calc_cpu_percent(stats),
+                    "cpu_percent": cpu_percent,
                     "memory_usage": mem_usage,
                     "memory_limit": mem_limit,
                     "memory_percent": mem_percent,

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Form, Input, Select, Switch, InputNumber, Button, Card, Space, Typography, message, Tag, Divider, Table, Collapse } from 'antd';
-import { SaveOutlined, PlayCircleOutlined, ReloadOutlined, ClockCircleOutlined, SettingOutlined } from '@ant-design/icons';
+import { SaveOutlined, PlayCircleOutlined, ReloadOutlined, ClockCircleOutlined, SettingOutlined, FileTextOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 
 const { Title, Paragraph } = Typography;
@@ -37,12 +38,54 @@ let _pluginsCache: any[] | null = null;
 let _cacheExpiry = 0;
 
 export default function PluginConfigForm({ slug, title, description, fields, onRun, running, runResult, resultRenderer, topContent, children, onInstanceLoad }: Props) {
+  const navigate = useNavigate();
   const [plugin, setPlugin] = useState<any>(null);
   const [instance, setInstance] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
   const { t } = useTranslation();
+
+  const runHistory = Array.isArray(instance?.config?.state?.run_history)
+    ? instance.config.state.run_history
+    : [];
+
+  const normalizeRunStatus = (s: any) => String(s || '').toLowerCase();
+  const isSuccess = (s: any) => ['ok', 'success'].includes(normalizeRunStatus(s));
+  const isFailure = (s: any) => ['failed', 'error', 'timeout'].includes(normalizeRunStatus(s));
+
+  const successCount = runHistory.filter((x: any) => isSuccess(x?.status)).length;
+  const failedCount = runHistory.filter((x: any) => isFailure(x?.status)).length;
+  const latestRun = runHistory[0] || null;
+  const latestStatus = running ? 'running' : (latestRun?.status || (instance?.enabled ? 'idle' : 'disabled'));
+
+  const latestSummary = (() => {
+    if (!latestRun?.summary) return '-';
+    if (typeof latestRun.summary === 'string') {
+      try {
+        const obj = JSON.parse(latestRun.summary);
+        if (obj && typeof obj === 'object') {
+          const keys = ['status', 'added', 'uploaded', 'deleted', 'failed', 'updated', 'unchanged'];
+          const parts = keys
+            .filter((k) => obj[k] !== undefined && obj[k] !== null && obj[k] !== '')
+            .map((k) => `${k}:${obj[k]}`);
+          return parts.length > 0 ? parts.join(' | ') : latestRun.summary.slice(0, 120);
+        }
+      } catch {
+        return latestRun.summary.slice(0, 120);
+      }
+      return latestRun.summary.slice(0, 120);
+    }
+    if (typeof latestRun.summary === 'object') {
+      const obj = latestRun.summary;
+      const keys = ['status', 'added', 'uploaded', 'deleted', 'failed', 'updated', 'unchanged'];
+      const parts = keys
+        .filter((k) => obj[k] !== undefined && obj[k] !== null && obj[k] !== '')
+        .map((k) => `${k}:${obj[k]}`);
+      return parts.length > 0 ? parts.join(' | ') : JSON.stringify(obj).slice(0, 120);
+    }
+    return String(latestRun.summary).slice(0, 120);
+  })();
 
   const load = async () => {
     setLoading(true);
@@ -155,8 +198,35 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
           <Space>
             <Tag color={instance?.enabled ? 'green' : 'default'}>{instance?.enabled ? 'Active' : 'Disabled'}</Tag>
             <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>Refresh</Button>
+            <Button icon={<FileTextOutlined />} onClick={() => navigate(`/logs?source=${encodeURIComponent(slug)}`)}>Execution Logs</Button>
             {onRun && <Button type="primary" icon={<PlayCircleOutlined />} onClick={async () => { await onRun(); await load(); }} loading={running}>Run Now</Button>}
           </Space>
+        </Space>
+
+        <Divider style={{ margin: '14px 0' }} />
+        <Space size="large" wrap>
+          <div>
+            <Typography.Text type="secondary">运行状态</Typography.Text><br />
+            <Tag color={latestStatus === 'running' ? 'blue' : isSuccess(latestStatus) ? 'green' : isFailure(latestStatus) ? 'red' : 'default'} style={{ marginTop: 4 }}>
+              {latestStatus}
+            </Tag>
+          </div>
+          <div>
+            <Typography.Text type="secondary">最后执行时间</Typography.Text><br />
+            <Typography.Text>{latestRun?.time ? new Date(latestRun.time).toLocaleString('zh-CN', { hour12: false }) : '-'}</Typography.Text>
+          </div>
+          <div>
+            <Typography.Text type="secondary">最近执行结果</Typography.Text><br />
+            <Typography.Text ellipsis>{latestSummary}</Typography.Text>
+          </div>
+          <div>
+            <Typography.Text type="secondary">成功次数</Typography.Text><br />
+            <Tag color="green">{successCount}</Tag>
+          </div>
+          <div>
+            <Typography.Text type="secondary">失败次数</Typography.Text><br />
+            <Tag color="red">{failedCount}</Tag>
+          </div>
         </Space>
       </Card>
 
@@ -168,32 +238,33 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
         </Card>
       )}
 
-      {instance?.config?.state?.run_history?.length > 0 && (
-        <Collapse
-          style={{ marginBottom: 16 }}
-          items={[{
-            key: 'history',
-            label: <span><ClockCircleOutlined /> 运行历史 ({instance.config.state.run_history.length})</span>,
-            children: (
-              <div style={{ overflowX: 'auto' }}>
-                <Table
-                  dataSource={instance.config.state.run_history}
-                  rowKey="time"
-                  size="small"
-                  scroll={{ x: 700 }}
-                  pagination={{ defaultPageSize: 5, showSizeChanger: true, pageSizeOptions: [5, 10, 20, 50], showTotal: (n: number) => t('common.items', { count: n }) }}
-                  columns={[
-                    { title: 'Time', dataIndex: 'time', width: 170, render: (v: string) => new Date(v).toLocaleString('zh-CN', { hour12: false }) },
-                    { title: 'Status', dataIndex: 'status', width: 80, render: (s: string) => <Tag color={s === 'ok' ? 'green' : 'red'}>{s}</Tag> },
-                    { title: 'Added', dataIndex: 'added', width: 70 },
-                    { title: 'Summary', dataIndex: 'summary', ellipsis: true },
-                  ]}
-                />
-              </div>
-            ),
-          }]}>
-        </Collapse>
-      )}
+      <Collapse
+        style={{ marginBottom: 16 }}
+        defaultActiveKey={runHistory.length > 0 ? ['history'] : []}
+        items={[{
+          key: 'history',
+          label: <span><ClockCircleOutlined /> 运行历史 ({runHistory.length})</span>,
+          children: runHistory.length > 0 ? (
+            <div style={{ overflowX: 'auto' }}>
+              <Table
+                dataSource={runHistory}
+                rowKey="time"
+                size="small"
+                scroll={{ x: 700 }}
+                pagination={{ defaultPageSize: 5, showSizeChanger: true, pageSizeOptions: [5, 10, 20, 50], showTotal: (n: number) => t('common.items', { count: n }) }}
+                columns={[
+                  { title: 'Time', dataIndex: 'time', width: 170, render: (v: string) => new Date(v).toLocaleString('zh-CN', { hour12: false }) },
+                  { title: 'Status', dataIndex: 'status', width: 80, render: (s: string) => <Tag color={s === 'ok' ? 'green' : 'red'}>{s}</Tag> },
+                  { title: 'Added', dataIndex: 'added', width: 70 },
+                  { title: 'Summary', dataIndex: 'summary', ellipsis: true },
+                ]}
+              />
+            </div>
+          ) : (
+            <Typography.Text type="secondary">暂无运行历史</Typography.Text>
+          ),
+        }]}
+      />
 
       {children}
 

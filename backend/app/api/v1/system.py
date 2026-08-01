@@ -252,14 +252,36 @@ async def batch_update_settings(
     user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Update multiple settings at once."""
+    """Update multiple settings at once — creates new keys when missing."""
     for entry in body:
         result = await db.execute(select(Setting).where(Setting.key == entry.key))
         setting = result.scalar_one_or_none()
         if setting:
             setting.value = entry.value
+        else:
+            # Auto-create missing setting rows so AI / new-config fields persist
+            db.add(
+                Setting(
+                    key=entry.key,
+                    value=entry.value,
+                    value_type="string",
+                    category=_guess_category(entry.key),
+                )
+            )
     await db.commit()
     return {"message": "saved", "count": len(body)}
+
+
+def _guess_category(key: str) -> str:
+    """Infer a setting category when creating a new key automatically."""
+    key_lower = key.lower()
+    if any(tag in key_lower for tag in ("ai_", "openai", "model", "llm")):
+        return "ai"
+    if any(tag in key_lower for tag in ("auth", "password", "secret", "token", "session")):
+        return "security"
+    if any(tag in key_lower for tag in ("notify", "feishu", "webhook", "alert")):
+        return "notification"
+    return "general"
 
 
 @router.put("/settings/{key}", response_model=SettingOut, summary="Update setting")

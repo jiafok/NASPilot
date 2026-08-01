@@ -18,7 +18,18 @@ api.interceptors.request.use((config) => {
 // 响应拦截器：401 跳登录
 api.interceptors.response.use(
   (res) => res,
-  (err) => {
+  async (err) => {
+    const original = err?.config as any;
+    // Compatibility fallback: some local deployments expose /api/* instead of /api/v1/*
+    if (err.response?.status === 405 && original && !original.__retriedWithoutV1) {
+      const oldBase = String(original.baseURL || api.defaults.baseURL || '');
+      if (oldBase.includes('/api/v1')) {
+        original.__retriedWithoutV1 = true;
+        original.baseURL = oldBase.replace('/api/v1', '/api');
+        return api.request(original);
+      }
+    }
+
     if (err.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');

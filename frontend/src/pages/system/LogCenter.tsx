@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Table, Tag, Select, Input, Space, Typography, Button } from 'antd';
-import { ReloadOutlined, SearchOutlined, ExportOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, ExportOutlined, FilterOutlined } from '@ant-design/icons';
 import api from '../../utils/api';
 
 const { Title } = Typography;
@@ -75,6 +75,14 @@ export default function LogCenter() {
             onClick={() => window.open('/logs/full', '_blank', 'width=1100,height=800')}>{t('system.fullscreenLogs')}</Button>
         </Space>
       </div>
+
+      <Space wrap style={{ marginBottom: 12 }}>
+        <FilterOutlined />
+        <Tag color="red" style={{ cursor: 'pointer' }} onClick={() => setLevel(level === 'ERROR' ? undefined : 'ERROR')}>ERROR {level === 'ERROR' ? '✓' : ''}</Tag>
+        <Tag color="orange" style={{ cursor: 'pointer' }} onClick={() => setLevel(level === 'WARNING' ? undefined : 'WARNING')}>WARNING {level === 'WARNING' ? '✓' : ''}</Tag>
+        <Tag color="blue" style={{ cursor: 'pointer' }} onClick={() => setLevel(level === 'INFO' ? undefined : 'INFO')}>INFO {level === 'INFO' ? '✓' : ''}</Tag>
+        <Tag style={{ cursor: 'pointer' }} onClick={() => setLevel(undefined)}>全部</Tag>
+      </Space>
 
       <Table
         dataSource={logs} rowKey="id" size="small" loading={loading}

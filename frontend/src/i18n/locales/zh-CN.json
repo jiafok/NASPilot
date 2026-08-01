@@ -4,7 +4,7 @@
     "dashboard": "仪表盘", "tasks": "任务中心", "tools": "集成工具",
     "ptRss": "PT RSS 下载", "alistUpload": "AList 上传", "ddns": "Cloudflare DDNS",
     "cloudflarePages": "Cloudflare Pages", "containerManager": "容器管理",
-    "dockerBackup": "Docker 备份", "logCleanup": "日志清理", "plugins": "插件中心",
+    "dockerBackup": "Docker 备份", "logCleanup": "日志清理", "plugins": "集成工具",
     "notifications": "通知中心", "logs": "日志中心", "settings": "系统设置",
     "aiAssistant": "AI 助手", "fileBrowser": "文件浏览"
   },
@@ -68,7 +68,7 @@
     "noLogs": "暂无日志 — 任务可能尚未执行。"
   },
   "plugins": {
-    "title": "插件中心", "installed": "已安装", "builtin": "内置",
+    "title": "集成工具", "installed": "已安装", "builtin": "内置",
     "thirdParty": "第三方", "install": "安装插件", "uninstall": "卸载",
     "config": "配置", "configHelp": "JSON 格式的插件配置。",
     "runResult": "执行结果", "history": "执行历史", "fetchFailed": "获取插件列表失败",

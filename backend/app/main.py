@@ -24,10 +24,17 @@ app = FastAPI(
 )
 
 # ── CORS ─────────────────────────────────────────────────────────────────
+_cors_origins = settings.CORS_ORIGINS
+_cors_allow_credentials = True
+if "*" in _cors_origins:
+    # Security: never combine allow_credentials=True with wildcard origins
+    _cors_allow_credentials = False
+    logger.warning("CORS: wildcard origin detected — allow_credentials disabled for security")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -14,7 +14,7 @@ services:
       - ./scripts:/scripts:ro
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
-      - SECRET_KEY=test-key-for-docker-e2e-testing
-      - ADMIN_PASSWORD=admin123
+      - SECRET_KEY=test-key-for-docker-e2e-testing-must-be-32-chars
+      - FIRST_ADMIN_PASSWORD=naspilot-test-2026
       - TZ=Asia/Shanghai
       - LOG_LEVEL=INFO

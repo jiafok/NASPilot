@@ -14,7 +14,7 @@
     "containerManager": "Container Manager",
     "dockerBackup": "Docker Backup",
     "logCleanup": "Log Cleanup",
-    "plugins": "Plugin Center",
+    "plugins": "Integration Tools",
     "notifications": "Notifications",
     "logs": "Log Center",
     "settings": "Settings",
@@ -175,7 +175,7 @@
     "noLogs": "No logs — task may not have run yet."
   },
   "plugins": {
-    "title": "Plugin Center",
+    "title": "Integration Tools",
     "installed": "Installed",
     "builtin": "Built-in",
     "thirdParty": "Third Party",

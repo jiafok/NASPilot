@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Table, Button, Breadcrumb, Typography, Spin, Modal, Space, message } from 'antd';
-import { FolderOutlined, FileOutlined, HomeOutlined, ReloadOutlined, DownloadOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { Table, Button, Breadcrumb, Typography, Spin, Modal, Space, message, Card, Row, Col, Statistic, Progress } from 'antd';
+import { FolderOutlined, FileOutlined, HomeOutlined, ReloadOutlined, DownloadOutlined, ArrowLeftOutlined, HddOutlined } from '@ant-design/icons';
 import api from '../../utils/api';
 import { getToken } from '../../utils/auth';
 
@@ -28,6 +28,8 @@ export default function FileBrowser() {
   const [viewFilePath, setViewFilePath] = useState<string>('');
   const [viewContent, setViewContent] = useState('');
   const [viewLoading, setViewLoading] = useState(false);
+  // Storage summary
+  const [storageStats, setStorageStats] = useState<{ disk_percent: number; disk_used: number; disk_total: number } | null>(null);
 
   const fetchDir = useCallback(async (dirPath: string) => {
     setLoading(true);
@@ -44,6 +46,15 @@ export default function FileBrowser() {
   }, []);
 
   useEffect(() => { fetchDir(path); }, [path, fetchDir]);
+
+  useEffect(() => { fetchStorage(); }, []);
+
+  const fetchStorage = async () => {
+    try {
+      const res = await api.get('/system/stats');
+      setStorageStats({ disk_percent: res.data.disk_percent, disk_used: res.data.disk_used, disk_total: res.data.disk_total });
+    } catch { /* ignore */ }
+  };
 
   const navigateTo = (entry: DirEntry) => {
     setPath(entry.real_path);
@@ -111,11 +122,30 @@ export default function FileBrowser() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <Title level={4} style={{ margin: 0 }}>{t('system.fileBrowser')}</Title>
+        <Title level={4} style={{ margin: 0 }}>📂 {t('system.fileBrowser')}</Title>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => fetchDir(path)}>{t('common.refresh')}</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => { fetchDir(path); fetchStorage(); }}>{t('common.refresh')}</Button>
         </Space>
       </div>
+
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={8}>
+          <Card size="small">
+            <Statistic title="磁盘占用" value={storageStats?.disk_percent ?? '-'} suffix="%" prefix={<HddOutlined />} valueStyle={{ fontSize: 22 }} />
+            <Progress percent={Math.round(storageStats?.disk_percent || 0)} size="small" status={(storageStats?.disk_percent || 0) > 85 ? 'exception' : 'normal'} />
+          </Card>
+        </Col>
+        <Col xs={24} sm={8}>
+          <Card size="small">
+            <Statistic title="已用" value={storageStats ? (storageStats.disk_used / 1024 / 1024 / 1024).toFixed(1) : '-'} suffix="GB" valueStyle={{ fontSize: 22 }} />
+          </Card>
+        </Col>
+        <Col xs={24} sm={8}>
+          <Card size="small">
+            <Statistic title="总容量" value={storageStats ? (storageStats.disk_total / 1024 / 1024 / 1024).toFixed(1) : '-'} suffix="GB" valueStyle={{ fontSize: 22 }} />
+          </Card>
+        </Col>
+      </Row>
 
       <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <Button size="small" icon={<HomeOutlined />} onClick={() => setPath('/')}>/</Button>
