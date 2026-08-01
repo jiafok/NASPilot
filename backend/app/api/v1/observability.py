@@ -506,7 +506,7 @@ async def activity_timeline(
                 et = _infer_event_type("application", plugin.slug, status, counters)
                 if et is None:
                     et = "execution_succeeded"
-                summary = _plugin_summary(plugin.slug, plugin.name, summary_obj, counters, status)
+                summary = _simple_summary(plugin.slug, plugin.name, counters, status)
                 events.append(ActivityTimelineEntry(
                     id=f"app:{inst.id}:{i}", timestamp=dt2, event_type=et,
                     domain="application", source=plugin.name, summary=summary,
