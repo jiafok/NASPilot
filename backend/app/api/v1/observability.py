@@ -551,3 +551,28 @@ def _resolve_summary(rec: dict[str, Any]) -> dict[str, Any]:
         except json.JSONDecodeError:
             pass
     return {}
+
+
+def _simple_summary(slug: str, name: str, counters: ExecutionCounters, status: str) -> str:
+    parts: list[str] = []
+    if counters.added > 0:
+        parts.append(f"新增 {counters.added}")
+    if counters.uploaded > 0:
+        parts.append(f"上传 {counters.uploaded}")
+    if counters.deleted > 0:
+        parts.append(f"删除 {counters.deleted}")
+    if counters.skipped > 0:
+        parts.append(f"跳过 {counters.skipped}")
+    if counters.failed > 0:
+        parts.append(f"失败 {counters.failed}")
+    if counters.unchanged > 0:
+        parts.append(f"未变化 {counters.unchanged}")
+    if parts:
+        return f"{name}: {'，'.join(parts)}"
+    if status == "failed":
+        return f"{name}: 执行失败"
+    if status == "skipped":
+        return f"{name}: 已跳过"
+    if status == "running":
+        return f"{name}: 执行中"
+    return f"{name}: 执行完成"

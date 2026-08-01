@@ -43,6 +43,16 @@ app.add_middleware(
 app.include_router(api_router)
 
 
+@app.middleware("http")
+async def log_unhandled_exceptions(request: Request, call_next):
+    """Mirror unexpected request exceptions into naspilot.log for UI log center visibility."""
+    try:
+        return await call_next(request)
+    except Exception:
+        logger.exception("Unhandled exception: %s %s", request.method, request.url.path)
+        raise
+
+
 @app.get("/api/health", tags=["health"])
 async def health():
     """Liveness probe."""

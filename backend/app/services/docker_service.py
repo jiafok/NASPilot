@@ -112,6 +112,36 @@ def _calc_memory_percent(mem_usage: int, mem_limit: int) -> float:
     return 0.0
 
 
+def _calc_net(stats: dict[str, Any]) -> tuple[int, int]:
+    networks = stats.get("networks") or {}
+    rx = 0
+    tx = 0
+    if isinstance(networks, dict):
+        for item in networks.values():
+            if not isinstance(item, dict):
+                continue
+            rx += int(item.get("rx_bytes") or 0)
+            tx += int(item.get("tx_bytes") or 0)
+    return rx, tx
+
+
+def _calc_blkio(stats: dict[str, Any]) -> tuple[int, int]:
+    blk = (stats.get("blkio_stats") or {}).get("io_service_bytes_recursive") or []
+    read_total = 0
+    write_total = 0
+    if isinstance(blk, list):
+        for rec in blk:
+            if not isinstance(rec, dict):
+                continue
+            op = str(rec.get("op") or "").lower()
+            val = int(rec.get("value") or 0)
+            if op == "read":
+                read_total += val
+            elif op == "write":
+                write_total += val
+    return read_total, write_total
+
+
 def _sample_container_stats(container: Any, delay: float = 1.5) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Capture two successive stats snapshots for environments where a single snapshot is zeroed.
 
