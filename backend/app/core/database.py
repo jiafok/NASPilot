@@ -129,7 +129,8 @@ async def _cleanup_log_spam() -> None:
     """Delete all legacy DB log entries — logs now go to file only.
 
     The log_entries table is kept for schema compatibility but no new rows
-    are written. Delete all existing rows to reduce DB file size.
+    are written. Delete all existing rows to reduce DB file size, then
+    vacuum on a separate connection (SQLite forbids VACUUM inside a transaction).
     """
     import sqlalchemy as sa
 
@@ -137,22 +138,38 @@ async def _cleanup_log_spam() -> None:
         return
 
     logger = logging.getLogger("naspilot.db")
+    deleted = 0
+
+    # ── Step 1: DELETE inside a transaction (auto-committed on exit) ──
     try:
         async with engine.begin() as conn:
             result = await conn.execute(
-                sa.text(f"SELECT name FROM sqlite_master WHERE type='table' AND name='log_entries'")
+                sa.text("SELECT name FROM sqlite_master WHERE type='table' AND name='log_entries'")
             )
             if not result.fetchone():
                 return
 
-            # Delete ALL legacy log entries — logs now go to file only
             result = await conn.execute(sa.text("DELETE FROM log_entries"))
             deleted = result.rowcount
-            if deleted > 0:
-                logger.info("Deleted %d legacy DB log entries (logs now file-only)", deleted)
-
-            # Vacuum to reclaim disk space
-            await conn.execute(sa.text("VACUUM"))
-            logger.info("DB vacuumed to reclaim space")
+        # engine.begin() commits on __aexit__
     except Exception:
-        logger.exception("Cleanup of legacy log entries failed (non-fatal)")
+        logger.exception("Log entries cleanup failed (non-fatal)")
+        return
+
+    if deleted > 0:
+        logger.info("Deleted %d legacy DB log entries (logs now file-only)", deleted)
+    else:
+        return  # nothing to vacuum
+
+    # ── Step 2: VACUUM on separate connection (outside any transaction) ──
+    # SQLite forbids VACUUM from within a transaction.  The DELETE committed
+    # above, so we now open a fresh connection and run VACUUM in autocommit.
+    try:
+        async with engine.connect() as conn:
+            # SQLite requires autocommit / no active transaction for VACUUM.
+            # On aioodbc/aiosqlite, exec_driver_sql bypasses SQLAlchemy's
+            # implicit transaction and sends the statement directly.
+            await conn.exec_driver_sql("VACUUM")
+            logger.info("Database vacuum completed")
+    except Exception:
+        logger.exception("Database vacuum failed (non-fatal — disk space not reclaimed)")
