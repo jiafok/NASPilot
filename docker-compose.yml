@@ -7,8 +7,10 @@ services:
     container_name: naspilot
     restart: unless-stopped
 
-    ports:
-      - "8080:8000"
+    network_mode: "host"
+
+    # ports:  ← not needed with host networking; container uses host's 8082 directly
+    #   - "8080:8000"
 
     volumes:
       # Persistent data (SQLite + logs + configs)
@@ -46,15 +48,8 @@ services:
         max-file: "3"
 
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8082/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
-
-    networks:
-      - naspilot_net
-
-networks:
-  naspilot_net:
-    driver: bridge
