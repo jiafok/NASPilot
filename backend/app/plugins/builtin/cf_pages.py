@@ -153,7 +153,15 @@ async def _detect_ipv6(iface: str) -> str:
                         continue
                     if scope != "00":
                         continue
-                    address = str(ipaddress.IPv6Address(address_hex))
+                    # /proc/net/if_inet6 stores addresses as 32 hex chars
+                    # without colons — reformat to IPv6 colon notation
+                    raw = address_hex.strip()
+                    if len(raw) >= 32:
+                        parts = [raw[i:i+4] for i in range(0, 32, 4)]
+                        normalized = ":".join(parts)
+                    else:
+                        normalized = raw
+                    address = str(ipaddress.IPv6Address(normalized))
                     if ipaddress.IPv6Address(address).is_global:
                         candidates.append(address)
         except (FileNotFoundError, OSError, ValueError):
