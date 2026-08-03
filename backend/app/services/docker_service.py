@@ -14,6 +14,23 @@ from docker.errors import DockerException, NotFound
 from app.core.config import settings
 
 
+_docker_unavailable_until: float = 0.0
+_DOCKER_CACHE_TTL = 60.0  # seconds — reduce log spam when Docker daemon is unreachable
+
+
+def _cached_client() -> docker.DockerClient:
+    """Return a Docker client, raising cached DockerException when the daemon has been unreachable recently."""
+    global _docker_unavailable_until
+    now = time.time()
+    if now < _docker_unavailable_until:
+        raise DockerException("Docker daemon is unreachable (retry after cache expires)")
+    try:
+        return _client()
+    except DockerException:
+        _docker_unavailable_until = now + _DOCKER_CACHE_TTL
+        raise
+
+
 def _client() -> docker.DockerClient:
     return docker.DockerClient(base_url=f"unix://{settings.DOCKER_SOCK}")
 
@@ -46,7 +63,7 @@ def _created_to_iso(value: str | None) -> str | None:
 
 def list_containers(include_all: bool = True) -> list[dict[str, Any]]:
     """Return normalized container list for frontend table."""
-    client = _client()
+    client = _cached_client()
     try:
         items: list[dict[str, Any]] = []
         for c in client.containers.list(all=include_all):
@@ -211,7 +228,7 @@ def _parse_mem(raw: str) -> int:
 
 
 def get_containers_stats(container_ids: list[str] | None = None, running_only: bool = True) -> list[dict[str, Any]]:
-    client = _client()
+    client = _cached_client()
     try:
         result: list[dict[str, Any]] = []
         containers = client.containers.list(all=not running_only)
@@ -274,7 +291,7 @@ def get_containers_stats(container_ids: list[str] | None = None, running_only: b
 
 
 def get_container_logs(container_id: str, tail: int = 500, since: int | None = None) -> str:
-    client = _client()
+    client = _cached_client()
     try:
         c = client.containers.get(container_id)
         data = c.logs(stdout=True, stderr=True, tail=tail, since=since, timestamps=True)
@@ -292,7 +309,7 @@ def exec_in_container(
     workdir: str | None = None,
 ) -> dict[str, Any]:
     """Execute a shell command inside a container and return output + exit code."""
-    client = _client()
+    client = _cached_client()
     try:
         c = client.containers.get(container_id)
         exec_id = client.api.exec_create(
@@ -320,7 +337,7 @@ def exec_in_container(
 
 
 def apply_container_action(container_id: str, action: str) -> dict[str, Any]:
-    client = _client()
+    client = _cached_client()
     try:
         c = client.containers.get(container_id)
         if action == "start":
