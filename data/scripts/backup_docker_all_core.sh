@@ -47,6 +47,7 @@ RSYNC_OPTS=(
   --exclude '*/temp/***'
   --exclude '*/logs/***'
   --exclude '*/transcode/***'
+  --exclude '*/transcoding-temp/***'
 
   # Emby / Jellyfin 图片缓存
   --exclude '*/imagecache/***'

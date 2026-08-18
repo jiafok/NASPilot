@@ -30,7 +30,7 @@ DATA_DIR_NAMES = ("config", "data", "conf", "db", "appdata", "AppData")
 EXCLUDED_TOP_DIRS = {"media", "downloads", "download", "movies", "tv", "music", "Music", "Movies", "rclone-cache"}
 
 # Directories excluded at any depth (cache/tmp/logs etc.)
-EXCLUDED_SUBDIR_NAMES = {"cache", "tmp", "temp", "log", "logs", "transcode", "imagecache", "trickplay", "metadata"}
+EXCLUDED_SUBDIR_NAMES = {"cache", "tmp", "temp", "log", "logs", "transcode", "transcoding-temp", "imagecache", "trickplay", "metadata"}
 
 # Compose-related files to always include
 COMPOSE_FILES = {"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", ".env"}
