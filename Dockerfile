@@ -40,7 +40,7 @@ FROM python:3.11-slim
 ARG VERSION=dev
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl tzdata && \
+    apt-get install -y --no-install-recommends ca-certificates curl tzdata nodejs npm && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy pre-built site-packages (cleaned)
