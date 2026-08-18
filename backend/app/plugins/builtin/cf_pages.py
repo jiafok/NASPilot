@@ -221,8 +221,17 @@ async def _pick_wrangler(timeout_s: int) -> list[str]:
         ["npx", "-y", f"wrangler@{WRANGLER_VERSION}", "--version"],
         ["npx", "wrangler", "--version"],
     ]
+    # Force IPv4 for Node/npx: some NAS containers can reach the npm registry
+    # over IPv4 but their IPv6 egress times out, causing `npx` to hang while
+    # downloading wrangler and the whole check to fail with a 120s timeout.
+    node_env = {
+        **os.environ,
+        "NODE_OPTIONS": "--dns-result-order=ipv4first",
+        "NPM_CONFIG_FETCH_RETRIES": "3",
+        "NPM_CONFIG_FETCH_TIMEOUT": "300000",
+    }
     for cmd in checks:
-        code, _, _ = await _run_cmd(cmd, timeout_s=timeout_s)
+        code, _, _ = await _run_cmd(cmd, timeout_s=timeout_s, env=node_env)
         if code == 0:
             return cmd[:-1]
     return []
@@ -378,6 +387,7 @@ class CloudflarePagesPlugin(PluginBase):
                 "WRANGLER_SEND_METRICS": "0",
                 "CLOUDFLARE_API_TOKEN": token,
                 "CLOUDFLARE_ACCOUNT_ID": account,
+                "NODE_OPTIONS": "--dns-result-order=ipv4first",
             }
             deploy_cmd = [
                 *wrangler_cmd,
