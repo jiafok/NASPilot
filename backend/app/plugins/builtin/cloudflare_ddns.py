@@ -112,53 +112,97 @@ class CloudflareClient:
             "Authorization": f"Bearer {api_token}",
             "Content-Type": "application/json",
         }
+        # Reuse one client across all records — avoids re-establishing TLS for
+        # each of N records, which was the cause of "1 domain ok, 17 domains fail".
+        #
+        # Bind to IPv4 explicitly: many Synology/NAS containers can reach
+        # api.cloudflare.com over IPv4 but their IPv6 egress times out. Binding
+        # the local socket to 0.0.0.0 forces IPv4 for the Cloudflare API only,
+        # while public IPv6 detection (icanhazip/api6.ipify) still runs over IPv6.
+        self._client = httpx.AsyncClient(
+            transport=httpx.AsyncHTTPTransport(local_address="0.0.0.0"),
+            timeout=httpx.Timeout(connect=30.0, read=60.0, write=30.0, pool=30.0),
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=20),
+            follow_redirects=True,
+        )
+
+    async def close(self) -> None:
+        await self._client.aclose()
+
+    async def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+        retries: int = 3,
+    ) -> httpx.Response:
+        last_exc: Exception | None = None
+        for attempt in range(retries):
+            try:
+                return await self._client.request(
+                    method, url, headers=self._headers, params=params, json=json_body
+                )
+            except httpx.HTTPError as exc:
+                last_exc = exc
+                if attempt < retries - 1:
+                    delay = 2.0 * (attempt + 1)
+                    logger.warning(
+                        "Cloudflare API %s %s failed (attempt %d/%d): %s — retrying in %.0fs",
+                        method, url, attempt + 1, retries, type(exc).__name__, delay,
+                    )
+                    await asyncio.sleep(delay)
+        raise last_exc  # type: ignore[misc]
 
     async def list_zones(self) -> list[dict[str, Any]]:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(f"{CF_API}/zones", headers=self._headers)
-            data = resp.json()
-            if not data.get("success"):
-                raise RuntimeError(f"list_zones failed: {data.get('errors')}")
-            return data.get("result", [])
+        resp = await self._request("GET", f"{CF_API}/zones")
+        data = resp.json()
+        if not data.get("success"):
+            raise RuntimeError(f"list_zones failed: {data.get('errors')}")
+        return data.get("result", [])
 
     async def list_records(self, zone_id: str, name: str, rtype: str) -> list[dict[str, Any]]:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                f"{CF_API}/zones/{zone_id}/dns_records",
-                headers=self._headers,
-                params={"type": rtype, "name": name},
-            )
-            data = resp.json()
-            return data.get("result", []) if data.get("success") else []
+        resp = await self._request(
+            "GET",
+            f"{CF_API}/zones/{zone_id}/dns_records",
+            params={"type": rtype, "name": name},
+        )
+        data = resp.json()
+        return data.get("result", []) if data.get("success") else []
 
     async def update_record(self, zone_id: str, record_id: str,
                              rtype: str, name: str, content: str, proxied: bool = False) -> bool:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.put(
-                f"{CF_API}/zones/{zone_id}/dns_records/{record_id}",
-                headers=self._headers,
-                json={"type": rtype, "name": name, "content": content, "proxied": proxied, "ttl": 1},
-            )
-            return resp.json().get("success", False)
+        resp = await self._request(
+            "PUT",
+            f"{CF_API}/zones/{zone_id}/dns_records/{record_id}",
+            json_body={"type": rtype, "name": name, "content": content, "proxied": proxied, "ttl": 1},
+        )
+        return resp.json().get("success", False)
 
     async def create_record(self, zone_id: str, rtype: str, name: str,
                              content: str, proxied: bool = False) -> bool:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                f"{CF_API}/zones/{zone_id}/dns_records",
-                headers=self._headers,
-                json={"type": rtype, "name": name, "content": content, "proxied": proxied, "ttl": 1},
-            )
-            return resp.json().get("success", False)
+        resp = await self._request(
+            "POST",
+            f"{CF_API}/zones/{zone_id}/dns_records",
+            json_body={"type": rtype, "name": name, "content": content, "proxied": proxied, "ttl": 1},
+        )
+        return resp.json().get("success", False)
 
     async def upsert_record(self, zone_id: str, rtype: str, name: str,
                              content: str, proxied: bool = False) -> str:
-        """Create or update record. Returns 'created'|'updated'|'unchanged'."""
+        """Create or update record. Returns 'created'|'updated'|'unchanged'.
+
+        Compares both IP content AND proxied flag so proxy toggles are synced
+        even when the IP has not changed."""
         records = await self.list_records(zone_id, name, rtype)
         if records:
-            if records[0].get("content") == content:
+            rec = records[0]
+            same_content = rec.get("content") == content
+            same_proxied = bool(rec.get("proxied")) == bool(proxied)
+            if same_content and same_proxied:
                 return "unchanged"
-            ok = await self.update_record(zone_id, records[0]["id"], rtype, name, content, proxied)
+            ok = await self.update_record(zone_id, rec["id"], rtype, name, content, proxied)
             return "updated" if ok else "error"
         ok = await self.create_record(zone_id, rtype, name, content, proxied)
         return "created" if ok else "error"
@@ -221,12 +265,14 @@ class CloudflareDDNSPlugin(PluginBase):
         logger.info("Cloudflare DDNS plugin disabled")
 
     async def run(self, **kwargs: Any) -> dict[str, Any]:
-        import traceback
         try:
             return await self._run_impl(**kwargs)
         except Exception as exc:
-            logger.exception("Cloudflare DDNS run failed")
-            return {"status": "error", "error": str(exc)[:500], "ipv4": None, "ipv6": None, "updated": 0, "unchanged": 0, "results": []}
+            error_text = f"{type(exc).__name__}: {exc}".strip().rstrip(":").strip()
+            if not error_text:
+                error_text = type(exc).__name__
+            logger.exception("Cloudflare DDNS run failed: %s", error_text)
+            return {"status": "error", "error": error_text, "ipv4": None, "ipv6": None, "updated": 0, "unchanged": 0, "results": []}
 
     async def _run_impl(self, **kwargs: Any) -> dict[str, Any]:
         api_token = self.config.get("api_token", "").strip()
@@ -245,47 +291,50 @@ class CloudflareDDNSPlugin(PluginBase):
         state = self.config.setdefault("state", {})
         results: list[dict[str, Any]] = []
 
-        # Detect IPs
-        ipv4: str | None = None
-        ipv6: str | None = None
-        needs_v4 = any(z.get("ip_type", "both") in ("ipv4", "both") for z in zones)
-        needs_v6 = any(z.get("ip_type", "both") in ("ipv6", "both") for z in zones)
+        try:
+            # Detect IPs
+            ipv4: str | None = None
+            ipv6: str | None = None
+            needs_v4 = any(z.get("ip_type", "both") in ("ipv4", "both") for z in zones)
+            needs_v6 = any(z.get("ip_type", "both") in ("ipv6", "both") for z in zones)
 
-        if needs_v4:
-            ipv4 = await _get_public_ipv4()
-            logger.info("Public IPv4: %s", ipv4)
-        if needs_v6:
-            ipv6 = await _get_public_ipv6(iface)
-            logger.info("Public IPv6: %s", ipv6)
+            if needs_v4:
+                ipv4 = await _get_public_ipv4()
+                logger.info("Public IPv4: %s", ipv4)
+            if needs_v6:
+                ipv6 = await _get_public_ipv6(iface)
+                logger.info("Public IPv6: %s", ipv6)
 
-        updated = 0
-        unchanged = 0
+            updated = 0
+            unchanged = 0
 
-        for zone in zones:
-            zone_id = zone.get("zone_id", "").strip()
-            records: list[str] = zone.get("records") or []
-            ip_type = zone.get("ip_type", "both")
-            proxied = bool(zone.get("proxied", False))
+            for zone in zones:
+                zone_id = zone.get("zone_id", "").strip()
+                records: list[str] = zone.get("records") or []
+                ip_type = zone.get("ip_type", "both")
+                proxied = bool(zone.get("proxied", False))
 
-            if not zone_id or not records:
-                continue
+                if not zone_id or not records:
+                    continue
 
-            for record_name in records:
-                if ip_type in ("ipv4", "both") and ipv4:
-                    res = await cf.upsert_record(zone_id, "A", record_name, ipv4, proxied)
-                    results.append({"record": record_name, "type": "A", "ip": ipv4, "result": res, "time": _now_iso()})
-                    if res in ("created", "updated"):
-                        updated += 1
-                    else:
-                        unchanged += 1
+                for record_name in records:
+                    if ip_type in ("ipv4", "both") and ipv4:
+                        res = await cf.upsert_record(zone_id, "A", record_name, ipv4, proxied)
+                        results.append({"record": record_name, "type": "A", "ip": ipv4, "result": res, "time": _now_iso()})
+                        if res in ("created", "updated"):
+                            updated += 1
+                        else:
+                            unchanged += 1
 
-                if ip_type in ("ipv6", "both") and ipv6:
-                    res = await cf.upsert_record(zone_id, "AAAA", record_name, ipv6, proxied)
-                    results.append({"record": record_name, "type": "AAAA", "ip": ipv6, "result": res, "time": _now_iso()})
-                    if res in ("created", "updated"):
-                        updated += 1
-                    else:
-                        unchanged += 1
+                    if ip_type in ("ipv6", "both") and ipv6:
+                        res = await cf.upsert_record(zone_id, "AAAA", record_name, ipv6, proxied)
+                        results.append({"record": record_name, "type": "AAAA", "ip": ipv6, "result": res, "time": _now_iso()})
+                        if res in ("created", "updated"):
+                            updated += 1
+                        else:
+                            unchanged += 1
+        finally:
+            await cf.close()
 
         state["last_run"] = _now_iso()
         state["last_ipv4"] = ipv4

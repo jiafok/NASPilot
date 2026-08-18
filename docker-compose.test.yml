@@ -5,7 +5,7 @@ services:
     container_name: naspilot-test
     restart: "no"
     ports:
-      - "8080:8000"
+      - "8080:8082"
     volumes:
       - ./data:/app/data
       # Docker Desktop socket (enable container management in test env)
@@ -15,6 +15,6 @@ services:
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
       - SECRET_KEY=test-key-for-docker-e2e-testing-must-be-32-chars
-      - FIRST_ADMIN_PASSWORD=naspilot-test-2026
+      - FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD:-}
       - TZ=Asia/Shanghai
       - LOG_LEVEL=INFO
