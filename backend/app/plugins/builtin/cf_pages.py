@@ -14,6 +14,8 @@ import tempfile
 from datetime import datetime
 from typing import Any
 
+import httpx
+
 from app.plugins.registry import PluginBase, PluginMeta
 
 logger = logging.getLogger("naspilot.plugin.cloudflare_pages")
@@ -138,11 +140,15 @@ async def _run_cmd(
 
 
 async def _detect_ipv6(iface: str) -> str:
-    """Detect a public IPv6 address without requiring the ``ip`` utility.
+    """Detect a public IPv6 address.
 
-    Minimal container images often do not include iproute2. Linux exposes
-    interface IPv6 addresses through /proc/net/if_inet6, so use that first and
-    fall back to hostname resolution for non-Linux environments.
+    Resolution order:
+    1. Read /proc/net/if_inet6 (only works in host network mode, or bridge
+       with IPv6 enabled).
+    2. Hostname resolution via getaddrinfo.
+    3. Public probe (ipv6.icanhazip.com / api6.ipify.org) — this returns the
+       IPv6 source address of the container's egress, which works regardless
+       of host vs bridge networking.
     """
 
     def _read_ipv6_addresses() -> list[str]:
@@ -187,8 +193,26 @@ async def _detect_ipv6(iface: str) -> str:
             pass
         return candidates
 
+    async def _probe_public_ipv6() -> str:
+        for url in ["https://ipv6.icanhazip.com", "https://api6.ipify.org"]:
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.get(url)
+                    ip = resp.text.strip()
+                    if ip:
+                        parsed = ipaddress.IPv6Address(ip)
+                        if parsed.is_global:
+                            return ip
+            except Exception:
+                continue
+        return ""
+
     candidates = await asyncio.to_thread(_read_ipv6_addresses)
-    return candidates[0] if candidates else ""
+    if candidates:
+        return candidates[0]
+    # Bridge networks don't expose the host's global IPv6 in /proc/net/if_inet6,
+    # so fall back to a public egress probe to match what DDNS would report.
+    return await _probe_public_ipv6()
 
 
 async def _pick_wrangler(timeout_s: int) -> list[str]:
