@@ -44,26 +44,29 @@ async def bootstrap_admin(db: AsyncSession) -> None:
     """Create or sync initial admin user on every startup.
 
     Password resolution (in order):
-    1. FIRST_ADMIN_PASSWORD env var — explicit password
-    2. Random generation — printed ONCE to startup log
-    """
-    admin_password = settings.FIRST_ADMIN_PASSWORD
-    password_source = "env"
-    if not admin_password:
-        admin_password = _generate_password()
-        password_source = "random"
-        logger.warning("=" * 60)
-        logger.warning("FIRST_ADMIN_PASSWORD not set — generated random password:")
-        logger.warning("  Username: %s", settings.INITIAL_ADMIN_USER)
-        logger.warning("  Password: %s", admin_password)
-        logger.warning("  Save this password! It will NOT be printed again.")
-        logger.warning("=" * 60)
+    1. FIRST_ADMIN_PASSWORD env var — explicit password (synced on change)
+    2. Random generation — only when admin does NOT exist yet (first run)
 
+    If the admin already exists and FIRST_ADMIN_PASSWORD is empty, the existing
+    password is left untouched and no random password is generated/printed.
+    """
     result = await db.execute(select(User).where(User.username == settings.INITIAL_ADMIN_USER))
     admin = result.scalar_one_or_none()
 
+    admin_password = settings.FIRST_ADMIN_PASSWORD
+
     if admin is None:
         # First run — create admin
+        password_source = "env" if admin_password else "random"
+        if not admin_password:
+            admin_password = _generate_password()
+            logger.warning("=" * 60)
+            logger.warning("FIRST_ADMIN_PASSWORD not set — generated random password:")
+            logger.warning("  Username: %s", settings.INITIAL_ADMIN_USER)
+            logger.warning("  Password: %s", admin_password)
+            logger.warning("  Save this password! It will NOT be printed again.")
+            logger.warning("=" * 60)
+
         admin = User(
             username=settings.INITIAL_ADMIN_USER,
             hashed_password=hash_password(admin_password),
@@ -74,7 +77,7 @@ async def bootstrap_admin(db: AsyncSession) -> None:
         db.add(admin)
         await db.commit()
         logger.info("Admin user created: %s (password source: %s)", settings.INITIAL_ADMIN_USER, password_source)
-    elif password_source == "env" and not verify_password(admin_password, admin.hashed_password):
+    elif admin_password and not verify_password(admin_password, admin.hashed_password):
         # FIRST_ADMIN_PASSWORD changed in env — sync it
         admin.hashed_password = hash_password(admin_password)
         await db.commit()
