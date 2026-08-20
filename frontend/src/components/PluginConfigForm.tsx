@@ -17,6 +17,7 @@ export interface PluginField {
   options?: { label: string; value: any }[];
   fields?: PluginField[];
   required?: boolean;
+  autoSize?: boolean;
 }
 
 interface Props {
@@ -165,7 +166,8 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
     if (field.type === 'boolean') return <Form.Item {...common} valuePropName="checked"><Switch /></Form.Item>;
     if (field.type === 'number') return <Form.Item {...common}><InputNumber style={{ width: '100%' }} placeholder={field.placeholder} /></Form.Item>;
     if (field.type === 'password') return <Form.Item {...common}><Input.Password placeholder={field.placeholder} /></Form.Item>;
-    if (field.type === 'textarea') return <Form.Item {...common}><Input.TextArea rows={3} placeholder={field.placeholder} /></Form.Item>;
+    if (field.type === 'textarea' && field.autoSize) return <Form.Item {...common}><Input.TextArea autoSize={field.autoSize ? { minRows: 3 } : false} rows={field.autoSize ? undefined : 3} placeholder={field.placeholder} /></Form.Item>;
+    if (field.type === 'textarea' && !field.autoSize) return <Form.Item {...common}><Input.TextArea rows={3} placeholder={field.placeholder} /></Form.Item>;
     if (field.type === 'select' && field.options) return <Form.Item {...common}><Select options={field.options} placeholder={field.placeholder} /></Form.Item>;
     if (field.type === 'object' && field.fields) {
       return (
@@ -175,7 +177,8 @@ export default function PluginConfigForm({ slug, title, description, fields, onR
             if (sf.type === 'boolean') return <Form.Item {...nc} valuePropName="checked"><Switch /></Form.Item>;
             if (sf.type === 'number') return <Form.Item {...nc}><InputNumber style={{ width: '100%' }} placeholder={sf.placeholder} /></Form.Item>;
             if (sf.type === 'password') return <Form.Item {...nc}><Input.Password placeholder={sf.placeholder} /></Form.Item>;
-            if (sf.type === 'textarea') return <Form.Item {...nc}><Input.TextArea rows={2} placeholder={sf.placeholder} /></Form.Item>;
+            if (sf.type === 'textarea' && sf.autoSize) return <Form.Item {...nc}><Input.TextArea rows={2} placeholder={sf.placeholder} autoSize={sf.autoSize} /></Form.Item>;
+            if (sf.type === 'textarea' && !sf.autoSize) return <Form.Item {...nc}><Input.TextArea rows={2} placeholder={sf.placeholder} /></Form.Item>;
             if (sf.type === 'select' && sf.options) return <Form.Item {...nc}><Select options={sf.options} placeholder={sf.placeholder} /></Form.Item>;
             return <Form.Item {...nc}><Input placeholder={sf.placeholder} /></Form.Item>;
           })}

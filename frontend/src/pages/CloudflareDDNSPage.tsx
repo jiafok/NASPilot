@@ -7,7 +7,7 @@ import api from '../utils/api';
 const FIELDS: PluginField[] = [
   { key: 'api_token', label: 'Cloudflare API Token', type: 'password', required: true, help: '需要 DNS:Edit 权限的 API Token' },
   { key: 'iface', label: 'Network Interface', type: 'string', placeholder: 'eth0', help: '获取 IPv6 地址的网卡接口。留空则使用公网检测。' },
-  { key: 'zones', label: 'Zones', type: 'textarea', placeholder: '[{"zone_id":"xxx","records":["home.example.com"],"ip_type":"both","proxied":false}]', help: 'JSON 数组，每项包含 zone_id、records、ip_type（ipv4/ipv6/both）、proxied' },
+  { key: 'zones', label: 'Zones', type: 'textarea', autoSize: true, placeholder: '[{"zone_id":"xxx","records":[{"name":"home.example.com","proxied":true}],"ip_type":"ipv6"}]', help: 'JSON 数组。records 可为字符串或对象 {"name":"域名","proxied":true/false}，支持每条记录单独控制代理' },
 ];
 
 export default function CloudflareDDNSPage() {

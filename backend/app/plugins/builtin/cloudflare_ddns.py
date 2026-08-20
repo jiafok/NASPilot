@@ -52,6 +52,22 @@ def _now_iso() -> str:
     return datetime.now(LOCAL_TZ).isoformat()
 
 
+def _resolve_record(rec: Any, zone_proxied: bool) -> tuple[str, bool]:
+    """Resolve a single record entry into (name, proxied).
+
+    Supports two shapes:
+    - Plain string: "home.example.com" → uses the zone-level proxied default.
+    - Object: {"name": "home.example.com", "proxied": true} → per-record override.
+    """
+    if isinstance(rec, str):
+        return rec.strip(), zone_proxied
+    if isinstance(rec, dict):
+        name = str(rec.get("name") or rec.get("record") or "").strip()
+        proxied = bool(rec.get("proxied", zone_proxied))
+        return name, proxied
+    return "", zone_proxied
+
+
 async def _get_public_ipv4() -> str | None:
     sources = [
         "https://api.ipify.org",
@@ -249,7 +265,23 @@ class CloudflareDDNSPlugin(PluginBase):
                         "type": "object",
                         "properties": {
                             "zone_id": {"type": "string", "title": "Zone ID"},
-                            "records": {"type": "array", "items": {"type": "string"}, "title": "记录名列表"},
+                            "records": {
+                                "type": "array",
+                                "title": "记录名列表",
+                                "items": {
+                                    "anyOf": [
+                                        {"type": "string", "title": "域名（继承 zone 级 proxied）"},
+                                        {
+                                            "type": "object",
+                                            "title": "单条记录配置",
+                                            "properties": {
+                                                "name": {"type": "string", "title": "记录名"},
+                                                "proxied": {"type": "boolean", "title": "启用 Cloudflare 代理"},
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
                             "ip_type": {"type": "string", "enum": ["ipv4", "ipv6", "both"], "title": "IP 类型"},
                             "proxied": {"type": "boolean", "title": "启用 Cloudflare 代理"},
                         },
@@ -317,9 +349,13 @@ class CloudflareDDNSPlugin(PluginBase):
                 if not zone_id or not records:
                     continue
 
-                for record_name in records:
+                for rec in records:
+                    record_name, record_proxied = _resolve_record(rec, proxied)
+                    if not record_name:
+                        continue
+
                     if ip_type in ("ipv4", "both") and ipv4:
-                        res = await cf.upsert_record(zone_id, "A", record_name, ipv4, proxied)
+                        res = await cf.upsert_record(zone_id, "A", record_name, ipv4, record_proxied)
                         results.append({"record": record_name, "type": "A", "ip": ipv4, "result": res, "time": _now_iso()})
                         if res in ("created", "updated"):
                             updated += 1
@@ -327,7 +363,7 @@ class CloudflareDDNSPlugin(PluginBase):
                             unchanged += 1
 
                     if ip_type in ("ipv6", "both") and ipv6:
-                        res = await cf.upsert_record(zone_id, "AAAA", record_name, ipv6, proxied)
+                        res = await cf.upsert_record(zone_id, "AAAA", record_name, ipv6, record_proxied)
                         results.append({"record": record_name, "type": "AAAA", "ip": ipv6, "result": res, "time": _now_iso()})
                         if res in ("created", "updated"):
                             updated += 1
