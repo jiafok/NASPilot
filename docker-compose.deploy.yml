@@ -41,6 +41,9 @@ services:
       # 一个挂载点即可：容器内自动使用 /Media/Video 与 /Media/Audio
       - ${NAS_MEDIA_ROOT:-./data/media}:/Media
 
+      # ── 英语学习媒体库（可选，不挂则该模块显示目录不存在）──
+      - ${NAS_ENGLISH_ROOT:-./data/english}:/English
+
       # ── 字幕/封面等附属文件与媒体同目录，无需额外挂载 ───────
 
       # ── 可选：容器管理（不挂也能用，仅「容器管理」页面受限）──

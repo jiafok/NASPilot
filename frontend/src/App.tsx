@@ -23,6 +23,7 @@ import FileBrowser from './pages/system/FileBrowser';
 import BtrfsCleanup from './pages/plugins/BtrfsCleanup';
 import RcloneMount from './pages/plugins/RcloneMount';
 import MediaCenter from './pages/media/MediaCenter';
+import EnglishCenter from './pages/english/EnglishCenter';
 
 function App() {
   return (
@@ -77,6 +78,9 @@ function App() {
                 <Route path="media/history" element={<MediaCenter view="history" />} />
                 {/* Legacy YouTube-only page → unified media center */}
                 <Route path="media/youtube" element={<Navigate to="/media/subscriptions" replace />} />
+
+                {/* English Learning Center */}
+                <Route path="english" element={<EnglishCenter />} />
               </Route>
             </Routes>
           </BrowserRouter>

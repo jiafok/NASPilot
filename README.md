@@ -95,6 +95,16 @@ npm run dev
 
 ---
 
+## 📚 英语学习中心
+
+NASPilot 内置的英语学习服务端模块（EnglishFlow 客户端专用）：
+资源扫描、课程/课时元数据、字幕解析、生词提取、学习进度、AI 老师与媒体流。
+
+- 目录约定：`/English/<频道>/<课程>/<课时>.mp4|.mp3`（同名 `.srt`/`.vtt` 自动绑定）
+- 网页入口：菜单「英语学习」
+- 客户端接口：`/api/english/*`，媒体 `/api/media/{lessonId}`
+- 设计与接口：`docs/english-learning-center/`
+
 ## 🏗️ 架构概览
 
 ```

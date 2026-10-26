@@ -253,3 +253,18 @@ from app.models.media_center import (  # noqa: E402,F401
     MediaDownloadTask,
     MediaSubscription,
 )
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  English Learning Center
+# ══════════════════════════════════════════════════════════════════════
+from app.models.english import (  # noqa: E402,F401
+    EnglishBookmark,
+    EnglishCourse,
+    EnglishDailyStat,
+    EnglishFavorite,
+    EnglishLesson,
+    EnglishProgress,
+    EnglishTranscript,
+    EnglishVocabulary,
+)

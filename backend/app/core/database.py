@@ -53,17 +53,9 @@ async def init_db() -> None:
     await _migrate_sqlite_autoincrement("log_entries", "id,timestamp,logger,level,source,message,extra")
     await _migrate_sqlite_autoincrement("task_executions", "id,task_id,start_time,end_time,status,exit_code,stdout,stderr,duration_ms,triggered_by,error_message")
     await _migrate_sqlite_autoincrement("notification_records", "id,channel_id,channel_type,title,message,level,event_type,status,error_message,created_at")
-    # Media Subscription Center — add media_mode (video|audio|both) on upgrade
-    await _add_column_if_missing(
-        "youtube_subscriptions", "media_mode", "VARCHAR(16) NOT NULL DEFAULT 'video'"
-    )
-    await _add_column_if_missing(
-        "youtube_subscriptions", "video_height", "INTEGER NOT NULL DEFAULT 0"
-    )
-    await _add_column_if_missing(
-        "youtube_subscriptions", "audio_format", "VARCHAR(16) NOT NULL DEFAULT ''"
-    )
-    await _backfill_media_mode()
+    # The legacy YouTube tables are only present on pre-media-center databases;
+    # `services/media_center/migrate_legacy.py` reads them with raw SQL and
+    # handles the audio_only → media_mode mapping, so no column migration here.
     # Media Download Center — task metadata snapshot columns
     for column, ddl in (
         ("channel_name", "VARCHAR(255)"),
@@ -104,28 +96,6 @@ async def _add_column_if_missing(table: str, column: str, ddl: str) -> bool:
     except Exception:
         logger.exception("Failed to add column %s.%s", table, column)
         return False
-
-
-async def _backfill_media_mode() -> None:
-    """Derive ``media_mode`` from the legacy ``audio_only`` flag (one-time)."""
-    import sqlalchemy as sa
-
-    if "sqlite" not in settings.DATABASE_URL:
-        return
-    try:
-        async with engine.begin() as conn:
-            result = await conn.execute(
-                sa.text(
-                    "UPDATE youtube_subscriptions SET media_mode='audio' "
-                    "WHERE audio_only=1 AND (media_mode IS NULL OR media_mode='video')"
-                )
-            )
-            if result.rowcount:
-                logging.getLogger("naspilot.db").info(
-                    "Backfilled media_mode for %d subscription(s)", result.rowcount
-                )
-    except Exception:
-        logging.getLogger("naspilot.db").exception("Failed to backfill media_mode")
 
 
 async def _migrate_sqlite_autoincrement(table: str, columns: str) -> None:

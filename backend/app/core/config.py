@@ -88,6 +88,14 @@ class Settings(BaseSettings):
     #   best → zero-transcode remux, keeps the source stream (Opus/AAC)
     #   opus / m4a / flac / wav → explicit container (stream copy when possible)
     MEDIA_AUDIO_FORMAT: str = "mp3"
+    # ── English Learning Center ───────────────────────────────────────
+    #: Root of the English library (mounted into the container).
+    ENGLISH_ROOT: Path = Path("/English")
+    #: How many vocabulary terms to keep per course after extraction.
+    ENGLISH_VOCAB_LIMIT: int = 300
+    #: Scan the library on startup (off by default; scanning is cheap but logs).
+    ENGLISH_SCAN_ON_STARTUP: bool = False
+
     # ── Media servers (deep links + library hints) ────────────────────
     EMBY_URL: str = ""
     JELLYFIN_URL: str = ""

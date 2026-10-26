@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.ai import router as ai_router
+from app.api.v1.english import router as english_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.files import router as files_router
 from app.api.v1.media import router as media_router
@@ -24,3 +25,4 @@ api_router.include_router(ai_router)
 api_router.include_router(files_router)
 api_router.include_router(observability_router)
 api_router.include_router(media_router)
+api_router.include_router(english_router)

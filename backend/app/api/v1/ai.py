@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import CurrentUser
+from app.services import ai_service
 from app.services.system_service import get_system_stats
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -43,54 +43,27 @@ async def ask_ai(
     user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    if not settings.OPENAI_API_KEY:
-        raise HTTPException(
-            status_code=400,
-            detail="AI 功能未配置。请在系统设置中填写 OPENAI_API_KEY。",
-        )
-
-    import httpx
-
+    """Ops assistant — same AI client the English tutor uses."""
     context_used: list[str] = []
-    system_prompt_parts = [
+    system_parts = [
         "你是 NASPilot 的 AI 运维助手，专门帮助 NAS/HomeLab 用户诊断系统问题、优化配置和处理自动化任务。",
         "请用中文回答，给出简洁实用的建议。",
     ]
 
     if body.include_system_stats:
         stats = get_system_stats()
-        ctx = _build_context(stats)
-        system_prompt_parts.append(f"\n当前系统状态:\n{ctx}")
+        system_parts.append(f"\n当前系统状态:\n{_build_context(stats)}")
         context_used.append("system_stats")
 
-    system_prompt = "\n".join(system_prompt_parts)
-
-    payload = {
-        "model": settings.OPENAI_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": body.question},
-        ],
-        "max_tokens": 1024,
-        "temperature": 0.3,
-    }
-
-    async with httpx.AsyncClient(timeout=60) as client:
-        try:
-            resp = await client.post(
-                f"{settings.OPENAI_BASE_URL}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            answer = data["choices"][0]["message"]["content"]
-        except httpx.HTTPStatusError as exc:
-            raise HTTPException(status_code=502, detail=f"AI API 返回错误: {exc.response.status_code}")
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"AI API 调用失败: {exc}")
+    try:
+        answer = await ai_service.ask(
+            body.question,
+            system="\n".join(system_parts),
+            db=db,
+        )
+    except ai_service.AIUnavailable as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AI API 调用失败: {exc}") from exc
 
     return AIResponse(answer=answer, context_used=context_used)

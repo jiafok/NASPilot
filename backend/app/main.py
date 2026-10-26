@@ -10,6 +10,11 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
 from app.api.v1.media import router as media_router
+from app.api.v1.english import (
+    alias_router as english_alias_router,
+    router as english_router,
+    stream_router as english_stream_router,
+)
 from app.core.config import settings
 from app.lifespan import lifespan
 
@@ -76,9 +81,15 @@ async def health_media():
     return await build_health()
 
 
-# Unversioned alias for the Media Subscription Center API (/api/youtube/...)
 # Unversioned alias for the Media Download Center (/api/media/...)
 app.include_router(media_router, prefix="/api", include_in_schema=False)
+
+# English Learning Center — client contract aliases (/api/english/...)
+app.include_router(english_router, prefix="/api", include_in_schema=False)
+# Streaming: register AFTER the media router so literal paths like
+# /api/media/subscriptions win over the numeric /api/media/{id} alias.
+app.include_router(english_stream_router, prefix="/api", include_in_schema=False)
+app.include_router(english_alias_router, prefix="/api", include_in_schema=False)
 
 
 # ── Static frontend + SPA fallback ──────────────────────────────────────

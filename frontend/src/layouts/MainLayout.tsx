@@ -17,6 +17,7 @@ import {
   MenuOutlined,
   FolderOpenOutlined,
   VideoCameraOutlined,
+  ReadOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../hooks/useAuth';
@@ -70,6 +71,7 @@ export default function MainLayout() {
         { key: '/media/history', label: '历史记录' },
       ],
     },
+    { key: '/english', icon: <ReadOutlined />, label: '英语学习' },
     { key: '/containers', icon: <DatabaseOutlined />, label: t('nav.containerManager') },
     { key: '/files', icon: <FolderOpenOutlined />, label: 'File Manager' },
     { key: '/logs', icon: <FileTextOutlined />, label: t('nav.logs') },
@@ -100,6 +102,7 @@ export default function MainLayout() {
     if (p.startsWith('/media/tasks')) return '/media/tasks';
     if (p.startsWith('/media/history')) return '/media/history';
     if (p.startsWith('/media')) return '/media/subscriptions';
+    if (p.startsWith('/english')) return '/english';
     if (p.startsWith('/containers')) return '/containers';
     if (p.startsWith('/files')) return '/files';
     if (p.startsWith('/logs')) return '/logs';
