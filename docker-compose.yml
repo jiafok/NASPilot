@@ -1,4 +1,15 @@
-version: "3.9"
+# ============================================================
+# NASPilot — NAS 部署（Synology/群晖 等，host 网络）
+#
+# 升级到 Media Download Center 版本：
+#   1. 备份 data/naspilot.db
+#   2. docker compose down
+#   3. docker compose build && docker compose up -d
+#      （或改用 GHCR 镜像，见下面 image/ 行）
+#
+# ⚠ 媒体下载中心必须挂载 /Media/Video 与 /Media/Audio，
+#   否则容器重建后已下载的文件会全部丢失。
+# ============================================================
 
 services:
   naspilot:
@@ -28,10 +39,15 @@ services:
       - /volume1/docker:/volume1/docker:ro
       # Docker app backup (write)
       - /volumeUSB1/usbshare/docker_backup:/volumeUSB1/usbshare/docker_backup:rw
-      # ── Media Subscription Center (YouTube) ──────────────────────
-      # Host side is configurable; inside the container always /media/*.
-      # Synology example:  - /volume1/media/Youtube:/media/Youtube
-      - ${NAS_MEDIA_VIDEO:-./data/media/Youtube}:/media/Youtube
+      # ── 媒体下载中心（Media Download Center，新版）───────────────
+      # 宿主机路径可用环境变量覆盖，群晖建议绝对路径：
+      #   NAS_MEDIA_VIDEO=/volume1/media/Video
+      #   NAS_MEDIA_AUDIO=/volume1/media/Audio
+      - ${NAS_MEDIA_VIDEO:-./data/media/Video}:/Media/Video
+      - ${NAS_MEDIA_AUDIO:-./data/media/Audio}:/Media/Audio
+      # ── 旧版 YouTube 页面（已弃用，仅保留兼容）──────────────────
+      # 指向同一宿主机目录，避免两套路径各存一份。
+      - ${NAS_MEDIA_VIDEO:-./data/media/Video}:/media/Youtube
       - ${NAS_MEDIA_AUDIO:-./data/media/Audio}:/media/Audio
 
     # Optional: rclone mount requires FUSE
@@ -44,16 +60,27 @@ services:
 
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
-      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required — generate with: openssl rand -hex 32}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required - run openssl rand -hex 32}
       - FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD:-}
       - TZ=Asia/Shanghai
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      # Media Subscription Center
+      # ── 媒体下载中心（新版）────────────────────────────────────
+      - MEDIA_VIDEO_DIR=/Media/Video
+      - MEDIA_AUDIO_DIR=/Media/Audio
+      - MEDIA_DEFAULT_VIDEO_HEIGHT=${MEDIA_DEFAULT_VIDEO_HEIGHT:-480}
+      - MEDIA_MAX_CONCURRENT=${MEDIA_MAX_CONCURRENT:-2}
+      - MEDIA_MAX_PER_SYNC=${MEDIA_MAX_PER_SYNC:-20}
+      - MEDIA_SCAN_LIMIT=${MEDIA_SCAN_LIMIT:-100}
+      # 全局代理；也可在单个订阅里单独设置（编辑订阅 → 出网方式）
+      # - MEDIA_PROXY_URL=http://192.168.1.10:7890
+      # 媒体服务器（填了会在「历史记录」里生成直达链接）
+      # - EMBY_URL=http://192.168.1.10:8096
+      # - JELLYFIN_URL=http://192.168.1.10:8096
+      # - AUDIOBOOKSHELF_URL=http://192.168.1.10:13378
+
+      # ── 旧版 YouTube 页面（已弃用，可整段删除）──────────────────
       - YOUTUBE_VIDEO_DIR=/media/Youtube
       - YOUTUBE_AUDIO_DIR=/media/Audio
-      - YOUTUBE_SYNC_INTERVAL_HOURS=${YOUTUBE_SYNC_INTERVAL_HOURS:-6}
-      - YOUTUBE_MAX_PER_SYNC=${YOUTUBE_MAX_PER_SYNC:-20}
-      # Optional: --cookies file / proxy / JS runtime (e.g. "node")
       # - YOUTUBE_COOKIES_FILE=/app/data/cookies.txt
       # - YOUTUBE_PROXY=http://host:port
       # - YOUTUBE_JS_RUNTIMES=node
