@@ -6,14 +6,16 @@
 #   1. 运行阶段默认不装 node/npm。前端在 stage 1 已构建好，
 #      运行时只有 uvicorn。仅当需要 yt-dlp 的 JS 运行时(YouTube 签名)时
 #      用 --build-arg WITH_NODE=true 打开。
-#   2. ffmpeg/ffprobe 使用官方静态构建，不再走 Debian 软件包。
+#   2. ffmpeg/ffprobe 使用官方静态构建（按 TARGETARCH 选 amd64/arm64/armhf），
 #      Debian 的 ffmpeg 会拖进 libsdl2 → libgbm1 → libgl1-mesa-dri
 #      → mesa-libgallium → libllvm19（约 200MB）+ libflite1/libcodec2/
 #      libx265/libz3 等我们完全用不到的东西。
 # ============================================================
 
 # ── Stage 1: Frontend build ───────────────────────────────
-FROM node:22-alpine AS frontend-builder
+# Pinned to BUILDPLATFORM: the bundle is arch-independent, so building it once
+# on the native arch avoids running npm/vite under QEMU for the arm64 leg.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend-builder
 
 WORKDIR /src
 COPY frontend/package.json frontend/package-lock.json ./
@@ -39,19 +41,29 @@ RUN pip install --no-cache-dir --no-compile --upgrade yt-dlp && \
 
 
 # ── Stage 3: ffmpeg + ffprobe (static binaries) ───────────
-FROM python:3.11-slim AS ffmpeg-static
+# Multi-arch aware: CI builds linux/amd64 + linux/arm64, so the download must
+# follow TARGETARCH (a BuildKit automatic platform arg).
+FROM --platform=$BUILDPLATFORM python:3.11-slim AS ffmpeg-static
 
-ARG FFMPEG_URL=https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+ARG TARGETARCH
+ARG FFMPEG_BASE=https://johnvansickle.com/ffmpeg/releases
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl xz-utils && \
     rm -rf /var/lib/apt/lists/* && \
-    curl -fsSL --retry 3 -o /tmp/ff.tar.xz "$FFMPEG_URL" && \
+    case "${TARGETARCH:-amd64}" in \
+        amd64) FF_ARCH=amd64 ;; \
+        arm64) FF_ARCH=arm64 ;; \
+        arm)   FF_ARCH=armhf ;; \
+        *)     echo "unsupported TARGETARCH=${TARGETARCH}" >&2 ; exit 1 ;; \
+    esac && \
+    echo "downloading static ffmpeg for ${FF_ARCH}" && \
+    curl -fsSL --retry 3 -o /tmp/ff.tar.xz "${FFMPEG_BASE}/ffmpeg-release-${FF_ARCH}-static.tar.xz" && \
     mkdir -p /opt/ffmpeg && \
     tar -xJf /tmp/ff.tar.xz -C /opt/ffmpeg --strip-components=1 && \
     rm -f /tmp/ff.tar.xz && \
-    /opt/ffmpeg/ffmpeg -hide_banner -version | head -1 && \
-    /opt/ffmpeg/ffprobe -hide_banner -version | head -1
+    chmod +x /opt/ffmpeg/ffmpeg /opt/ffmpeg/ffprobe && \
+    ls -lh /opt/ffmpeg/ffmpeg /opt/ffmpeg/ffprobe
 
 
 # ── Stage 4: Final runtime (trimmed) ──────────────────────
