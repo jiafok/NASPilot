@@ -2,7 +2,7 @@
 # NASPilot — 通用部署（Media Download Center 版）
 #
 # 一条命令部署：
-#   cp .env.deploy.example .env      # 填入 SECRET_KEY
+#   cp .env.deploy.example .env      # 可选，按需修改路径
 #   docker compose -f docker-compose.deploy.yml up -d --build
 #
 # 与其它 compose 文件的区别：
@@ -55,7 +55,8 @@ services:
     environment:
       # ── 基础 ────────────────────────────────────────────
       - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
-      - SECRET_KEY=${SECRET_KEY:?请创建 .env 并设置 SECRET_KEY（openssl rand -hex 32）}
+      # SECRET_KEY 不写也行：首次启动自动生成并保存到 data/secret_key
+      # - SECRET_KEY=改成你自己的随机字符串
       - FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD:-}
       - TZ=${TZ:-Asia/Shanghai}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

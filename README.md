@@ -41,7 +41,7 @@ NASPilot 是一个面向 **NAS 用户** 和 **HomeLab 用户** 的自动化运�
 mkdir -p naspilot && cd naspilot
 curl -fsSL https://raw.githubusercontent.com/jiafok/NASPilot/main/docker-compose.yml -o docker-compose.yml
 curl -fsSL https://raw.githubusercontent.com/jiafok/NASPilot/main/.env.example -o .env
-# 修改 .env 中 SECRET_KEY 和 ADMIN_PASSWORD
+# 按需修改 .env（端口 / 媒体路径），密钥会自动生成
 docker compose up -d
 ```
 
@@ -52,8 +52,8 @@ docker compose up -d
 `docker-compose.deploy.yml` 会从源码构建镜像，`yt-dlp` 与 `ffmpeg` 已烘进镜像，容器内**无需再装任何东西**。
 
 ```bash
+# .env 可选：不建也能跑，全部有默认值
 cp .env.deploy.example .env
-# 必改：SECRET_KEY（openssl rand -hex 32）
 # 可选：NASPILOT_PORT / NAS_MEDIA_ROOT / MEDIA_PROXY_URL
 docker compose -f docker-compose.deploy.yml up -d --build
 ```

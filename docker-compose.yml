@@ -2,11 +2,12 @@
 # NASPilot — NAS 部署（群晖 / 威联通，host 网络）
 #
 # 用法：
-#   1. 在同目录建 .env，写一行：  SECRET_KEY=<随机字符串>
-#      生成： openssl rand -hex 32
-#   2. docker compose pull && docker compose up -d
+#   1. 把下面两处路径改成你的实际路径
+#   2. docker compose up -d
 #   3. 浏览器打开  http://<NAS-IP>:8082
 #
+# 不需要建 .env，也不需要设置密钥：首次启动会自动生成
+# 并保存到 data/secret_key，之后一直复用。
 # 镜像里已经装好 yt-dlp 和 ffmpeg，不用进容器装任何东西。
 # ==========================================================
 
@@ -38,7 +39,6 @@ services:
       - /volumeUSB1/usbshare/docker_backup:/volumeUSB1/usbshare/docker_backup:rw
 
     environment:
-      - SECRET_KEY=${SECRET_KEY:?请先建 .env 并设置 SECRET_KEY，例如 openssl rand -hex 32}
       - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
       - TZ=Asia/Shanghai
 
