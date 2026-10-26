@@ -89,8 +89,10 @@ class Settings(BaseSettings):
     #   opus / m4a / flac / wav → explicit container (stream copy when possible)
     MEDIA_AUDIO_FORMAT: str = "mp3"
     # ── English Learning Center ───────────────────────────────────────
-    #: Root of the English library (mounted into the container).
-    ENGLISH_ROOT: Path = Path("/English")
+    #: Root of the English library. Empty means "<MEDIA_ROOT>/English", i.e.
+    #: the library lives inside the single /Media mount and needs no second
+    #: volume. Set it only when the library sits on its own disk.
+    ENGLISH_ROOT: str = ""
     #: How many vocabulary terms to keep per course after extraction.
     ENGLISH_VOCAB_LIMIT: int = 300
     #: Scan the library on startup (off by default; scanning is cheap but logs).

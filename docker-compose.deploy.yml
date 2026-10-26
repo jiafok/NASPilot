@@ -41,8 +41,10 @@ services:
       # 一个挂载点即可：容器内自动使用 /Media/Video 与 /Media/Audio
       - ${NAS_MEDIA_ROOT:-./data/media}:/Media
 
-      # ── 英语学习媒体库（可选，不挂则该模块显示目录不存在）──
-      - ${NAS_ENGLISH_ROOT:-./data/english}:/English
+      # ── 英语学习媒体库：就在 /Media/English，无需第二个挂载 ─
+      # 若想放到独立磁盘，取消下面两行注释并在 environment 里设
+      # ENGLISH_ROOT=/English
+      # - /volume1/English:/English
 
       # ── 字幕/封面等附属文件与媒体同目录，无需额外挂载 ───────
 
@@ -61,6 +63,8 @@ services:
       # SECRET_KEY 不写也行：首次启动自动生成并保存到 data/secret_key
       # - SECRET_KEY=改成你自己的随机字符串
       - FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD:-}
+      # 英语库根目录：留空 = <MEDIA_ROOT>/English
+      - ENGLISH_ROOT=${ENGLISH_ROOT:-}
       - TZ=${TZ:-Asia/Shanghai}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
 

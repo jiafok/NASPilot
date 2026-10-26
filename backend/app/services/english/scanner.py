@@ -26,6 +26,7 @@ from app.models import (
     EnglishTranscript,
     EnglishVocabulary,
 )
+from app.services.media_center import settings_store as media_paths
 from app.services.english import metadata as meta
 from app.services.english import subtitles
 from app.services.english import vocabulary as vocab
@@ -39,6 +40,9 @@ MEDIA_EXTS = VIDEO_EXTS | AUDIO_EXTS
 
 DEFAULT_CHANNEL = "默认"
 DEFAULT_COURSE = "未分类"
+
+#: Sub-directory of the media root that holds the English library.
+ENGLISH_SUBDIR = "English"
 
 
 @dataclass
@@ -83,7 +87,20 @@ class ScanReport:
 
 
 def english_root() -> Path:
-    return Path(settings.ENGLISH_ROOT)
+    """Root of the English library.
+
+    Defaults to ``<media root>/English`` so the whole library lives inside the
+    single ``/Media`` mount — one host folder, one volume, nothing extra to
+    configure. Setting ``ENGLISH_ROOT`` (env or .env) always wins, which is how
+    you point the module at a dedicated disk.
+    """
+    explicit = str(settings.ENGLISH_ROOT or "").strip()
+    if explicit:
+        return Path(explicit)
+    try:
+        return media_paths.root() / ENGLISH_SUBDIR
+    except Exception:  # pragma: no cover - settings store is defensive already
+        return Path(settings.MEDIA_ROOT) / ENGLISH_SUBDIR
 
 
 def is_inside_root(path: Path, root: Path) -> bool:
@@ -450,9 +467,19 @@ async def scan(
     root_real = str(Path(os.path.realpath(base)))
     for lesson in all_lessons:
         in_root = lesson.file_path.startswith(root_real)
-        if in_root and lesson.file_path not in seen_files and lesson.status != "missing":
+        if not in_root or lesson.file_path in seen_files:
+            continue
+        if lesson.status != "missing":
             lesson.status = "missing"
             report.lessons_missing += 1
+        # Aggregates are recomputed for `touched_courses` only, so every course
+        # owning a missing lesson must be queued as well — otherwise its
+        # lesson_count keeps showing the stale value (and would never drop to
+        # zero when a whole course disappears).
+        if lesson.course_id not in touched_courses:
+            course = await db.get(EnglishCourse, lesson.course_id)
+            if course is not None:
+                touched_courses[course.id] = course
 
     # Update course aggregates + cover
     # (must run AFTER missing detection so counts exclude gone files)

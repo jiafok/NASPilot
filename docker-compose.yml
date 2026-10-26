@@ -31,10 +31,11 @@ services:
       # 「系统设置 → 媒体」里改，不需要动这个文件。
       - /volume1/media:/Media
 
-      # ── 必须 3：英语学习媒体库 ───────────────────────────
+      # ── 英语学习媒体库：就在 /Media/English ───────────────
       # 层级：<频道>/<课程>/<课时>.mp4|.mp3（同名 .srt/.vtt 自动绑定）
-      # 放进文件后在网页「英语学习 → 扫描媒体库」即可。
-      - ${NAS_ENGLISH_ROOT:-/volume1/media/English}:/English
+      # 放进文件后在网页「英语学习 → 扫描媒体库」即可，无需额外挂载。
+      # 想单独放一块盘：加 - /volume1/English:/English
+      #                并设 ENGLISH_ROOT=/English
 
       # ── 可选：容器管理 / 定时任务 / 备份 ─────────────────
       # 用不到这些功能，可以把下面 4 行整段删掉
@@ -51,7 +52,7 @@ services:
       # - FIRST_ADMIN_PASSWORD=admin123       # 留空 = 首次启动随机生成
       # - MEDIA_PROXY_URL=http://192.168.1.10:7890
       # - MEDIA_DEFAULT_VIDEO_HEIGHT=1080     # 默认 480，0 = 原画
-      # - ENGLISH_ROOT=/English               # 英语媒体库容器内路径
+      # - ENGLISH_ROOT=/Media/English         # 留空即此值
 
     # 日志轮转：防止日志把磁盘写满（单个 10MB，最多留 3 个）
     logging:

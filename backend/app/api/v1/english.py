@@ -461,7 +461,7 @@ async def english_directories(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     stats = await scanner.stats(db)
-    return {"root": str(settings.ENGLISH_ROOT), "stats": stats}
+    return {"root": str(scanner.english_root()), "stats": stats}
 
 
 @router.post("/admin/scan", summary="扫描媒体库（幂等）")
@@ -543,11 +543,11 @@ async def _load_lesson(db: AsyncSession, lesson_id: int) -> EnglishLesson:
 
 
 def _guarded(path_str: str | None) -> Path:
-    """Resolve a DB-stored path and confirm it is inside ENGLISH_ROOT."""
+    """Resolve a DB-stored path and confirm it is inside the library root."""
     if not path_str:
         raise HTTPException(status_code=404, detail="文件未登记")
     path = Path(path_str)
-    root = Path(settings.ENGLISH_ROOT)
+    root = scanner.english_root()
     if not scanner.is_inside_root(path, root):
         logger.warning("Blocked out-of-root media access: %s", path)
         raise HTTPException(status_code=403, detail="路径越界")
