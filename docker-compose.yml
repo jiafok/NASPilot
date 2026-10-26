@@ -1,16 +1,14 @@
-# ============================================================
-# NASPilot — NAS 部署（Synology/群晖 等，host 网络）
+# ==========================================================
+# NASPilot — NAS 部署（群晖 / 威联通，host 网络）
 #
-# 用途：群晖 / 威联通等 NAS 上直接拉 GHCR 镜像运行（host 网络）。
-#       本文件不编译源码；要自己构建请用 docker-compose.deploy.yml。
+# 用法：
+#   1. 在同目录建 .env，写一行：  SECRET_KEY=<随机字符串>
+#      生成： openssl rand -hex 32
+#   2. docker compose pull && docker compose up -d
+#   3. 浏览器打开  http://<NAS-IP>:8082
 #
-# 升级到 Media Download Center 版本：
-#   1. 备份 data/naspilot.db
-#   2. docker compose down
-#   3. docker compose pull && docker compose up -d
-#
-# ⚠ 必须保留 /Media 挂载，否则容器重建后已下载的文件会全部丢失。
-# ============================================================
+# 镜像里已经装好 yt-dlp 和 ffmpeg，不用进容器装任何东西。
+# ==========================================================
 
 services:
   naspilot:
@@ -19,73 +17,42 @@ services:
     container_name: naspilot
     restart: unless-stopped
 
-    network_mode: "host"
-
-    # ports:  ← not needed with host networking; container uses host's 8082 directly
-    #   - "8080:8000"
+    # host 网络 = 直接占用 NAS 的 8082 端口，所以不需要 ports 段
+    network_mode: host
 
     volumes:
-      # Persistent data (SQLite + logs + configs)
+      # ── 必须 1：数据库和配置 ─────────────────────────────
       - ./data:/app/data
-      # Optional: separate logs directory (logs now go to /app/data/logs/)
-      # - ./logs:/app/logs
-      # Docker socket (manage containers)
-      - /var/run/docker.sock:/var/run/docker.sock:rw
-      # Your scripts directory
-      - ./scripts:/scripts:ro
-      # Docker app backup (read)
-      - /volume1/docker:/volume1/docker:ro
-      # Docker app backup (write)
-      - /volumeUSB1/usbshare/docker_backup:/volumeUSB1/usbshare/docker_backup:rw
-      # ── 媒体下载（只需这一个挂载点）────────────────────────────
-      # 路径按你的实际存储空间改（不确定就 SSH 上去 ls /volume* 看一眼）。
-      # 容器会自动往下建 Video/ 与 Audio/，盘上结构：
-      #   /volume1/media/Video/youtube/<频道>/xxx.mp4
-      #   /volume1/media/Audio/podcast/<播客>/xxx.mp3
-      - /volume1/media:/Media
-      # 旧版 YouTube 页面（已弃用，不需要可删掉这两行）
-      - /volume1/media/Video:/media/Youtube
-      - /volume1/media/Audio:/media/Audio
 
-    # Optional: rclone mount requires FUSE
-    # cap_add:
-    #   - SYS_ADMIN
-    # devices:
-    #   - /dev/fuse:/dev/fuse
-    # volumes:
-    #   - /path/to/rclone.conf:/app/.config/rclone/rclone.conf:ro
+      # ── 必须 2：下载的媒体文件 ───────────────────────────
+      # 把 /volume1 换成你的媒体盘；首次下载时自动建 Video/ 与 Audio/
+      - /volume1/media:/Media
+
+      # ── 可选：容器管理 / 定时任务 / 备份 ─────────────────
+      # 用不到这些功能，可以把下面 4 行整段删掉
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      - ./scripts:/scripts:ro
+      - /volume1/docker:/volume1/docker:ro
+      - /volumeUSB1/usbshare/docker_backup:/volumeUSB1/usbshare/docker_backup:rw
 
     environment:
+      - SECRET_KEY=${SECRET_KEY:?请先建 .env 并设置 SECRET_KEY，例如 openssl rand -hex 32}
       - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
-      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required - run openssl rand -hex 32}
-      - FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD:-}
       - TZ=Asia/Shanghai
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
 
-      # ── 下面全是可选项，不写就用默认值 ──────────────────────────
-      # 目录（默认已对齐，无需设置）
-      #   MEDIA_VIDEO_DIR=/Media/Video   MEDIA_AUDIO_DIR=/Media/Audio
-      # 清晰度 / 并发 / 单次上限（默认 480 / 2 / 20）
-      # - MEDIA_DEFAULT_VIDEO_HEIGHT=1080     # 0 = 原画
-      # - MEDIA_MAX_CONCURRENT=2
-      # - MEDIA_MAX_PER_SYNC=20
-      # 全局代理：不设则直连；也可在单个订阅里单独设置出网方式
+      # ── 以下都可选，不写就用默认值 ───────────────────────
+      # - FIRST_ADMIN_PASSWORD=admin123       # 留空 = 首次启动随机生成
       # - MEDIA_PROXY_URL=http://192.168.1.10:7890
-      # 媒体服务器：仅用于生成「在 Emby/Jellyfin 打开」的跳转按钮，
-      # 不影响下载。不用就整段删掉。
-      # - EMBY_URL=http://192.168.1.10:8096
-      # - JELLYFIN_URL=http://192.168.1.10:8096
-      # - AUDIOBOOKSHELF_URL=http://192.168.1.10:13378
-      # 旧版 YouTube 页面相关（已弃用，可删）
-      - YOUTUBE_VIDEO_DIR=/media/Youtube
-      - YOUTUBE_AUDIO_DIR=/media/Audio
+      # - MEDIA_DEFAULT_VIDEO_HEIGHT=1080     # 默认 480，0 = 原画
 
+    # 日志轮转：防止日志把磁盘写满（单个 10MB，最多留 3 个）
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
+    # 每 30 秒探活一次；正常时 docker ps 里显示 (healthy)
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8082/api/health"]
       interval: 30s
