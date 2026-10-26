@@ -54,7 +54,7 @@ services:
 
     environment:
       # ── 基础 ────────────────────────────────────────────
-      - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
+      # 数据库自动使用 /app/data/naspilot.db（默认值，无需设置）
       # SECRET_KEY 不写也行：首次启动自动生成并保存到 data/secret_key
       # - SECRET_KEY=改成你自己的随机字符串
       - FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD:-}

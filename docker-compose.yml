@@ -8,7 +8,7 @@
 #
 # 不需要建 .env，也不需要设置密钥：首次启动会自动生成
 # 并保存到 data/secret_key，之后一直复用。
-# 镜像里已经装好 yt-dlp 和 ffmpeg，不用进容器装任何东西。
+# 镜像里已经装好 yt-dlp / ffmpeg，也自带健康检查；环境变量全部有默认值。
 # ==========================================================
 
 services:
@@ -39,7 +39,7 @@ services:
       - /volumeUSB1/usbshare/docker_backup:/volumeUSB1/usbshare/docker_backup:rw
 
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
+      # 数据库自动落在 /app/data/naspilot.db，不用指定
       - TZ=Asia/Shanghai
 
       # ── 以下都可选，不写就用默认值 ───────────────────────
@@ -54,10 +54,4 @@ services:
         max-size: "10m"
         max-file: "3"
 
-    # 每 30 秒探活一次；正常时 docker ps 里显示 (healthy)
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8082/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
+    # 健康检查已写在镜像里（Dockerfile HEALTHCHECK），这里不用重复配置
