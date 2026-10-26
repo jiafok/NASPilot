@@ -14,7 +14,9 @@
 ## A.1 根目录
 
 ```
-ENGLISH_ROOT（默认 /English）
+ENGLISH_ROOT（默认 = 媒体库根目录 /Media，即直接复用媒体中心下载的文件）
+├── Video/            ← 媒体中心视频输出（<provider>/<channel>/<playlist>/）
+├── Audio/            ← 媒体中心音频输出
 ├── Business English/
 ├── Daily English/
 ├── Podcast/
@@ -23,9 +25,13 @@ ENGLISH_ROOT（默认 /English）
 └── Mr English Channel/
 ```
 
+> 英语学习中心**不要求单独的目录**：媒体中心下载完成的文件会直接出现在课程
+> 列表里。顶层若存在 `Video/` 或 `Audio/`，这一层只表示「视频/音频输出」，
+> 不参与频道/课程命名。
+
 ## A.2 层级推导规则（Resource Scanner）
 
-以 `ENGLISH_ROOT` 为基准，按相对深度推导：
+以 `ENGLISH_ROOT` 为基准（先剥掉顶层的 `Video/`、`Audio/`），按相对深度推导：
 
 | 相对深度 | 目录 → | 文件 → |
 | --- | --- | --- |
@@ -33,20 +39,27 @@ ENGLISH_ROOT（默认 /English）
 | 2 级目录 | **Course** | 媒体 → 该 Course 的 Lesson |
 | 3 级及以上 | 归入最近的 2 级 Course，更深目录名并入 Lesson 标题前缀 |
 
+`videos` / `streams` / `shorts` / `playlist` 这类容器目录不计入标题前缀。
+
 示例：
 
 ```
-/English/Mr English Channel/Business English/Lesson 001.mp4
+/Media/Video/youtube/Mr English Channel/Lesson 001.mp4
+  → channel = "youtube"          （媒体中心布局：provider = 频道）
+  → course  = "Mr English Channel"
+  → lesson  = "Lesson 001"
+
+/Media/Mr English Channel/Business English/Lesson 001.mp4
   → channel = "Mr English Channel"
   → course  = "Business English"
   → lesson  = "Lesson 001"
 
-/English/TED/How to speak.mp3
+/Media/TED/How to speak.mp3
   → channel = "TED"
   → course  = "TED"          （1 级目录时 course 取同名）
   → lesson  = "How to speak"
 
-/English/loose.mp4
+/Media/loose.mp4
   → channel = "默认"
   → course  = "未分类"
 ```
@@ -57,9 +70,14 @@ ENGLISH_ROOT（默认 /English）
 | --- | --- | --- |
 | 视频 | `.mp4` `.mkv` `.webm` `.mov` `.m4v` | 作为一个 Lesson（`media_type=video`） |
 | 音频 | `.mp3` `.m4a` `.aac` `.flac` `.wav` `.ogg` `.opus` | 作为一个 Lesson（`media_type=audio`） |
-| 字幕 | `.srt` `.vtt` | 按同名基名绑定到 Lesson |
+| 字幕 | `.srt` `.vtt` | 按同名基名绑定；支持 yt-dlp 的语言后缀 `<name>.en.srt` / `<name>.zh-Hans.vtt`，英文优先、`.srt` 优先 |
 | 图片 | `.jpg` `.jpeg` `.png` `.webp` | 同名绑定为 Lesson 封面；目录内第一张作为 Course 封面 |
 | 忽略 | 其它 | 跳过 |
+
+## A.3.1 时长
+
+有字幕时取字幕最后一句的时间；没有字幕时用镜像内已有的 `ffprobe` 读取
+容器时长并缓存到 `lessons.duration`，文件未变动就不会重复探测。
 
 ## A.4 同名绑定
 

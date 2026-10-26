@@ -858,7 +858,8 @@ export default function EnglishCenter() {
               <div>
                 <Paragraph>还没有课程。</Paragraph>
                 <Text type="secondary">
-                  把英语音视频放进 <Text code>{stats?.root || '/English'}</Text>，
+                  媒体中心下载的音视频会自动出现在这里；也可以手动放进{' '}
+                  <Text code>{stats?.root || '/Media'}</Text>，
                   层级为 <Text code>&lt;频道&gt;/&lt;课程&gt;/&lt;课时&gt;</Text>，然后点「扫描媒体库」。
                 </Text>
               </div>

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,8 +43,14 @@ MEDIA_EXTS = VIDEO_EXTS | AUDIO_EXTS
 DEFAULT_CHANNEL = "默认"
 DEFAULT_COURSE = "未分类"
 
-#: Sub-directory of the media root that holds the English library.
-ENGLISH_SUBDIR = "English"
+#: Leading folders the Media Download Center uses to separate output modes.
+#: They describe where a file was written, not what it teaches, so they are
+#: stripped before deriving the channel/course identity.
+MODE_SEGMENTS = {"video", "audio"}
+
+#: Generic container folders some providers add. They add no meaning to a
+#: lesson title, so they are not used as a title prefix.
+GENERIC_SEGMENTS = {"videos", "streams", "shorts", "playlist", "playlists"}
 
 
 @dataclass
@@ -53,6 +61,7 @@ class Asset:
     stem: str
     media: Path | None = None
     subtitle: Path | None = None
+    subtitle_lang: str | None = None
     cover: Path | None = None
 
 
@@ -87,20 +96,23 @@ class ScanReport:
 
 
 def english_root() -> Path:
-    """Root of the English library.
+    """Root of the English library — the media library itself.
 
-    Defaults to ``<media root>/English`` so the whole library lives inside the
-    single ``/Media`` mount — one host folder, one volume, nothing extra to
-    configure. Setting ``ENGLISH_ROOT`` (env or .env) always wins, which is how
-    you point the module at a dedicated disk.
+    By default this is the very same directory the Media Download Center writes
+    into, so a downloaded episode becomes a lesson with no copying, no second
+    volume and no extra configuration. Everything the user already has under
+    ``/Media/Video`` or ``/Media/Audio`` is picked up as is.
+
+    Setting ``ENGLISH_ROOT`` (env or .env) always wins, which is how the module
+    can be pointed at a separate tree instead.
     """
     explicit = str(settings.ENGLISH_ROOT or "").strip()
     if explicit:
         return Path(explicit)
     try:
-        return media_paths.root() / ENGLISH_SUBDIR
+        return media_paths.root()
     except Exception:  # pragma: no cover - settings store is defensive already
-        return Path(settings.MEDIA_ROOT) / ENGLISH_SUBDIR
+        return Path(settings.MEDIA_ROOT)
 
 
 def is_inside_root(path: Path, root: Path) -> bool:
@@ -114,6 +126,32 @@ def is_inside_root(path: Path, root: Path) -> bool:
 
 
 # ── Filesystem collection ────────────────────────────────────────────────
+
+
+#: ``<name>.<lang>.srt`` — yt-dlp and most downloaders append a language tag,
+#: which must be stripped or the subtitle never binds to its video.
+_LANG_SUFFIX = re.compile(r"^(?P<base>.+?)\.(?P<lang>[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})?)$")
+
+
+def split_language(stem: str) -> tuple[str, str | None]:
+    """``"Episode.en-US"`` → ``("Episode", "en-US")``; no tag → unchanged."""
+    match = _LANG_SUFFIX.match(stem)
+    if not match:
+        return stem, None
+    return match.group("base"), match.group("lang")
+
+
+def _subtitle_rank(path: Path, lang: str | None) -> int:
+    """Higher wins: English over other languages, srt over vtt."""
+    score = 0
+    if path.suffix.lower() == ".srt":
+        score += 2
+    low = (lang or "").lower()
+    if low.startswith("en"):
+        score += 4
+    elif low.startswith("zh"):
+        score += 1
+    return score
 
 
 def collect_assets(root: Path) -> dict[Path, dict[str, Asset]]:
@@ -143,10 +181,14 @@ def collect_assets(root: Path) -> dict[Path, dict[str, Asset]]:
                 ):
                     asset.media = path
             elif ext in subtitles.SUBTITLE_EXTS:
-                asset = bucket.setdefault(stem, Asset(directory=directory, stem=stem))
-                # .srt wins over .vtt
-                if asset.subtitle is None or ext == ".srt":
+                base, lang = split_language(stem)
+                asset = bucket.setdefault(base, Asset(directory=directory, stem=base))
+                # Prefer English, then .srt — see _subtitle_rank
+                if asset.subtitle is None or _subtitle_rank(path, lang) > _subtitle_rank(
+                    asset.subtitle, asset.subtitle_lang
+                ):
                     asset.subtitle = path
+                    asset.subtitle_lang = lang
             elif ext in IMAGE_EXTS:
                 asset = bucket.setdefault(stem, Asset(directory=directory, stem=stem))
                 if asset.cover is None or ext == ".jpg":
@@ -170,11 +212,17 @@ def _course_identity(root: Path, directory: Path) -> tuple[str, str, str]:
         return DEFAULT_CHANNEL, DEFAULT_COURSE, ""
 
     parts = [p for p in rel.parts if p not in ("", ".")]
+    # "/Media/Video/<provider>/<channel>/..." → drop the output-mode folder so
+    # the Media Download Center's own layout lands on provider=channel,
+    # channel=course instead of producing a course literally called "Video".
+    if parts and parts[0].lower() in MODE_SEGMENTS:
+        parts = parts[1:]
     if not parts:
         return DEFAULT_CHANNEL, DEFAULT_COURSE, ""
     if len(parts) == 1:
         return parts[0], parts[0], ""
-    return parts[0], parts[1], " ".join(parts[2:])
+    extra = [p for p in parts[2:] if p.lower() not in GENERIC_SEGMENTS]
+    return parts[0], parts[1], " ".join(extra)
 
 
 def _pick_course_cover(directory: Path, assets: dict[str, Asset]) -> Path | None:
@@ -186,6 +234,34 @@ def _pick_course_cover(directory: Path, assets: dict[str, Asset]) -> Path | None
         if candidate.is_file():
             return candidate
     return None
+
+
+def _probe_duration(path: Path) -> int:
+    """Duration in whole seconds via ffprobe (0 when it cannot be read).
+
+    Reusing the media library means most lessons have no subtitle file, so the
+    duration cannot come from the transcript. ffprobe is already in the image
+    for the download center, so a single cheap call per file is enough — and
+    the value is cached in the row, so an unchanged file is probed only once.
+    """
+    try:
+        proc = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=nw=1:nk=1",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    try:
+        return max(0, int(float((proc.stdout or "").strip() or 0)))
+    except ValueError:
+        return 0
 
 
 def _mtime(path: Path) -> datetime | None:
@@ -281,6 +357,13 @@ async def _upsert_lesson(
     existing = (
         await db.execute(select(EnglishLesson).where(EnglishLesson.file_path == file_path))
     ).scalar_one_or_none()
+
+    if not duration:
+        # Reuse the cached value so an unchanged file is never probed twice.
+        if existing is not None and existing.duration:
+            duration = existing.duration
+        else:
+            duration = _probe_duration(asset.media)
 
     if existing is None:
         lesson = EnglishLesson(

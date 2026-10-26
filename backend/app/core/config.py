@@ -89,9 +89,11 @@ class Settings(BaseSettings):
     #   opus / m4a / flac / wav → explicit container (stream copy when possible)
     MEDIA_AUDIO_FORMAT: str = "mp3"
     # ── English Learning Center ───────────────────────────────────────
-    #: Root of the English library. Empty means "<MEDIA_ROOT>/English", i.e.
-    #: the library lives inside the single /Media mount and needs no second
-    #: volume. Set it only when the library sits on its own disk.
+    #: Root of the English library. Empty means "reuse the media library":
+    #: the scanner walks MEDIA_ROOT itself, so everything the Media Download
+    #: Center put under /Media/Video or /Media/Audio shows up as lessons with
+    #: no second copy and no extra config. Set it only to point at another
+    #: directory entirely.
     ENGLISH_ROOT: str = ""
     #: How many vocabulary terms to keep per course after extraction.
     ENGLISH_VOCAB_LIMIT: int = 300

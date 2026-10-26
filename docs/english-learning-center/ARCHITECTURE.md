@@ -13,7 +13,7 @@ NASPilot (唯一服务端)
 ├── Docker Module          ← 复用：容器管理
 ├── File Manager           ← 复用：目录浏览白名单
 ├── AI Center              ← 复用：统一 AI 客户端（本次抽离）
-├── Media Download Center  ← 上游：把资源下载到 /English
+├── Media Download Center  ← 上游：把资源下载到 /Media
 │
 └── English Learning Center        ← 本次新增
     ├── Resource Scanner
@@ -48,7 +48,7 @@ frontend/src/pages/english/EnglishCenter.tsx   Web 管理/浏览页
 ## 3. 数据流
 
 ```
-Media Download Center ──▶ /English/<Channel>/<Course>/<Lesson>.mp4|.mp3
+Media Download Center ──▶ /Media/<Video|Audio>/<Channel>/<Course>/<Lesson>.mp4|.mp3
                                         │
                                    Resource Scanner（手动/定时）
                                         ▼
@@ -76,14 +76,15 @@ Media Download Center ──▶ /English/<Channel>/<Course>/<Lesson>.mp4|.mp3
 ## 5. 与 Media Download Center 的衔接
 
 下载模块的根目录可配置（`MEDIA_ROOT`，默认 `/Media`）。
-English 模块根目录独立配置 `ENGLISH_ROOT`（默认 `/English`），
+English 模块默认直接扫描媒体库根目录 `MEDIA_ROOT`（`ENGLISH_ROOT` 留空即复用，
+文件不复制、不占第二份空间），
 两者互不干扰；用户也可以把 English 根指向 `/Media/...` 的某个子目录。
 
 ## 6. 安全
 
 | 点 | 措施 |
 | --- | --- |
-| 路径穿越 | 扫描/播放前一律 `realpath` 校验必须位于 `ENGLISH_ROOT` 之内 |
+| 路径穿越 | 扫描/播放前一律 `realpath` 校验必须位于库根目录之内 |
 | 未授权访问 | 所有接口 `CurrentUser` 依赖；客户端用 NASPilot 登录 token |
 | 文件泄露 | 流式接口只允许访问 `lessons` 表里登记的路径，不接受任意路径参数 |
 | 资源消耗 | 扫描在后台任务中执行，API 侧只读结果 |
@@ -100,7 +101,7 @@ English 模块根目录独立配置 `ENGLISH_ROOT`（默认 `/English`），
 
 | 失败 | 处理 |
 | --- | --- |
-| `/English` 不存在 | 扫描返回明确提示，不创建空课程 |
+| 媒体根目录不存在 | 扫描返回明确提示，不创建空课程 |
 | 字幕编码非 UTF-8 | 依次尝试 utf-8 / utf-8-sig / gbk，最终忽略非法字符 |
 | 文件名重复 | 以绝对路径去重；同目录同名不同扩展名视为同一课时的不同资产 |
 | 扫描中断 | 单文件异常只记录并跳过，不中断整轮扫描 |

@@ -31,14 +31,26 @@ NASPilot
 
 ## 快速开始
 
-1. 把英语音视频放进挂载的 `/English`：
+1. 不需要单独建目录——**直接复用媒体库**。媒体中心下载完成的文件
+   已经在 `/Media/Video`、`/Media/Audio` 下，扫描即成为课时：
 
 ```
-/English/
+/Media/                                  ← 媒体根目录
+├── Video/                               ← 媒体中心输出（provider/channel/…）
+│   └── youtube/Mr English Channel/
+│       ├── Lesson 001.mp4
+│       └── Lesson 001.srt               ← 同名自动绑定字幕
+└── Audio/
+    └── TED/How to speak.mp3
+```
+
+也可以自己按 `<频道>/<课程>/<课时>.mp4` 放进去：
+
+```
+/Media/
 └── Mr English Channel/          ← Channel
     └── Business English/        ← Course
         ├── 001 - Greetings.mp4  ← Lesson
-        ├── 001 - Greetings.srt  ← 同名自动绑定字幕
         └── 002 - Negotiating.mp3
 ```
 
