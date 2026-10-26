@@ -12,31 +12,35 @@ from __future__ import annotations
 from urllib.parse import quote
 
 from app.core.config import settings
+from app.services.media_center import settings_store
 from app.services.media_center.paths import base_root, output_dir
 
 
 def _server_config() -> list[dict]:
+    # Library roots follow the runtime media settings, not hardcoded paths
+    video = str(settings_store.video_dir())
+    audio = str(settings_store.audio_dir())
     return [
         {
             "kind": "emby",
             "label": "Emby",
             "base_url": (settings.EMBY_URL or "").strip() or None,
             "path": "/web/index.html#!/video",
-            "library_paths": ["/Media/Video", "/Media/Audio"],
+            "library_paths": [video, audio],
         },
         {
             "kind": "jellyfin",
             "label": "Jellyfin",
             "base_url": (settings.JELLYFIN_URL or "").strip() or None,
             "path": "/web/index.html#!/home",
-            "library_paths": ["/Media/Video", "/Media/Audio"],
+            "library_paths": [video, audio],
         },
         {
             "kind": "audiobookshelf",
             "label": "Audiobookshelf",
             "base_url": (settings.AUDIOBOOKSHELF_URL or "").strip() or None,
             "path": "/library",
-            "library_paths": ["/Media/Audio"],
+            "library_paths": [audio],
         },
     ]
 

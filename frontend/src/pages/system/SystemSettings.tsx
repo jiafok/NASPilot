@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Form, Input, Button, Switch, message, Typography, Card, Spin, Tabs, Modal, Space, Row, Col, Statistic } from 'antd';
+import { Form, Input, Button, Switch, message, Typography, Card, Spin, Tabs, Modal, Space, Row, Col, Statistic, Alert } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
-import { SaveOutlined, ReloadOutlined, LockOutlined, SettingOutlined, RobotOutlined, FolderOpenOutlined, CopyOutlined, AppstoreOutlined, BellOutlined } from '@ant-design/icons';
+import { SaveOutlined, ReloadOutlined, LockOutlined, SettingOutlined, RobotOutlined, FolderOpenOutlined, CopyOutlined, AppstoreOutlined, BellOutlined, VideoCameraOutlined } from '@ant-design/icons';
 
 const { Title, Paragraph } = Typography;
 
@@ -115,6 +115,9 @@ export default function SystemSettings() {
 
   // Filter settings by category
   const catSettings = (cat: string) => settings.filter(s => s.category === cat);
+  // Media path keys live in their own tab so they are not duplicated
+  const MEDIA_KEYS = ['MEDIA_ROOT', 'MEDIA_VIDEO_DIR', 'MEDIA_AUDIO_DIR'];
+  const generalSettings = () => catSettings('general').filter(s => !MEDIA_KEYS.includes(s.key));
 
   const tabItems = [
     {
@@ -122,7 +125,7 @@ export default function SystemSettings() {
       label: <span><SettingOutlined /> {t('system.general')}</span>,
       children: (
         <Row gutter={[16, 0]}>
-          {catSettings('general').map(s => {
+          {generalSettings().map(s => {
             if (s.value_type === 'bool') {
               return <Col xs={24} sm={12} key={s.key}><Form.Item name={s.key} label={s.key} valuePropName="checked" help={s.description}><Switch /></Form.Item></Col>;
             }
@@ -135,6 +138,54 @@ export default function SystemSettings() {
             return <Col xs={24} sm={12} key={s.key}><Form.Item name={s.key} label={s.key} help={s.description}><Input /></Form.Item></Col>;
           })}
         </Row>
+      ),
+    },
+    {
+      key: 'media',
+      label: <span><VideoCameraOutlined /> 媒体</span>,
+      children: (
+        <>
+          <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+            媒体下载目录。<strong>只需设置根目录</strong>，其下会自动使用 Video/ 与 Audio/ 两个子目录。
+            这里的路径是<strong>容器内路径</strong>，必须对应 docker-compose 里挂载的目录
+            （例如宿主机 /volume1/media 挂到容器 /Media）。
+          </Paragraph>
+          <Row gutter={[16, 0]}>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="MEDIA_ROOT"
+                label="媒体根目录"
+                help="默认 /Media。改完立即生效，已下载的文件不会自动搬家。"
+              >
+                <Input placeholder="/Media" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="MEDIA_VIDEO_DIR"
+                label="视频目录（可选）"
+                help="留空 = <媒体根目录>/Video"
+              >
+                <Input placeholder="/Media/Video" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item
+                name="MEDIA_AUDIO_DIR"
+                label="音频目录（可选）"
+                help="留空 = <媒体根目录>/Audio"
+              >
+                <Input placeholder="/Media/Audio" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Alert
+            type="info"
+            showIcon
+            message="换存储位置的做法"
+            description="在 docker-compose 里把新的宿主机目录挂到容器内的目标路径，然后在上面改成该容器路径即可，无需重建镜像。"
+          />
+        </>
       ),
     },
     {

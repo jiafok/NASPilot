@@ -42,6 +42,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from app.services.media_center.migrate_legacy import migrate_legacy_youtube
     from app.services.media_center.scheduler import sync_all_schedules
 
+    # Media paths: load runtime overrides (and seed the editable setting rows)
+    from app.services.media_center import settings_store
+
+    await settings_store.load()
+    settings_store.ensure_dirs()
+
     # One-time (idempotent) move of legacy YouTube rows into the unified center
     await migrate_legacy_youtube()
     await sync_all_schedules()

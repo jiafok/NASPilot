@@ -64,8 +64,12 @@ class Settings(BaseSettings):
     YOUTUBE_RETENTION_DAYS: int = 30  # finished task rows cleanup
 
     # ── Media Download Center (unified, all providers) ─────────────────
-    MEDIA_VIDEO_DIR: Path = Path("/Media/Video")
-    MEDIA_AUDIO_DIR: Path = Path("/Media/Audio")
+    # 只需要一个根目录：其下自动使用 Video/ 与 Audio/。
+    # 运行时可从「系统设置」页修改（存 settings 表，优先于这里的默认值）。
+    MEDIA_ROOT: Path = Path("/Media")
+    # 可选：单独覆盖某个子目录（留空 = <MEDIA_ROOT>/Video 或 /Audio）
+    MEDIA_VIDEO_DIR: str = ""
+    MEDIA_AUDIO_DIR: str = ""
     MEDIA_DEFAULT_VIDEO_HEIGHT: int = 480
     MEDIA_AUDIO_QUALITY: str = "0"
     MEDIA_SUB_LANGS: str = "en.*"

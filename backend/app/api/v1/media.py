@@ -44,6 +44,7 @@ from app.schemas.media_center import (
     UrlDetectOut,
 )
 from app.services.media_center import engine, mediaserver, queue
+from app.services.media_center import settings_store as _paths
 from app.services.media_center.base import all_providers, detect_provider, get_provider_class
 from app.services.media_center.job import MediaSyncJob
 from app.services.media_center.paths import suggest_library_paths
@@ -482,11 +483,54 @@ async def media_servers(user: CurrentUser):
     return mediaserver.describe()
 
 
-@router.get("/directories", summary="Suggested library directories")
+_MEDIA_SETTING_KEYS = (_paths.KEY_ROOT, _paths.KEY_VIDEO, _paths.KEY_AUDIO)
+
+
+@router.get("/directories", summary="Media directories (runtime configurable)")
 async def directories(user: CurrentUser):
+    """Current media paths plus where they come from (settings / env / default)."""
     return {
-        "video": str(settings.MEDIA_VIDEO_DIR),
-        "audio": str(settings.MEDIA_AUDIO_DIR),
+        "video": str(_paths.video_dir()),
+        "audio": str(_paths.audio_dir()),
+        "root": str(_paths.root()),
+        "source": _paths.snapshot()["source"],
+        "library_paths": suggest_library_paths(),
+    }
+
+
+@router.put("/directories", summary="Change the media root at runtime")
+async def update_directories(
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    key: str = Query(..., description="MEDIA_ROOT / MEDIA_VIDEO_DIR / MEDIA_AUDIO_DIR"),
+    value: str = Query(..., description="新的容器内路径"),
+):
+    """Persist a media path setting and apply it immediately.
+
+    Lets a NAS user relocate the library without editing docker-compose.yml or
+    recreating the container. The directory is created if missing.
+    """
+    if key not in _MEDIA_SETTING_KEYS:
+        raise HTTPException(status_code=400, detail=f"不支持的配置项: {key}")
+    if not value.strip().startswith("/"):
+        raise HTTPException(status_code=400, detail="请填写容器内的绝对路径，例如 /Media")
+    try:
+        snap = await _paths.update(key, value, db=db)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        _paths.ensure_dirs()
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+    logger.info("Media path %s -> %s (now %s)", key, value, snap)
+    return {
+        "message": "已更新",
+        "video": snap["video"],
+        "audio": snap["audio"],
+        "root": snap["root"],
+        "source": snap["source"],
         "library_paths": suggest_library_paths(),
     }
 
@@ -542,8 +586,8 @@ async def build_health() -> dict:
         "providers": provider_infos(),
         "network": network,
         "directories": {
-            "video": str(settings.MEDIA_VIDEO_DIR),
-            "audio": str(settings.MEDIA_AUDIO_DIR),
+            "video": str(_paths.video_dir()),
+            "audio": str(_paths.audio_dir()),
         },
         "active_downloads": st["active"],
         "queued_tasks": st["counts"].get("pending", 0),

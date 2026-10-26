@@ -105,14 +105,25 @@ class SubscriptionProvider(ABC):
 
     # ── Helpers ────────────────────────────────────────────────────────
     def base_dir(self) -> str:
-        """Resolve the destination root for this subscription."""
-        from app.core.config import settings
+        """Resolve the destination root for this subscription.
+
+        The legacy page shares the unified media root, so a NAS only has to
+        mount one directory (``/Media``) no matter which page is used.
+        ``YOUTUBE_VIDEO_DIR`` / ``YOUTUBE_AUDIO_DIR`` still win when set
+        explicitly, which keeps older deployments working.
+        """
+        import os
+
+        from app.services.media_center import settings_store
 
         if self.subscription.download_path:
             return self.subscription.download_path
+
+        audio = (os.environ.get("YOUTUBE_AUDIO_DIR") or "").strip()
+        video = (os.environ.get("YOUTUBE_VIDEO_DIR") or "").strip()
         if self.media_mode() == "audio":
-            return str(settings.YOUTUBE_AUDIO_DIR)
-        return str(settings.YOUTUBE_VIDEO_DIR)
+            return audio or str(settings_store.audio_dir())
+        return video or str(settings_store.video_dir())
 
     def media_mode(self) -> str:
         """Resolve the output mode: ``video`` | ``audio`` | ``both``."""

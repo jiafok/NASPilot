@@ -65,6 +65,9 @@ docker compose -f docker-compose.deploy.yml up -d --build
 | `NASPILOT_PORT` | `8082` | 宿主机端口 |
 | `NASPILOT_DATA` | `./data` | 数据库/日志目录 |
 | `NAS_MEDIA_ROOT` | `./data/media` | 媒体根目录（NAS 上建议绝对路径，如 `/volume1/media`）；容器内自动使用其 `Video/` 与 `Audio/` 子目录 |
+
+> 媒体目录也可在**「系统设置 → 媒体」**里直接改（存数据库，立即生效，无需重建容器）：
+> 那里填的是容器内路径，需与 compose 的挂载目标对应。
 | `MEDIA_PROXY_URL` | 空 | 全局代理（`http://`/`socks5://`）；也可在单个订阅里单独设置 |
 | `EMBY_URL` / `JELLYFIN_URL` / `AUDIOBOOKSHELF_URL` | 空 | 填了会在历史记录里生成播放器直达链接 |
 

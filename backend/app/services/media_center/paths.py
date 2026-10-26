@@ -31,16 +31,16 @@ def safe_segment(value: str | None, fallback: str = "Unknown", max_len: int = 12
 
 def base_root(subscription) -> Path:
     """Root directory for a subscription (``/Media/Video`` or ``/Media/Audio``)."""
-    from app.core.config import settings
+    from app.services.media_center import settings_store
 
     explicit = (getattr(subscription, "download_path", None) or "").strip()
     if explicit:
         return Path(explicit)
 
-    mode = getattr(subscription, "media_mode", None) or "video"
-    if mode == "audio" or getattr(subscription, "audio_only", False):
-        return Path(settings.MEDIA_AUDIO_DIR)
-    return Path(settings.MEDIA_VIDEO_DIR)
+    return settings_store.dir_for_mode(
+        getattr(subscription, "media_mode", None),
+        bool(getattr(subscription, "audio_only", False)),
+    )
 
 
 def output_dir(subscription, provider: str, channel: str | None, playlist: str | None) -> Path:
@@ -71,12 +71,12 @@ def output_template(
 
 def suggest_library_paths() -> dict[str, list[str]]:
     """Recommended library roots for media servers."""
-    from app.core.config import settings
+    from app.services.media_center import settings_store
 
-    video = str(settings.MEDIA_VIDEO_DIR)
-    audio = str(settings.MEDIA_AUDIO_DIR)
+    video = str(settings_store.video_dir())
+    audio = str(settings_store.audio_dir())
     return {
-        "emby": [f"{video}:/Media/Video (类型: 电影/电视节目)", f"{audio}:/Media/Audio (类型: 音乐)"],
-        "jellyfin": [f"{video}:/Media/Video (类型: 视频)", f"{audio}:/Media/Audio (类型: 音乐)"],
-        "audiobookshelf": [f"{audio}:/Media/Audio (类型: 播客/有声书)"],
+        "emby": [f"{video}（电影/电视节目）", f"{audio}（音乐）"],
+        "jellyfin": [f"{video}（视频）", f"{audio}（音乐）"],
+        "audiobookshelf": [f"{audio}（播客/有声书）"],
     }

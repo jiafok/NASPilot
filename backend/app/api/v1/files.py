@@ -12,7 +12,7 @@ from app.core.deps import CurrentUser
 router = APIRouter(prefix="/files", tags=["files"])
 
 # Only allow browsing Docker-mapped volumes — not the container filesystem
-SAFE_ROOTS = [
+BASE_ROOTS = [
     "/app/data",       # NASPilot data (config + logs)
     "/volume1",         # NAS docker volumes
     "/volumeUSB1",      # USB backup
@@ -28,10 +28,38 @@ ROOT_LABELS: dict[str, str] = {
     "/scripts": "📜 脚本目录",
 }
 
+
+def safe_roots() -> list[str]:
+    """Mount points the browser may read.
+
+    The media directories come from the runtime settings, so they follow
+    whatever the user configured in「媒体中心」without touching this whitelist.
+    """
+    from app.services.media_center import settings_store
+
+    roots = list(BASE_ROOTS)
+    for path in (settings_store.root(), settings_store.video_dir(), settings_store.audio_dir()):
+        text = str(path)
+        if text not in roots:
+            roots.append(text)
+    return roots
+
+
+def _label(root: str) -> str:
+    from app.services.media_center import settings_store
+
+    if root == str(settings_store.video_dir()):
+        return "🎬 视频库"
+    if root == str(settings_store.audio_dir()):
+        return "🎵 音频库"
+    if root == str(settings_store.root()):
+        return "🎬🎵 媒体库"
+    return ROOT_LABELS.get(root, os.path.basename(root) or root)
+
 def _safe_path(path: str) -> str:
     """Resolve and validate a path against safe roots."""
     real = os.path.realpath(os.path.abspath(path))
-    for root in SAFE_ROOTS:
+    for root in safe_roots():
         root_real = os.path.realpath(root)
         if real == root_real or real.startswith(root_real + os.sep):
             return real
@@ -46,18 +74,19 @@ async def list_dir(
     """List files and directories at the given path.
     
     At the root level (/), returns only the Docker-mapped mount points
-    (SAFE_ROOTS) instead of the real container filesystem.
+    (see ``safe_roots()``) instead of the real container filesystem.
     """
-    
+    roots = safe_roots()
+
     def _list_dir_sync(dir_path: str) -> dict:
         """Synchronous directory listing."""
         # Virtual root: show only safe mount points that actually exist
         if dir_path == "/":
             entries = []
-            for root in SAFE_ROOTS:
+            for root in roots:
                 real_root = os.path.realpath(root)
                 if os.path.isdir(real_root):
-                    label = ROOT_LABELS.get(root, os.path.basename(root) or root)
+                    label = _label(root)
                     entries.append({
                         "name": label,
                         "real_path": root,
