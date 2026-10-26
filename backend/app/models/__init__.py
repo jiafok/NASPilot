@@ -243,3 +243,24 @@ class Setting(TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(String(512))
     category: Mapped[str] = mapped_column(String(64), default="general", index=True)
     is_public: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")  # readable without auth
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  Media Subscription Center (YouTube auto-download)
+# ══════════════════════════════════════════════════════════════════════
+# Imported last so the declarative models above are already registered.
+from app.models.youtube import (  # noqa: E402,F401
+    YoutubeDownloadHistory,
+    YoutubeDownloadTask,
+    YoutubeSubscription,
+)
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  Media Download Center (unified multi-provider)
+# ══════════════════════════════════════════════════════════════════════
+from app.models.media_center import (  # noqa: E402,F401
+    MediaDownloadHistory,
+    MediaDownloadTask,
+    MediaSubscription,
+)

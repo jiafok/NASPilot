@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Table, Button, Breadcrumb, Typography, Spin, Modal, Space, message, Card, Row, Col, Statistic, Progress } from 'antd';
 import { FolderOutlined, FileOutlined, HomeOutlined, ReloadOutlined, DownloadOutlined, ArrowLeftOutlined, HddOutlined } from '@ant-design/icons';
@@ -19,7 +20,9 @@ interface DirEntry {
 
 export default function FileBrowser() {
   const { t } = useTranslation();
-  const [path, setPath] = useState('/');
+  const [searchParams] = useSearchParams();
+  // Deep-link support: /files?path=/media/Youtube/...
+  const [path, setPath] = useState(searchParams.get('path') || '/');
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

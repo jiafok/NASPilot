@@ -16,6 +16,7 @@ import {
   RobotOutlined,
   MenuOutlined,
   FolderOpenOutlined,
+  VideoCameraOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../hooks/useAuth';
@@ -59,6 +60,16 @@ export default function MainLayout() {
         { key: '/applications/rclone-mount', label: 'Rclone 挂载' },
       ],
     },
+    {
+      key: '/media',
+      icon: <VideoCameraOutlined />,
+      label: '媒体中心',
+      children: [
+        { key: '/media/subscriptions', label: '媒体订阅' },
+        { key: '/media/tasks', label: '下载任务' },
+        { key: '/media/history', label: '历史记录' },
+      ],
+    },
     { key: '/containers', icon: <DatabaseOutlined />, label: t('nav.containerManager') },
     { key: '/files', icon: <FolderOpenOutlined />, label: 'File Manager' },
     { key: '/logs', icon: <FileTextOutlined />, label: t('nav.logs') },
@@ -85,6 +96,10 @@ export default function MainLayout() {
     if (p.startsWith('/applications/cloudflare-ddns') || p.startsWith('/tools/cloudflare-ddns')) return '/applications/cloudflare-ddns';
     if (p.startsWith('/applications/btrfs-cleanup')) return '/applications/btrfs-cleanup';
     if (p.startsWith('/applications/rclone-mount')) return '/applications/rclone-mount';
+    if (p.startsWith('/media/youtube')) return '/media/subscriptions';
+    if (p.startsWith('/media/tasks')) return '/media/tasks';
+    if (p.startsWith('/media/history')) return '/media/history';
+    if (p.startsWith('/media')) return '/media/subscriptions';
     if (p.startsWith('/containers')) return '/containers';
     if (p.startsWith('/files')) return '/files';
     if (p.startsWith('/logs')) return '/logs';

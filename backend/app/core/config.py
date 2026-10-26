@@ -38,6 +38,49 @@ class Settings(BaseSettings):
     LOG_DIR: Path = Path("./data/logs")
     PLUGIN_DIR: Path = Path("./plugins")
 
+    # ── Media Subscription Center (YouTube auto-download) ──────────────
+    YOUTUBE_VIDEO_DIR: Path = Path("/media/Youtube")
+    YOUTUBE_AUDIO_DIR: Path = Path("/media/Audio")
+    YOUTUBE_SYNC_INTERVAL_HOURS: int = 6
+    # Max items inspected per subscription check (0 = unlimited)
+    YOUTUBE_SCAN_LIMIT: int = 100
+    # Max new videos downloaded per sync (protects disk on first subscribe)
+    YOUTUBE_MAX_PER_SYNC: int = 20
+    YOUTUBE_SUB_LANGS: str = "en.*"
+    # Global default video height cap (per-subscription ``video_height`` wins).
+    # 0 = no cap (best available).
+    YOUTUBE_MAX_HEIGHT: int = 480
+    # Global default audio format for audio-only / both modes:
+    #   mp3  → 有损重编码 (libmp3lame VBR q0, 兼容性最好)
+    #   best → 零转码重封装，保留 YouTube 原始流 (Opus/AAC)
+    #   opus / m4a / flac / wav → 指定容器 (能 copy 时自动 copy)
+    YOUTUBE_AUDIO_FORMAT: str = "mp3"
+    # Lossy quality knob (0 = 最高)。copy 模式下被忽略。
+    YOUTUBE_AUDIO_QUALITY: str = "0"
+    YOUTUBE_COOKIES_FILE: str = ""
+    YOUTUBE_PROXY: str = ""
+    # e.g. "node" / "deno" when yt-dlp needs a JS runtime for YouTube signatures
+    YOUTUBE_JS_RUNTIMES: str = ""
+    YOUTUBE_RETENTION_DAYS: int = 30  # finished task rows cleanup
+
+    # ── Media Download Center (unified, all providers) ─────────────────
+    MEDIA_VIDEO_DIR: Path = Path("/Media/Video")
+    MEDIA_AUDIO_DIR: Path = Path("/Media/Audio")
+    MEDIA_DEFAULT_VIDEO_HEIGHT: int = 480
+    MEDIA_AUDIO_QUALITY: str = "0"
+    MEDIA_SUB_LANGS: str = "en.*"
+    MEDIA_SCAN_LIMIT: int = 100
+    MEDIA_MAX_PER_SYNC: int = 20
+    MEDIA_MAX_CONCURRENT: int = 2
+    MEDIA_RATE_LIMIT: str = ""            # global default, e.g. "5M"
+    MEDIA_PROXY_URL: str = ""             # default proxy for network_mode=system
+    MEDIA_DEFAULT_SCHEDULE: str = "every_6h"
+    MEDIA_RETENTION_DAYS: int = 30
+    # ── Media servers (deep links + library hints) ────────────────────
+    EMBY_URL: str = ""
+    JELLYFIN_URL: str = ""
+    AUDIOBOOKSHELF_URL: str = ""
+
     # ── CORS ────────────────────────────────────────────────────────────
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",

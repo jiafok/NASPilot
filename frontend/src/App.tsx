@@ -22,6 +22,7 @@ import LogCleanup from './pages/plugins/LogCleanup';
 import FileBrowser from './pages/system/FileBrowser';
 import BtrfsCleanup from './pages/plugins/BtrfsCleanup';
 import RcloneMount from './pages/plugins/RcloneMount';
+import MediaCenter from './pages/media/MediaCenter';
 
 function App() {
   return (
@@ -68,6 +69,14 @@ function App() {
                 <Route path="applications/log-cleanup" element={<LogCleanup />} />
                 <Route path="applications/btrfs-cleanup" element={<BtrfsCleanup />} />
                 <Route path="applications/rclone-mount" element={<RcloneMount />} />
+
+                {/* Media Download Center */}
+                <Route path="media" element={<Navigate to="/media/subscriptions" replace />} />
+                <Route path="media/subscriptions" element={<MediaCenter view="subscriptions" />} />
+                <Route path="media/tasks" element={<MediaCenter view="tasks" />} />
+                <Route path="media/history" element={<MediaCenter view="history" />} />
+                {/* Legacy YouTube-only page → unified media center */}
+                <Route path="media/youtube" element={<Navigate to="/media/subscriptions" replace />} />
               </Route>
             </Routes>
           </BrowserRouter>
