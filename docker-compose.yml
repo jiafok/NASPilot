@@ -1,11 +1,13 @@
 # ============================================================
 # NASPilot — NAS 部署（Synology/群晖 等，host 网络）
 #
+# 用途：群晖 / 威联通等 NAS 上直接拉 GHCR 镜像运行（host 网络）。
+#       本文件不编译源码；要自己构建请用 docker-compose.deploy.yml。
+#
 # 升级到 Media Download Center 版本：
 #   1. 备份 data/naspilot.db
 #   2. docker compose down
-#   3. docker compose build && docker compose up -d
-#      （或改用 GHCR 镜像，见下面 image/ 行）
+#   3. docker compose pull && docker compose up -d
 #
 # ⚠ 媒体下载中心必须挂载 /Media/Video 与 /Media/Audio，
 #   否则容器重建后已下载的文件会全部丢失。
@@ -13,11 +15,8 @@
 
 services:
   naspilot:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    # image: ghcr.io/jiafok/naspilot:latest  ← uncomment after pushing to GHCR
-    pull_policy: build
+    image: ghcr.io/jiafok/naspilot:latest
+    pull_policy: always
     container_name: naspilot
     restart: unless-stopped
 

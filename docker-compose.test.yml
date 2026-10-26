@@ -12,8 +12,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       # Optional scripts mount (keep behavior close to production)
       - ./scripts:/scripts:ro
-      # Media Subscription Center (local test dirs)
-      - ./data/media/Youtube:/media/Youtube
+      # Media Download Center (must be mounted or downloads vanish on recreate)
+      - ./data/media/Video:/Media/Video
+      - ./data/media/Audio:/Media/Audio
+      # Deprecated YouTube page (same host dirs)
+      - ./data/media/Video:/media/Youtube
       - ./data/media/Audio:/media/Audio
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
@@ -21,5 +24,9 @@ services:
       - FIRST_ADMIN_PASSWORD=admin123
       - TZ=Asia/Shanghai
       - LOG_LEVEL=INFO
+      - MEDIA_VIDEO_DIR=/Media/Video
+      - MEDIA_AUDIO_DIR=/Media/Audio
+      - MEDIA_MAX_PER_SYNC=3
+      - MEDIA_SCAN_LIMIT=15
       - YOUTUBE_VIDEO_DIR=/media/Youtube
       - YOUTUBE_AUDIO_DIR=/media/Audio
