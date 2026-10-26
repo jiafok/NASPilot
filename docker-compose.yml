@@ -38,13 +38,14 @@ services:
       # Docker app backup (write)
       - /volumeUSB1/usbshare/docker_backup:/volumeUSB1/usbshare/docker_backup:rw
       # ── 媒体下载（只需这一个挂载点）────────────────────────────
-      # 容器内会自动往下建 Video/ 和 Audio/ 两个子目录，
-      # 盘上结构： <宿主机目录>/Video/youtube/<频道>/...mp4
-      #            <宿主机目录>/Audio/podcast/<播客>/...mp3
-      - ${NAS_MEDIA_ROOT:-./data/media}:/Media
+      # 路径按你的实际存储空间改（不确定就 SSH 上去 ls /volume* 看一眼）。
+      # 容器会自动往下建 Video/ 与 Audio/，盘上结构：
+      #   /volume1/media/Video/youtube/<频道>/xxx.mp4
+      #   /volume1/media/Audio/podcast/<播客>/xxx.mp3
+      - /volume1/media:/Media
       # 旧版 YouTube 页面（已弃用，不需要可删掉这两行）
-      - ${NAS_MEDIA_ROOT:-./data/media}/Video:/media/Youtube
-      - ${NAS_MEDIA_ROOT:-./data/media}/Audio:/media/Audio
+      - /volume1/media/Video:/media/Youtube
+      - /volume1/media/Audio:/media/Audio
 
     # Optional: rclone mount requires FUSE
     # cap_add:
