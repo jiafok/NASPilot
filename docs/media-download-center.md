@@ -216,6 +216,6 @@ services:
    （`GET /api/media/network-test?subscription_id=<id>`）。
 2. `SSL: UNEXPECTED_EOF_WHILE_READING` / `403` → 该源 CDN 被阻断，为该订阅设置
    `http`/`socks5` 代理，或让容器走 VPN sidecar。
-3. 需要登录 / 年龄限制（YouTube、X）→ 挂载 cookies 并设置 `YOUTUBE_COOKIES_FILE`。
+3. 需要登录 / 年龄限制（YouTube、X）→ 挂载 cookies 并设置 `MEDIA_COOKIES_FILE`。
 4. 任务停在 `paused` → 点「继续」，yt-dlp 会用 `--continue` 续传。
 5. 磁盘被占满 → 降低 `MEDIA_MAX_PER_SYNC` / `MEDIA_MAX_CONCURRENT`，或设置 `rate_limit`。

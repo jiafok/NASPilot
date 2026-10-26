@@ -10,7 +10,6 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
 from app.api.v1.media import router as media_router
-from app.api.v1.youtube import router as youtube_router
 from app.core.config import settings
 from app.lifespan import lifespan
 
@@ -64,7 +63,7 @@ async def health():
 @app.get("/health/ytdlp", tags=["health"])
 async def health_ytdlp():
     """Media dependency probe — reports yt-dlp / ffmpeg availability."""
-    from app.services.media.ytdlp import dependency_health
+    from app.services.media_center.ytdlp_core import dependency_health
 
     return await dependency_health()
 
@@ -78,7 +77,6 @@ async def health_media():
 
 
 # Unversioned alias for the Media Subscription Center API (/api/youtube/...)
-app.include_router(youtube_router, prefix="/api", include_in_schema=False)
 # Unversioned alias for the Media Download Center (/api/media/...)
 app.include_router(media_router, prefix="/api", include_in_schema=False)
 

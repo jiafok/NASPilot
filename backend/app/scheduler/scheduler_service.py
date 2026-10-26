@@ -273,33 +273,3 @@ async def sync_plugin_schedules() -> int:
                 count += 1
     logger.info(f"Synced {count} plugin schedules")
     return count
-
-
-# ── Media Subscription Center (YouTube auto sync) ─────────────────────
-
-YOUTUBE_JOB_ID = "youtube-sync"
-
-
-def sync_youtube_schedule() -> bool:
-    """Register the recurring subscription sweep (default: every 6 hours)."""
-    from app.services.media.job import run_all_subscriptions
-
-    sched = get_scheduler()
-    hours = max(1, int(settings.YOUTUBE_SYNC_INTERVAL_HOURS or 6))
-    try:
-        sched.add_job(
-            run_all_subscriptions,
-            trigger="interval",
-            hours=hours,
-            id=YOUTUBE_JOB_ID,
-            name="YouTube media subscription sync",
-            replace_existing=True,
-            coalesce=True,
-            max_instances=1,
-            misfire_grace_time=600,
-        )
-    except Exception:
-        logger.exception("Failed to register YouTube sync job")
-        return False
-    logger.info("Registered YouTube auto-sync job (every %dh)", hours)
-    return True

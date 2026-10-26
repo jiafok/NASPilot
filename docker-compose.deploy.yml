@@ -50,7 +50,7 @@ services:
       # - ${NASPILOT_SCRIPTS:-./scripts}:/scripts:ro
 
       # ── 可选：YouTube 需要登录/年龄限制时挂 cookies ─────────
-      # - ${YOUTUBE_COOKIES_HOST:-./data/cookies.txt}:/app/data/cookies.txt:ro
+      # - ${MEDIA_COOKIES_HOST:-./data/cookies.txt}:/app/data/cookies.txt:ro
 
     environment:
       # ── 基础 ────────────────────────────────────────────
@@ -76,8 +76,8 @@ services:
       - MEDIA_PROXY_URL=${MEDIA_PROXY_URL:-}
 
       # 可选：cookies / JS 运行时
-      # - YOUTUBE_COOKIES_FILE=/app/data/cookies.txt
-      # - YOUTUBE_JS_RUNTIMES=node
+      # - MEDIA_COOKIES_FILE=/app/data/cookies.txt
+      # - MEDIA_JS_RUNTIMES=node
 
       # ── 媒体服务器（可选，仅用于「打开媒体库」跳转）────────
       - EMBY_URL=${EMBY_URL:-}

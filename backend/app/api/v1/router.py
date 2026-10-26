@@ -12,7 +12,6 @@ from app.api.v1.plugins import router as plugins_router
 from app.api.v1.system import router as system_router
 from app.api.v1.tasks import router as tasks_router
 from app.api.v1.websocket import router as ws_router
-from app.api.v1.youtube import router as youtube_router
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth_router)
@@ -24,5 +23,4 @@ api_router.include_router(ws_router)
 api_router.include_router(ai_router)
 api_router.include_router(files_router)
 api_router.include_router(observability_router)
-api_router.include_router(youtube_router)
 api_router.include_router(media_router)

@@ -98,7 +98,7 @@ def resolve_policy(subscription) -> NetworkPolicy:
         )
 
     # system → global setting, then environment
-    global_proxy = (settings.MEDIA_PROXY_URL or settings.YOUTUBE_PROXY or "").strip() or None
+    global_proxy = (settings.MEDIA_PROXY_URL or "").strip() or None
     proxy = global_proxy or _env_proxy()
     return NetworkPolicy(mode="system", proxy=proxy)
 

@@ -11,7 +11,7 @@ from app.core.logging_config import setup_logging
 from app.plugins.registry import registry
 from app.scheduler.scheduler_service import shutdown_scheduler, start_scheduler
 from app.services.auth_service import bootstrap_admin
-from app.services.media.ytdlp import ensure_dependencies
+from app.services.media_center.ytdlp_core import ensure_dependencies
 
 # Strong references for fire-and-forget startup tasks
 _startup_tasks: set = set()

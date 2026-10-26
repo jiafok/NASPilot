@@ -38,31 +38,6 @@ class Settings(BaseSettings):
     LOG_DIR: Path = Path("./data/logs")
     PLUGIN_DIR: Path = Path("./plugins")
 
-    # ── Media Subscription Center (YouTube auto-download) ──────────────
-    YOUTUBE_VIDEO_DIR: Path = Path("/media/Youtube")
-    YOUTUBE_AUDIO_DIR: Path = Path("/media/Audio")
-    YOUTUBE_SYNC_INTERVAL_HOURS: int = 6
-    # Max items inspected per subscription check (0 = unlimited)
-    YOUTUBE_SCAN_LIMIT: int = 100
-    # Max new videos downloaded per sync (protects disk on first subscribe)
-    YOUTUBE_MAX_PER_SYNC: int = 20
-    YOUTUBE_SUB_LANGS: str = "en.*"
-    # Global default video height cap (per-subscription ``video_height`` wins).
-    # 0 = no cap (best available).
-    YOUTUBE_MAX_HEIGHT: int = 480
-    # Global default audio format for audio-only / both modes:
-    #   mp3  → 有损重编码 (libmp3lame VBR q0, 兼容性最好)
-    #   best → 零转码重封装，保留 YouTube 原始流 (Opus/AAC)
-    #   opus / m4a / flac / wav → 指定容器 (能 copy 时自动 copy)
-    YOUTUBE_AUDIO_FORMAT: str = "mp3"
-    # Lossy quality knob (0 = 最高)。copy 模式下被忽略。
-    YOUTUBE_AUDIO_QUALITY: str = "0"
-    YOUTUBE_COOKIES_FILE: str = ""
-    YOUTUBE_PROXY: str = ""
-    # e.g. "node" / "deno" when yt-dlp needs a JS runtime for YouTube signatures
-    YOUTUBE_JS_RUNTIMES: str = ""
-    YOUTUBE_RETENTION_DAYS: int = 30  # finished task rows cleanup
-
     # ── Media Download Center (unified, all providers) ─────────────────
     # 只需要一个根目录：其下自动使用 Video/ 与 Audio/。
     # 运行时可从「系统设置」页修改（存 settings 表，优先于这里的默认值）。
@@ -80,6 +55,15 @@ class Settings(BaseSettings):
     MEDIA_PROXY_URL: str = ""             # default proxy for network_mode=system
     MEDIA_DEFAULT_SCHEDULE: str = "every_6h"
     MEDIA_RETENTION_DAYS: int = 30
+    # Optional cookies file (X / age-restricted / members-only)
+    MEDIA_COOKIES_FILE: str = ""
+    # e.g. "node" / "deno" when yt-dlp needs a JS runtime for signatures
+    MEDIA_JS_RUNTIMES: str = ""
+    # Global default audio container when a subscription does not set one:
+    #   mp3  → lossy re-encode (libmp3lame VBR q0, best compatibility)
+    #   best → zero-transcode remux, keeps the source stream (Opus/AAC)
+    #   opus / m4a / flac / wav → explicit container (stream copy when possible)
+    MEDIA_AUDIO_FORMAT: str = "mp3"
     # ── Media servers (deep links + library hints) ────────────────────
     EMBY_URL: str = ""
     JELLYFIN_URL: str = ""

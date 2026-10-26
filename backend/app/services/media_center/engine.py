@@ -1,6 +1,6 @@
 """Download engine — yt-dlp / ffmpeg invocation for the Media Download Center.
 
-Reuses the proven primitives from ``app.services.media.ytdlp`` (binary lookup,
+Reuses the primitives from ``app.services.media_center.ytdlp_core`` (binary lookup,
 progress parsing, audio extraction) but builds its own argument list so every
 subscription can carry its own proxy, quality and rate limit.
 """
@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.core.config import settings
-from app.services.media import ytdlp as _yt
+from app.services.media_center import ytdlp_core as _yt
 
 logger = logging.getLogger("naspilot.media.engine")
 

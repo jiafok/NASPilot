@@ -1,4 +1,4 @@
-"""yt-dlp / ffmpeg integration layer.
+"""yt-dlp / ffmpeg primitives shared by the media center.
 
 Everything goes through ``asyncio.create_subprocess_exec`` — no browser
 automation, no shell interpolation.
@@ -7,8 +7,11 @@ Responsibilities
 ----------------
 * locate ``yt-dlp`` (binary or ``python -m yt_dlp``) and ``ffmpeg``
 * best-effort auto install of ``yt-dlp`` on first start (Docker image ships it)
-* enumerate a channel / playlist as JSON
-* download one video while streaming live progress
+* audio extraction / probing (stream copy when the codec already matches)
+* progress-line parsing
+
+Enumeration, downloading and per-provider diagnostics live in
+:mod:`app.services.media_center.engine`.
 """
 
 from __future__ import annotations
@@ -25,11 +28,8 @@ from typing import Any
 
 from app.core.config import settings
 
-logger = logging.getLogger("naspilot.youtube.ytdlp")
+logger = logging.getLogger("naspilot.media.ytdlp")
 
-MAX_JSON_BYTES = 32 * 1024 * 1024
-MAX_OUTPUT_LINES = 400
-DEFAULT_DOWNLOAD_TIMEOUT = 7200  # 2h hard cap per item
 
 # ── Locating the binaries ────────────────────────────────────────────────
 
@@ -178,22 +178,22 @@ async def ensure_dependencies(auto_install: bool = True) -> dict[str, Any]:
     return health
 
 
-# ── Enumeration ──────────────────────────────────────────────────────────
+# ── Proxy ────────────────────────────────────────────────────────────────
 
-#: env vars checked (in order) when YOUTUBE_PROXY is not set
-_PROXY_ENV_VARS = ("YOUTUBE_PROXY", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy")
+#: standard proxy env vars checked (in order) after ``MEDIA_PROXY_URL``
+_PROXY_ENV_VARS = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy")
 
 
 def proxy_url() -> str | None:
     """Resolve the proxy for yt-dlp / network calls (``None`` = direct).
 
-    Priority: ``YOUTUBE_PROXY`` setting, then the standard proxy env vars, so
-    a container started with ``-e HTTPS_PROXY=...`` just works.
+    Priority: ``MEDIA_PROXY_URL``, then the standard proxy env vars, so a
+    container started with ``-e HTTPS_PROXY=...`` just works.
     """
-    explicit = (settings.YOUTUBE_PROXY or "").strip()
+    explicit = (settings.MEDIA_PROXY_URL or "").strip()
     if explicit:
         return explicit
-    for name in _PROXY_ENV_VARS[1:]:
+    for name in _PROXY_ENV_VARS:
         value = (os.getenv(name) or "").strip()
         if value:
             return value
@@ -201,106 +201,6 @@ def proxy_url() -> str | None:
 
 
 #: hosts probed by :func:`check_network` — one is the API, one is the CDN
-_PROBE_HOSTS = (
-    ("youtube_api", "https://www.youtube.com/"),
-    ("youtube_cdn", "https://redirector.googlevideo.com/"),
-)
-
-
-async def _http_probe(url: str, timeout: int = 12) -> int | None:
-    """Return the HTTP status for ``url`` (``None`` when the connection failed)."""
-    cmd = ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", str(timeout)]
-    proxy = proxy_url()
-    if proxy:
-        cmd += ["--proxy", proxy]
-    cmd.append(url)
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
-        )
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout + 5)
-    except (FileNotFoundError, asyncio.TimeoutError, Exception):
-        return None
-    text = out.decode("utf-8", errors="replace").strip()
-    return int(text) if text.isdigit() and int(text) > 0 else None
-
-
-async def check_network() -> dict[str, Any]:
-    """Probe YouTube API + CDN reachability through the configured proxy.
-
-    Enumeration only needs the API host; the actual download needs the CDN
-    (``googlevideo.com``), which is the part usually blocked.
-    """
-    results: dict[str, Any] = {
-        "proxy": proxy_url(),
-        "checks": {},
-        "ok": False,
-        "detail": None,
-    }
-    for name, url in _PROBE_HOSTS:
-        status = await _http_probe(url)
-        results["checks"][name] = {"url": url, "http_status": status, "reachable": status is not None}
-
-    api_ok = results["checks"]["youtube_api"]["reachable"]
-    cdn_ok = results["checks"]["youtube_cdn"]["reachable"]
-    results["ok"] = bool(api_ok and cdn_ok)
-    if results["ok"]:
-        results["detail"] = "可以直连 YouTube API 与视频 CDN"
-    elif api_ok and not cdn_ok:
-        results["detail"] = (
-            "只能访问 YouTube API，无法访问视频 CDN（googlevideo.com）："
-            "能列出视频清单但下载会失败，请配置 YOUTUBE_PROXY"
-        )
-    elif not api_ok:
-        results["detail"] = "无法访问 YouTube，请检查网络或配置 YOUTUBE_PROXY"
-    return results
-
-
-def _common_args() -> list[str]:
-    args = ["--no-warnings", "--no-color", "--ignore-config"]
-    if settings.YOUTUBE_COOKIES_FILE and os.path.isfile(settings.YOUTUBE_COOKIES_FILE):
-        args += ["--cookies", settings.YOUTUBE_COOKIES_FILE]
-    proxy = proxy_url()
-    if proxy:
-        args += ["--proxy", proxy]
-    if settings.YOUTUBE_JS_RUNTIMES:
-        args += ["--js-runtimes", settings.YOUTUBE_JS_RUNTIMES]
-    return args
-
-
-_NETWORK_HINTS: tuple[tuple[str, str], ...] = (
-    ("ssl", "SSL/TLS 握手被中断，当前网络无法直连 YouTube"),
-    ("unexpected_eof", "SSL/TLS 握手被中断，当前网络无法直连 YouTube"),
-    ("timed out", "连接 YouTube 超时"),
-    ("timeout", "连接 YouTube 超时"),
-    ("connection reset", "与 YouTube 的连接被重置"),
-    ("unable to download api page", "无法访问 YouTube 页面"),
-    ("unable to download webpage", "无法访问 YouTube 页面"),
-    ("http error 429", "被 YouTube 限流（429），建议稍后重试或配置 cookies"),
-    ("sign in to confirm", "YouTube 要求登录验证，请配置 YOUTUBE_COOKIES_FILE"),
-    ("private video", "视频为私有"),
-)
-
-
-def network_hint(err: str | None) -> str | None:
-    """Return a human hint when the failure looks like a network/YouTube block."""
-    lowered = (err or "").lower()
-    for needle, hint in _NETWORK_HINTS:
-        if needle in lowered:
-            return hint
-    return None
-
-
-def enumeration_error_message(err: str) -> str:
-    """Build an actionable message for a failed enumeration."""
-    tail = (err or "").strip()[-600:] or "yt-dlp 未返回数据"
-    hint = network_hint(err)
-    if hint:
-        return (
-            f"{hint}。若该网络无法直连 YouTube，请设置 YOUTUBE_PROXY"
-            f"（例如 http://192.168.1.10:7890）。yt-dlp: {tail}"
-        )
-    return f"yt-dlp 枚举失败: {tail}"
 
 
 async def _install_ffmpeg() -> bool:
@@ -326,54 +226,6 @@ async def _install_ffmpeg() -> bool:
     except Exception:
         logger.exception("ffmpeg auto-install crashed")
     return False
-
-
-async def dump_playlist_json(url: str, limit: int | None = None, timeout: int = 180) -> dict[str, Any]:
-    """Run ``yt-dlp --flat-playlist --dump-single-json`` and parse the result."""
-    cmd = [
-        *ytdlp_command(),
-        *_common_args(),
-        "--flat-playlist",
-        "--dump-single-json",
-        "--skip-download",
-        "--extractor-retries",
-        "3",
-    ]
-    if limit and limit > 0:
-        cmd += ["--playlist-end", str(limit)]
-    cmd.append(url)
-
-    logger.info("Enumerating media: %s", url)
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except FileNotFoundError as exc:
-        raise RuntimeError("yt-dlp 未安装，请检查 Docker 镜像或启用自动安装") from exc
-
-    try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
-        raise RuntimeError(f"列出订阅内容超时（>{timeout}s）")
-
-    out = stdout.decode("utf-8", errors="replace")
-    err = stderr.decode("utf-8", errors="replace").strip()
-    if len(out) > MAX_JSON_BYTES:
-        raise RuntimeError("订阅内容过大，无法解析")
-    if not out.strip():
-        raise RuntimeError(enumeration_error_message(err))
-    try:
-        data = json.loads(out)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"无法解析 yt-dlp 输出: {exc}") from exc
-    if not isinstance(data, dict):
-        # yt-dlp prints a bare ``null`` when the extractor fails.
-        raise RuntimeError(enumeration_error_message(err))
-    return data
 
 
 # ── Progress parsing ─────────────────────────────────────────────────────
@@ -426,167 +278,6 @@ _PROCESSING_PREFIXES = (
 
 
 # ── Download ─────────────────────────────────────────────────────────────
-
-def build_download_args(
-    url: str,
-    outtmpl: str,
-    *,
-    media_mode: str = "video",
-    video_height: int | None = None,
-    audio_format: str | None = None,
-    print_file: str | None = None,
-) -> list[str]:
-    """Build the yt-dlp argv for one video.
-
-    ``media_mode``:
-      video → MP4 (height cap = ``video_height``, merged)
-      audio → audio only (``-x --audio-format <audio_format>``)
-      both  → MP4 only here; the provider derives the audio file afterwards
-              with :func:`extract_audio` (yt-dlp cannot emit both in one run).
-
-    ``audio_format``: ``mp3`` (lossy re-encode), ``best`` (keep the original
-    stream, i.e. zero-loss remux), or an explicit container
-    (``opus`` / ``m4a`` / ``flac`` / ``wav``).
-    """
-    height = video_height if video_height is not None else int(settings.YOUTUBE_MAX_HEIGHT or 0)
-    afmt = (audio_format or settings.YOUTUBE_AUDIO_FORMAT or "mp3").strip().lower()
-    args: list[str] = [
-        *ytdlp_command(),
-        *_common_args(),
-        "--newline",
-        "--no-quiet",
-        "--no-simulate",
-        "--no-playlist",
-        "--retries",
-        "3",
-        "--fragment-retries",
-        "3",
-        # subtitles (auto generated, English variants) → .srt
-        "--write-auto-sub",
-        "--sub-langs",
-        settings.YOUTUBE_SUB_LANGS,
-        "--convert-subs",
-        "srt",
-        # cover art → .jpg
-        "--write-thumbnail",
-        "--convert-thumbnails",
-        "jpg",
-        # Keep the original title as the file name; only extremely long titles
-        # are trimmed so NAS file systems never reject the name.
-        "--trim-filenames",
-        "180",
-    ]
-
-    if media_mode == "audio":
-        args += [
-            # Audio-only downloads should not pull the video stream.
-            "-f",
-            "bestaudio/best",
-            "-x",
-            "--audio-format",
-            afmt,
-        ]
-        # ``--audio-quality`` only affects lossy codecs; ignored when yt-dlp
-        # stream-copies (``best`` / matching codec).
-        if settings.YOUTUBE_AUDIO_QUALITY:
-            args += ["--audio-quality", str(settings.YOUTUBE_AUDIO_QUALITY)]
-    else:
-        if height > 0:
-            selector = (
-                f"bestvideo[height<={height}]+bestaudio/"
-                f"best[height<={height}]/best"
-            )
-        else:
-            selector = "bestvideo+bestaudio/best"
-        args += ["-f", selector, "--merge-output-format", "mp4"]
-
-    args += ["-o", outtmpl]
-    if print_file:
-        args += ["--print-to-file", "after_move:filepath", print_file]
-    args.append(url)
-    return args
-
-
-async def download(
-    url: str,
-    outtmpl: str,
-    *,
-    media_mode: str = "video",
-    video_height: int | None = None,
-    audio_format: str | None = None,
-    on_line: Any | None = None,
-    timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
-) -> tuple[int, str, list[str]]:
-    """Download one video, streaming output lines to ``on_line``.
-
-    Returns ``(exit_code, tail_output, produced_files)``.
-    """
-    tmp_path: str | None = None
-    fd, tmp_path = tempfile.mkstemp(prefix="ytdlp-out-", suffix=".txt", dir=str(settings.DATA_DIR))
-    os.close(fd)
-    args = build_download_args(
-        url,
-        outtmpl,
-        media_mode=media_mode,
-        video_height=video_height,
-        audio_format=audio_format,
-        print_file=tmp_path,
-    )
-
-    logger.info("Downloading: %s -> %s", url, outtmpl)
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-    except FileNotFoundError:
-        if tmp_path and os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-        return 127, "yt-dlp 未安装或不可执行", []
-
-    tail: list[str] = []
-
-    async def _pump() -> None:
-        assert proc.stdout is not None
-        while True:
-            raw = await proc.stdout.readline()
-            if not raw:
-                break
-            line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
-            if not line:
-                continue
-            tail.append(line)
-            if len(tail) > MAX_OUTPUT_LINES:
-                del tail[: len(tail) - MAX_OUTPUT_LINES]
-            if on_line is not None:
-                try:
-                    await on_line(line)
-                except Exception:  # progress callback must never break download
-                    logger.debug("progress callback failed", exc_info=True)
-
-    try:
-        await asyncio.wait_for(asyncio.gather(_pump(), proc.wait()), timeout=timeout)
-        code = proc.returncode or 0
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
-        code = 124
-        tail.append(f"下载超时（>{timeout}s）")
-
-    produced: list[str] = []
-    if tmp_path:
-        try:
-            if os.path.exists(tmp_path):
-                with open(tmp_path, encoding="utf-8", errors="replace") as fh:
-                    produced = [ln.strip() for ln in fh if ln.strip()]
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-
-    return code, "\n".join(tail[-60:]), produced
 
 
 def is_processing_line(line: str) -> bool:
@@ -704,13 +395,3 @@ async def extract_audio(src: str, fmt: str = "mp3", timeout: int = 1800) -> tupl
     return 0, f"{mode} ({codec} -> {out_ext.lstrip('.')})", dst
 
 
-async def extract_mp3(src: str, dst: str | None = None, timeout: int = 1800) -> tuple[int, str]:
-    """Backward-compatible wrapper: derive an MP3 next to ``src``."""
-    code, msg, produced = await extract_audio(src, "mp3", timeout=timeout)
-    if code == 0 and dst and produced and produced != dst:
-        try:
-            os.replace(produced, dst)
-            produced = dst
-        except OSError:
-            pass
-    return code, msg
