@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import subprocess
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -444,8 +445,29 @@ async def _upsert_transcript(
     report.transcripts_parsed += 1
 
 
-async def refresh_course_vocabulary(db: AsyncSession, course: EnglishCourse) -> int:
-    """Rebuild the vocabulary table for one course from its transcripts."""
+async def library_stats(db: AsyncSession) -> tuple[Counter[str], int]:
+    """Document frequency of every word across the whole library.
+
+    Rarity has to be measured against the user's own material: a word that
+    turns up in a third of the lessons is common English *for them*, even if a
+    dictionary would file it as intermediate. Computed once per scan.
+    """
+    rows = (await db.execute(select(EnglishTranscript.search_text))).scalars().all()
+    return vocab.library_document_frequency([r for r in rows if r])
+
+
+async def refresh_course_vocabulary(
+    db: AsyncSession,
+    course: EnglishCourse,
+    *,
+    library_df: Counter[str] | None = None,
+    library_size: int = 0,
+) -> int:
+    """Rebuild the vocabulary table for one course from its transcripts.
+
+    Words are filtered against everyday English, so the result is the material
+    this learner would actually need help with — not a frequency table.
+    """
     rows = (
         await db.execute(
             select(EnglishTranscript.search_text)
@@ -455,7 +477,15 @@ async def refresh_course_vocabulary(db: AsyncSession, course: EnglishCourse) -> 
     ).scalars().all()
 
     texts = [t for t in rows if t]
-    result = vocab.extract_many(texts, min_word_freq=2) if texts else vocab.VocabularyResult()
+    if texts:
+        result = vocab.extract_new_words(
+            texts,
+            library_df=library_df,
+            library_size=library_size,
+            limit=int(settings.ENGLISH_VOCAB_LIMIT or 300),
+        )
+    else:
+        result = vocab.VocabularyResult()
     items = result.merged(limit=int(settings.ENGLISH_VOCAB_LIMIT or 300))
 
     # Replace this course's word list (meanings are re-attached by the AI job)
@@ -504,6 +534,10 @@ async def scan(
 
     touched_courses: dict[int, EnglishCourse] = {}
     seen_files: set[str] = set()
+    corpus_df: Counter[str] = Counter()
+    corpus_size = 0
+    if with_vocabulary:
+        corpus_df, corpus_size = await library_stats(db)
 
     for directory, assets in sorted(by_dir.items(), key=lambda kv: str(kv[0])):
         channel, course_name, prefix = _course_identity(base, directory)
@@ -583,7 +617,9 @@ async def scan(
 
         if with_vocabulary and course.lesson_count:
             try:
-                report.vocabulary_terms += await refresh_course_vocabulary(db, course)
+                report.vocabulary_terms += await refresh_course_vocabulary(
+                    db, course, library_df=corpus_df, library_size=corpus_size
+                )
             except Exception:
                 logger.warning("Vocabulary refresh failed for course %s", course_id, exc_info=True)
 
@@ -643,6 +679,7 @@ __all__ = [
     "collect_assets",
     "english_root",
     "is_inside_root",
+    "library_stats",
     "refresh_course_vocabulary",
     "scan",
     "stats",

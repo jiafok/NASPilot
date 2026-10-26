@@ -491,7 +491,10 @@ async def english_rebuild_vocabulary(
     course = await db.get(EnglishCourse, course_id)
     if course is None:
         raise HTTPException(status_code=404, detail="课程不存在")
-    count = await scanner.refresh_course_vocabulary(db, course)
+    library_df, library_size = await scanner.library_stats(db)
+    count = await scanner.refresh_course_vocabulary(
+        db, course, library_df=library_df, library_size=library_size
+    )
     await db.commit()
     return {"course_id": course_id, "terms": count}
 

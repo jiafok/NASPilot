@@ -24,29 +24,13 @@ services:
     volumes:
       # ── 必须 1：数据库和配置 ─────────────────────────────
       - ./data:/app/data
-
-      # ── 必须 2：下载的媒体文件 ───────────────────────────
-      # 把 /volume1 换成你的媒体盘。容器内固定用 /Media，
-      # 其下自动建 Video/ 与 Audio/。容器内的根目录可在
-      # 「系统设置 → 媒体」里改，不需要动这个文件。
-      - /volume1/media:/Media
-
-      # ── 英语学习：直接复用上面的 /Media，无需额外挂载 ─────
-      # 媒体中心下载的文件（/Media/Video、/Media/Audio）自动成为课时，
-      # 同名 .srt/.vtt 自动绑定字幕。放进文件后点「扫描媒体库」即可。
-      # 只有想用另一棵目录树时，才需要额外挂载 + ENGLISH_ROOT。
-
-      # ── 可选：容器管理 / 定时任务 / 备份 ─────────────────
-      # 用不到这些功能，可以把下面 4 行整段删掉
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - ./scripts:/scripts:ro
-      - /volume1/docker:/volume1/docker:ro
-      - /volumeUSB1/usbshare/docker_backup:/volumeUSB1/usbshare/docker_backup:rw
+      - /volume1:/volume1:rw
+      - /volumeUSB1/usbshare:/usb:rw
 
     environment:
-      # 数据库自动落在 /app/data/naspilot.db，不用指定
       - TZ=Asia/Shanghai
-
       # ── 以下都可选，不写就用默认值 ───────────────────────
       # - FIRST_ADMIN_PASSWORD=admin123       # 留空 = 首次启动随机生成
       # - MEDIA_PROXY_URL=http://192.168.1.10:7890

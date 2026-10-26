@@ -66,7 +66,7 @@
 | lesson_id | int FK → lessons **unique** | 1:1 |
 | language | str(16) | en |
 | segment_count | int | |
-| segments | JSON | `[{i,start,end,text}]` |
+| segments | JSON | `[{i,start,end,text,spk}]`；`spk` 为说话人轮次（A/B），独白为 null |
 | search_text | text | 所有句子拼接，供 LIKE 检索 |
 | created_at / updated_at | datetime | |
 

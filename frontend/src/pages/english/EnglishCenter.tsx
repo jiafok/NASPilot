@@ -74,6 +74,8 @@ interface Segment {
   start: number;
   end: number;
   text: string;
+  /** Speaker turn label ("A"/"B") when the source marks dialogue. */
+  spk?: string | null;
 }
 
 interface VocabItem {
@@ -630,26 +632,45 @@ export default function EnglishCenter() {
                 {segments.length === 0 ? (
                   <Empty description="该课时没有字幕" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                 ) : (
-                  segments.map((seg, index) => (
-                    <div
-                      key={seg.i}
-                      data-seg={index}
-                      onClick={() => seekTo(seg)}
-                      style={{
-                        padding: '8px 10px',
-                        marginBottom: 4,
-                        borderRadius: 8,
-                        cursor: 'pointer',
-                        background: index === activeSegment ? 'rgba(102,126,234,0.16)' : 'transparent',
-                        borderLeft: index === activeSegment ? '3px solid #667eea' : '3px solid transparent',
-                      }}
-                    >
-                      <Text type="secondary" style={{ fontSize: 11, marginRight: 8 }}>
-                        {fmtDuration(seg.start / 1000)}
-                      </Text>
-                      <Text strong={index === activeSegment}>{seg.text}</Text>
-                    </div>
-                  ))
+                  segments.map((seg, index) => {
+                    const prev = index > 0 ? segments[index - 1] : null;
+                    const turnStart = !prev || prev.spk !== seg.spk;
+                    const showSpeaker = Boolean(seg.spk) && turnStart;
+                    return (
+                      <div
+                        key={seg.i}
+                        data-seg={index}
+                        onClick={() => seekTo(seg)}
+                        style={{
+                          padding: '8px 10px',
+                          marginTop: showSpeaker && index > 0 ? 10 : 0,
+                          marginBottom: 4,
+                          borderRadius: 8,
+                          cursor: 'pointer',
+                          background:
+                            index === activeSegment ? 'rgba(102,126,234,0.16)' : 'transparent',
+                          borderLeft:
+                            index === activeSegment
+                              ? '3px solid #667eea'
+                              : '3px solid transparent',
+                        }}
+                      >
+                        <Space size={6}>
+                          {showSpeaker && (
+                            <Tag color={seg.spk === 'A' ? 'geekblue' : 'magenta'}>
+                              {seg.spk === 'A' ? '说话人 A' : '说话人 B'}
+                            </Tag>
+                          )}
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            {fmtDuration(seg.start / 1000)}
+                          </Text>
+                        </Space>
+                        <div style={{ marginTop: showSpeaker && index > 0 ? 4 : 0 }}>
+                          <Text strong={index === activeSegment}>{seg.text}</Text>
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </Card>

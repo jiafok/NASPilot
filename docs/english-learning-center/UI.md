@@ -106,7 +106,7 @@
 ### 3.3 播放器（Flutter 侧）
 
 - 媒体：`GET /api/media/{lessonId}`（支持 Range，可拖动）
-- 字幕：`GET /api/english/transcript/{lessonId}`
+- 字幕：`GET /api/english/transcript/{lessonId}`（对话材料带 `spk` 字段，UI 在换人处显示「说话人 A / B」并留出间距，同一个人的连续台词成组）
 - 进度：`POST /api/english/progress`，退出前必报一次
 - 缓存：仅缓存媒体到本地，**不缓存元数据**（保证服务端为准）
 
