@@ -38,3 +38,19 @@ run_backup.py
 # Data / runtime
 backend/data/
 backend/test_*.db
+
+# Runtime data / secrets
+.env
+.env.*
+!.env.example
+!.env.deploy.example
+data/
+logs/
+backend/logs/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Media output (root only — do NOT ignore frontend/src/pages/media)
+/media/

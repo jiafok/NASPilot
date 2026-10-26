@@ -28,6 +28,11 @@ services:
       - /volume1/docker:/volume1/docker:ro
       # Docker app backup (write)
       - /volumeUSB1/usbshare/docker_backup:/volumeUSB1/usbshare/docker_backup:rw
+      # ── Media Subscription Center (YouTube) ──────────────────────
+      # Host side is configurable; inside the container always /media/*.
+      # Synology example:  - /volume1/media/Youtube:/media/Youtube
+      - ${NAS_MEDIA_VIDEO:-./data/media/Youtube}:/media/Youtube
+      - ${NAS_MEDIA_AUDIO:-./data/media/Audio}:/media/Audio
 
     # Optional: rclone mount requires FUSE
     # cap_add:
@@ -43,6 +48,15 @@ services:
       - FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD:-}
       - TZ=Asia/Shanghai
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Media Subscription Center
+      - YOUTUBE_VIDEO_DIR=/media/Youtube
+      - YOUTUBE_AUDIO_DIR=/media/Audio
+      - YOUTUBE_SYNC_INTERVAL_HOURS=${YOUTUBE_SYNC_INTERVAL_HOURS:-6}
+      - YOUTUBE_MAX_PER_SYNC=${YOUTUBE_MAX_PER_SYNC:-20}
+      # Optional: --cookies file / proxy / JS runtime (e.g. "node")
+      # - YOUTUBE_COOKIES_FILE=/app/data/cookies.txt
+      # - YOUTUBE_PROXY=http://host:port
+      # - YOUTUBE_JS_RUNTIMES=node
 
     logging:
       driver: "json-file"

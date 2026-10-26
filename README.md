@@ -47,6 +47,36 @@ docker compose up -d
 
 访问 `http://<NAS-IP>:8080`，默认账号 `admin / admin123`。
 
+### 媒体下载中心部署（单 YAML，含 yt-dlp + ffmpeg）
+
+`docker-compose.deploy.yml` 会从源码构建镜像，`yt-dlp` 与 `ffmpeg` 已烘进镜像，容器内**无需再装任何东西**。
+
+```bash
+cp .env.deploy.example .env
+# 必改：SECRET_KEY（openssl rand -hex 32）
+# 可选：NASPILOT_PORT / NAS_MEDIA_VIDEO / NAS_MEDIA_AUDIO / MEDIA_PROXY_URL
+docker compose -f docker-compose.deploy.yml up -d --build
+```
+
+访问 `http://<NAS-IP>:8082` → 「媒体中心」。
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `NASPILOT_PORT` | `8082` | 宿主机端口 |
+| `NASPILOT_DATA` | `./data` | 数据库/日志目录 |
+| `NAS_MEDIA_VIDEO` | `./data/media/Video` | 视频落盘目录（NAS 上建议绝对路径，如 `/volume1/media/Video`） |
+| `NAS_MEDIA_AUDIO` | `./data/media/Audio` | 音频/播客落盘目录 |
+| `MEDIA_PROXY_URL` | 空 | 全局代理（`http://`/`socks5://`）；也可在单个订阅里单独设置 |
+| `EMBY_URL` / `JELLYFIN_URL` / `AUDIOBOOKSHELF_URL` | 空 | 填了会在历史记录里生成播放器直达链接 |
+
+镜像约 **590MB**（Debian python-slim + 静态 ffmpeg + 依赖），`yt-dlp`/`ffmpeg` 已内置。
+默认不装 node（省 ~280MB）；若 yt-dlp 提示需要 JS 运行时，用
+`NASPILOT_WITH_NODE=true`（或 `--build-arg WITH_NODE=true`）重新构建。
+
+自检：`curl http://<NAS-IP>:8082/health/media` —— `status: ok` 表示 yt-dlp/ffmpeg 就绪；`network.providers` 显示各站点连通性。
+
+> 需要代理整机出网时，把 `docker-compose.deploy.yml` 末尾注释的 gluetun 段打开，并把 `network_mode` 改为 `service:gluetun`。
+
 ### 从源码运行
 
 ```bash

@@ -1,0 +1,131 @@
+# ============================================================
+# NASPilot — 通用部署（Media Download Center 版）
+#
+# 一条命令部署：
+#   cp .env.deploy.example .env      # 填入 SECRET_KEY
+#   docker compose -f docker-compose.deploy.yml up -d --build
+#
+# 与其它 compose 文件的区别：
+#   docker-compose.yml         NAS 专用（host 网络 + /volume1 等本机路径）
+#   docker-compose.dev.yml     开发验证（复用已发布镜像 + 源码挂载，不重建镜像）
+#   docker-compose.test.yml    拉取 GHCR 镜像做冒烟测试
+#   docker-compose.deploy.yml  本文件：从源码构建，路径全部可用 .env 覆盖
+#
+# 镜像内已包含 yt-dlp 与 ffmpeg（见 Dockerfile），无需进容器装依赖。
+# ============================================================
+
+name: naspilot
+
+services:
+  naspilot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${NASPILOT_VERSION:-1.1.0-media}
+        # true = 额外安装 nodejs（约 +280MB），仅当 yt-dlp 需要 JS 运行时
+        WITH_NODE: ${NASPILOT_WITH_NODE:-false}
+    image: naspilot:${NASPILOT_VERSION:-1.1.0-media}
+    container_name: naspilot
+    restart: unless-stopped
+
+    # 端口映射（桥接网络）。若想用 host 网络，注释掉 ports，改成 network_mode: host
+    ports:
+      - "${NASPILOT_PORT:-8082}:8082"
+
+    volumes:
+      # ── 持久化数据（SQLite + 日志 + 插件配置）──────────────
+      - ${NASPILOT_DATA:-./data}:/app/data
+
+      # ── 媒体下载中心（必须，否则重启后下载的文件会丢）──────
+      # 宿主机路径可用 .env 覆盖，例如 NAS 上：
+      #   NAS_MEDIA_VIDEO=/volume1/media/Video
+      #   NAS_MEDIA_AUDIO=/volume1/media/Audio
+      - ${NAS_MEDIA_VIDEO:-./data/media/Video}:/Media/Video
+      - ${NAS_MEDIA_AUDIO:-./data/media/Audio}:/Media/Audio
+
+      # ── 字幕/封面等附属文件与媒体同目录，无需额外挂载 ───────
+
+      # ── 可选：容器管理（不挂也能用，仅「容器管理」页面受限）──
+      # - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:rw
+
+      # ── 可选：脚本目录（任务中心 shell 任务）────────────────
+      # - ${NASPILOT_SCRIPTS:-./scripts}:/scripts:ro
+
+      # ── 可选：YouTube 需要登录/年龄限制时挂 cookies ─────────
+      # - ${YOUTUBE_COOKIES_HOST:-./data/cookies.txt}:/app/data/cookies.txt:ro
+
+    environment:
+      # ── 基础 ────────────────────────────────────────────
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
+      - SECRET_KEY=${SECRET_KEY:?请创建 .env 并设置 SECRET_KEY（openssl rand -hex 32）}
+      - FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD:-}
+      - TZ=${TZ:-Asia/Shanghai}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # ── 媒体下载中心 ─────────────────────────────────────
+      - MEDIA_VIDEO_DIR=/Media/Video
+      - MEDIA_AUDIO_DIR=/Media/Audio
+      - MEDIA_DEFAULT_VIDEO_HEIGHT=${MEDIA_DEFAULT_VIDEO_HEIGHT:-480}
+      - MEDIA_MAX_CONCURRENT=${MEDIA_MAX_CONCURRENT:-2}
+      - MEDIA_MAX_PER_SYNC=${MEDIA_MAX_PER_SYNC:-20}
+      - MEDIA_SCAN_LIMIT=${MEDIA_SCAN_LIMIT:-100}
+      - MEDIA_SUB_LANGS=${MEDIA_SUB_LANGS:-en.*}
+
+      # ── 网络策略 ─────────────────────────────────────────
+      # 订阅的「出网方式 = 使用系统默认」时会用这里的代理；
+      # 也可以给单个订阅单独配置 HTTP / SOCKS5 / Docker VPN。
+      # - MEDIA_PROXY_URL=http://127.0.0.1:7890
+      # 下面这些是 yt-dlp 认的标准环境变量（全局生效）：
+      # - HTTPS_PROXY=http://127.0.0.1:7890
+      # - HTTP_PROXY=http://127.0.0.1:7890
+      - MEDIA_PROXY_URL=${MEDIA_PROXY_URL:-}
+
+      # 可选：cookies / JS 运行时
+      # - YOUTUBE_COOKIES_FILE=/app/data/cookies.txt
+      # - YOUTUBE_JS_RUNTIMES=node
+
+      # ── 媒体服务器（可选，仅用于「打开媒体库」跳转）────────
+      - EMBY_URL=${EMBY_URL:-}
+      - JELLYFIN_URL=${JELLYFIN_URL:-}
+      - AUDIOBOOKSHELF_URL=${AUDIOBOOKSHELF_URL:-}
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8082/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ══════════════════════════════════════════════════════════
+  #  可选：VPN sidecar（对应订阅的「Docker VPN 容器」出网方式）
+  #  启用步骤：
+  #    1) 取消下面 gluetun 的注释并填入 VPN 凭据
+  #    2) 把 naspilot 的 ports/network 段替换为：
+  #         network_mode: "service:gluetun"
+  #       （此时 naspilot 不再需要 ports，端口由 gluetun 映射）
+  #    3) 订阅编辑 → 出网方式 → Docker VPN 容器 → 填 gluetun
+  # ══════════════════════════════════════════════════════════
+  # gluetun:
+  #   image: qmcgaw/gluetun:latest
+  #   container_name: gluetun
+  #   restart: unless-stopped
+  #   cap_add:
+  #     - NET_ADMIN
+  #   devices:
+  #     - /dev/net/tun:/dev/net/tun
+  #   ports:
+  #     - "${NASPILOT_PORT:-8082}:8082"
+  #   environment:
+  #     - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER:-private internet access}
+  #     - VPN_TYPE=openvpn
+  #     - OPENVPN_USER=${VPN_USER}
+  #     - OPENVPN_PASSWORD=${VPN_PASSWORD}
+  #     - SERVER_REGIONS=${VPN_REGION:-Netherlands}
+  #     - TZ=${TZ:-Asia/Shanghai}

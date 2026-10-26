@@ -12,9 +12,14 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       # Optional scripts mount (keep behavior close to production)
       - ./scripts:/scripts:ro
+      # Media Subscription Center (local test dirs)
+      - ./data/media/Youtube:/media/Youtube
+      - ./data/media/Audio:/media/Audio
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/naspilot.db
       - SECRET_KEY=test-key-for-docker-e2e-testing-must-be-32-chars
-      - FIRST_ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD:-}
+      - FIRST_ADMIN_PASSWORD=admin123
       - TZ=Asia/Shanghai
       - LOG_LEVEL=INFO
+      - YOUTUBE_VIDEO_DIR=/media/Youtube
+      - YOUTUBE_AUDIO_DIR=/media/Audio
