@@ -54,7 +54,7 @@ docker compose up -d
 ```bash
 cp .env.deploy.example .env
 # 必改：SECRET_KEY（openssl rand -hex 32）
-# 可选：NASPILOT_PORT / NAS_MEDIA_VIDEO / NAS_MEDIA_AUDIO / MEDIA_PROXY_URL
+# 可选：NASPILOT_PORT / NAS_MEDIA_ROOT / MEDIA_PROXY_URL
 docker compose -f docker-compose.deploy.yml up -d --build
 ```
 
@@ -64,8 +64,7 @@ docker compose -f docker-compose.deploy.yml up -d --build
 | --- | --- | --- |
 | `NASPILOT_PORT` | `8082` | 宿主机端口 |
 | `NASPILOT_DATA` | `./data` | 数据库/日志目录 |
-| `NAS_MEDIA_VIDEO` | `./data/media/Video` | 视频落盘目录（NAS 上建议绝对路径，如 `/volume1/media/Video`） |
-| `NAS_MEDIA_AUDIO` | `./data/media/Audio` | 音频/播客落盘目录 |
+| `NAS_MEDIA_ROOT` | `./data/media` | 媒体根目录（NAS 上建议绝对路径，如 `/volume1/media`）；容器内自动使用其 `Video/` 与 `Audio/` 子目录 |
 | `MEDIA_PROXY_URL` | 空 | 全局代理（`http://`/`socks5://`）；也可在单个订阅里单独设置 |
 | `EMBY_URL` / `JELLYFIN_URL` / `AUDIOBOOKSHELF_URL` | 空 | 填了会在历史记录里生成播放器直达链接 |
 
