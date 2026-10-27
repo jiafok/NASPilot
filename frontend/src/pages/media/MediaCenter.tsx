@@ -302,6 +302,7 @@ export default function MediaCenter({ view = 'subscriptions' }: { view?: MediaVi
   const [pageSize, setPageSize] = useState(20);
   const [search, setSearch] = useState('');
   const [providers, setProviders] = useState<ProviderOption[]>([]);
+  const [metaLoading, setMetaLoading] = useState(false);
   const [health, setHealth] = useState<HealthPayload | null>(null);
   const [servers, setServers] = useState<MediaServer[]>([]);
   const [netTesting, setNetTesting] = useState(false);
@@ -360,18 +361,26 @@ export default function MediaCenter({ view = 'subscriptions' }: { view?: MediaVi
   );
 
   const loadMeta = useCallback(async () => {
+    // The dropdown data is fast; /media/health probes every source over the
+    // network and can take 30s+ (or fail outright on a NAS with no egress).
+    // Batching them in one Promise.all made a slow health check discard the
+    // provider list too, which left the "来源" select empty and unusable.
+    setMetaLoading(true);
+    const [p, s] = await Promise.allSettled([
+      api.get<ProviderOption[]>('/media/providers/simple'),
+      api.get<MediaServer[]>('/media/mediaservers'),
+    ]);
+    if (p.status === 'fulfilled') setProviders(p.value.data);
+    else message.error('加载来源列表失败，请刷新重试');
+    if (s.status === 'fulfilled') setServers(s.value.data);
+    setMetaLoading(false);
+
     try {
-      const [p, h, s] = await Promise.all([
-        api.get<ProviderOption[]>('/media/providers/simple'),
-        api.get<HealthPayload>('/media/health'),
-        api.get<MediaServer[]>('/media/mediaservers'),
-      ]);
-      setProviders(p.data);
+      const h = await api.get<HealthPayload>('/media/health', { timeout: 60000 });
       setHealth(h.data);
       if (h.data.network?.providers) setNetReports(h.data.network.providers);
-      setServers(s.data);
     } catch {
-      /* meta is best-effort */
+      /* health is best-effort: it must never block the form */
     }
   }, []);
 
@@ -1145,9 +1154,18 @@ export default function MediaCenter({ view = 'subscriptions' }: { view?: MediaVi
           <Space size={12} style={{ display: 'flex' }} align="start">
             <Form.Item name="provider" label="来源" rules={[{ required: true }]} style={{ flex: 1, minWidth: 160 }}>
               <Select
+                loading={metaLoading}
+                placeholder={metaLoading ? '加载来源中…' : '选择来源'}
+                showSearch
+                optionFilterProp="label"
                 options={providers.map((p) => ({
                   value: p.value,
-                  label: p.implemented ? p.label : `${p.label}（预留）`,
+                  // Some reserved providers already carry the suffix in their
+                  // display name; appending it again read "（预留）（预留）".
+                  label:
+                    p.implemented || p.label.includes('预留')
+                      ? p.label
+                      : `${p.label}（预留）`,
                   disabled: !p.implemented,
                 }))}
               />

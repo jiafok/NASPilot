@@ -553,7 +553,8 @@ async def network_test(
         return await engine.check_provider(sub.provider, url=sub.url, proxy=opts.proxy)
     if provider:
         return await engine.check_provider(provider)
-    return await engine.check_all_providers()
+    # An explicit "test now" must not serve a cached sweep.
+    return await engine.check_all_providers(force=True)
 
 
 # ══════════════════════════════════════════════════════════════════════

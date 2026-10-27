@@ -12,6 +12,7 @@ import logging
 import os
 import shutil
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -485,26 +486,62 @@ async def check_provider(provider: str | None, *, url: str | None = None, proxy:
     }
 
 
-async def check_all_providers(proxy: str | None = None) -> dict:
-    """Probe every implemented provider (used by the health endpoint)."""
+#: How long a full provider sweep stays valid. The health endpoint is hit on
+#: every page load; without this each visit re-probed six providers (~30s of
+#: sequential timeouts on a blocked network) and the UI sat there waiting.
+NET_CACHE_SECONDS = 120.0
+_net_cache: dict[str, tuple[float, dict]] = {}
+
+
+def invalidate_network_cache() -> None:
+    """Drop the cached sweep (e.g. after the proxy settings change)."""
+    _net_cache.clear()
+
+
+async def check_all_providers(proxy: str | None = None, *, force: bool = False) -> dict:
+    """Probe every implemented provider (used by the health endpoint).
+
+    Probes run concurrently and the result is cached for
+    :data:`NET_CACHE_SECONDS`; pass ``force=True`` for an explicit
+    "test now" action.
+    """
     from app.services.media_center.base import all_providers
 
-    results = {}
-    for key, cls in sorted(all_providers().items()):
-        if not getattr(cls, "implemented", True):
+    cache_key = (proxy or "").strip()
+    now = time.monotonic()
+    if not force:
+        cached = _net_cache.get(cache_key)
+        if cached is not None and now - cached[0] < NET_CACHE_SECONDS:
+            return cached[1]
+
+    targets = [
+        key
+        for key, cls in sorted(all_providers().items())
+        if getattr(cls, "implemented", True) and key not in ("podcast", "custom")
+    ]
+    # Sequential probing took the sum of every timeout; a blocked source could
+    # stall the whole page for half a minute.
+    probed = await asyncio.gather(
+        *(check_provider(key, proxy=proxy) for key in targets),
+        return_exceptions=True,
+    )
+    results: dict[str, dict] = {}
+    for key, outcome in zip(targets, probed):
+        if isinstance(outcome, BaseException):
+            logger.warning("Provider probe failed for %s: %s", key, outcome)
             continue
-        if key in ("podcast", "custom"):
-            continue  # host depends on the subscription URL
-        results[key] = await check_provider(key, proxy=proxy)
+        results[key] = outcome
 
     youtube_ok = results.get("youtube", {}).get("ok", False)
-    return {
+    payload = {
         "ok": youtube_ok,
         "proxy": proxy,
         "detail": "YouTube 可直连" if youtube_ok else "YouTube 无法直连（其他来源见 providers）",
         "checks": results.get("youtube", {}).get("checks", {}),
         "providers": results,
     }
+    _net_cache[cache_key] = (now, payload)
+    return payload
 
 
 async def check_network(proxy: str | None = None, provider: str | None = None, url: str | None = None) -> dict:
@@ -577,7 +614,9 @@ __all__ = [
     "EngineResult",
     "RC_ABORTED",
     "VIDEO_EXTS",
+    "NET_CACHE_SECONDS",
     "PROVIDER_PROBES",
+    "invalidate_network_cache",
     "build_download_args",
     "check_all_providers",
     "check_network",
