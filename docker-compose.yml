@@ -30,8 +30,13 @@ services:
       # ── 可选：容器管理 / 脚本任务 / 访问 NAS 上的其他目录 ───
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - ./scripts:/scripts:ro
+      # 群晖存储池（只读）。覆盖 /volume1/docker，Btrfs 清理也靠它找 subvolume。
       - /volume1:/volume1:ro
-      - /volumeUSB1/usbshare:/usb:rw
+      # U 盘 / 外接盘（可写）。**必须挂在与宿主机相同的路径上**：
+      # 「Docker 备份」插件的默认目标是 /volumeUSB1/usbshare/docker_backup，
+      # 如果这里改挂成 /usb，容器里那个路径就不存在了 —— 插件会用 makedirs
+      # 自己建一个，备份看起来成功，实际写进容器临时层，重建容器即丢。
+      - /volumeUSB1/usbshare:/volumeUSB1/usbshare:rw
 
     environment:
       - TZ=Asia/Shanghai
