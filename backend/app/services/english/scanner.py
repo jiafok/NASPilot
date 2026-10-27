@@ -25,6 +25,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.database import begin_write
 from app.models import (
     EnglishCourse,
     EnglishLesson,
@@ -820,6 +821,17 @@ async def _scan_impl(
             if asset.media is None:
                 continue
             seen_files.add(str(asset.media))
+            known = existing_by_path.get(str(asset.media))
+            # Decide *before* touching the database: an unchanged lesson needs no
+            # transaction at all, which is what keeps an idle scan cheap.
+            if known is not None and _is_unchanged(known, asset, course, index):
+                report.lessons_skipped += 1
+                continue
+            # About to write: commit the previous lesson and take the write lock
+            # first. A read-then-write transaction cannot be upgraded once
+            # another connection has committed, and that error is immediate
+            # instead of waiting on busy_timeout.
+            await begin_write(db)
             try:
                 before_changes = report.lessons_created + report.lessons_updated
                 await _upsert_lesson(
@@ -829,7 +841,7 @@ async def _scan_impl(
                     position=index,
                     title_prefix=prefix,
                     report=report,
-                    existing=existing_by_path.get(str(asset.media)),
+                    existing=known,
                 )
                 if report.lessons_created + report.lessons_updated > before_changes:
                     dirty_courses.add(course.id)
@@ -846,15 +858,14 @@ async def _scan_impl(
             except Exception as exc:  # one bad file must not stop the scan
                 report.errors.append(f"{asset.media.name}: {exc}")
                 logger.warning("Scan failed for %s", asset.media, exc_info=True)
-            # One transaction per lesson. All the slow work (reading the
-            # subtitle, ffprobe, classification) happens before the first
-            # statement, so the write lock is held for milliseconds rather than
-            # seconds - which is what keeps concurrent requests waiting instead
-            # of failing.
-            await db.commit()
+            # One transaction per lesson, committed at the top of the next
+            # iteration by begin_write(). The write lock is therefore held for
+            # milliseconds, which is what keeps concurrent requests waiting
+            # instead of failing.
         await db.flush()
 
     # Anything on disk no longer present → missing (rows are kept)
+    await begin_write(db)
     all_lessons = (await db.execute(select(EnglishLesson))).scalars().all()
     root_real = str(Path(os.path.realpath(base)))
     for lesson in all_lessons:
@@ -883,6 +894,7 @@ async def _scan_impl(
     # (must run AFTER missing detection so counts exclude gone files)
     await db.commit()
     for course_id, course in touched_courses.items():
+        await begin_write(db)
         lessons = (
             await db.execute(select(EnglishLesson).where(EnglishLesson.course_id == course_id))
         ).scalars().all()

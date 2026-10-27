@@ -14,6 +14,7 @@ from typing import Any, Sequence
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import begin_write
 from app.models import (
     EnglishBookmark,
     EnglishCourse,
@@ -586,6 +587,9 @@ async def upsert_progress(
     listen_seconds: int = 0,
     completed: bool | None = None,
 ) -> dict[str, Any] | None:
+    # Reported every 10s while a scan may be committing: take the write lock
+    # first, otherwise the read-then-write snapshot upgrade fails instantly.
+    await begin_write(db)
     lesson = await db.get(EnglishLesson, lesson_id)
     if lesson is None:
         return None
@@ -641,6 +645,8 @@ async def upsert_bookmark(
     text: str | None = None,
     remove: bool = False,
 ) -> dict[str, Any] | None:
+    # Same reason as upsert_progress: read-then-write needs the lock up front.
+    await begin_write(db)
     lesson = await db.get(EnglishLesson, lesson_id)
     if lesson is None:
         return None
@@ -688,6 +694,8 @@ async def upsert_bookmark(
 async def set_favorite(
     db: AsyncSession, user_id: int, *, course_id: int, favorite: bool
 ) -> dict[str, Any] | None:
+    # Same reason as upsert_progress: read-then-write needs the lock up front.
+    await begin_write(db)
     course = await db.get(EnglishCourse, course_id)
     if course is None:
         return None

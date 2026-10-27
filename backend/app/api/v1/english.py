@@ -377,6 +377,10 @@ async def english_ai_chat(
         parts.append(f"字幕内容（节选）：\n{context}")
     parts.append(f"学生问题：{body.question}")
 
+    # The model call takes seconds; holding the write lock for it would block
+    # every other write (progress reports, logins) for the whole duration.
+    await db.commit()
+
     try:
         answer = await ai_service.ask("\n\n".join(parts), system=_TUTOR_SYSTEM, db=db)
     except Exception as exc:
@@ -415,6 +419,10 @@ async def english_ai_explain(
         f"请讲解这句话：\n{sentence}\n\n"
         "要求：1) 中文翻译 2) 关键语法点 3) 地道用法或搭配 4) 一句类似例句。"
     )
+    # The model call takes seconds; holding the write lock for it would block
+    # every other write (progress reports, logins) for the whole duration.
+    await db.commit()
+
     try:
         answer = await ai_service.ask(prompt, system=_TUTOR_SYSTEM, db=db)
     except Exception as exc:
@@ -610,7 +618,17 @@ async def english_stream_media(
     lesson = await _load_lesson(db, lesson_id)
     if lesson.status != "ready":
         raise HTTPException(status_code=410, detail="文件已不存在于媒体库")
-    return stream.stream_file(_guarded(lesson.file_path), request)
+    path = _guarded(lesson.file_path)
+    # End the transaction BEFORE the body starts streaming.
+    #
+    # FastAPI only tears a yield-dependency down after the response finishes.
+    # A paused player keeps its connection open indefinitely, so the session
+    # stayed alive with an open transaction - and because every transaction
+    # opens with BEGIN IMMEDIATE, that held SQLite's write lock for as long as
+    # anyone left a lesson paused, blocking every other write in the process
+    # (logins failed after busy_timeout with "database is locked").
+    await db.rollback()
+    return stream.stream_file(path, request)
 
 
 @stream_router.get("/stream/subtitle/{lesson_id}", summary="字幕原文")
@@ -623,7 +641,17 @@ async def english_stream_subtitle(
     lesson = await _load_lesson(db, lesson_id)
     if not lesson.subtitle_path:
         raise HTTPException(status_code=404, detail="该课时没有字幕")
-    return stream.subtitle_text(_guarded(lesson.subtitle_path))
+    path = _guarded(lesson.subtitle_path)
+    # End the transaction BEFORE the body starts streaming.
+    #
+    # FastAPI only tears a yield-dependency down after the response finishes.
+    # A paused player keeps its connection open indefinitely, so the session
+    # stayed alive with an open transaction - and because every transaction
+    # opens with BEGIN IMMEDIATE, that held SQLite's write lock for as long as
+    # anyone left a lesson paused, blocking every other write in the process
+    # (logins failed after busy_timeout with "database is locked").
+    await db.rollback()
+    return stream.subtitle_text(path)
 
 
 @stream_router.get("/stream/cover/{course_id}", summary="课程封面")
@@ -636,6 +664,15 @@ async def english_stream_cover(
     if course is None or not course.cover_path:
         raise HTTPException(status_code=404, detail="封面不存在")
     path = _guarded(course.cover_path)
+    # End the transaction BEFORE the body starts streaming.
+    #
+    # FastAPI only tears a yield-dependency down after the response finishes.
+    # A paused player keeps its connection open indefinitely, so the session
+    # stayed alive with an open transaction - and because every transaction
+    # opens with BEGIN IMMEDIATE, that held SQLite's write lock for as long as
+    # anyone left a lesson paused, blocking every other write in the process
+    # (logins failed after busy_timeout with "database is locked").
+    await db.rollback()
     return FileResponse(
         path,
         media_type=stream.guess_mime(path),
@@ -653,6 +690,15 @@ async def english_stream_lesson_cover(
     if not lesson.cover_path:
         raise HTTPException(status_code=404, detail="封面不存在")
     path = _guarded(lesson.cover_path)
+    # End the transaction BEFORE the body starts streaming.
+    #
+    # FastAPI only tears a yield-dependency down after the response finishes.
+    # A paused player keeps its connection open indefinitely, so the session
+    # stayed alive with an open transaction - and because every transaction
+    # opens with BEGIN IMMEDIATE, that held SQLite's write lock for as long as
+    # anyone left a lesson paused, blocking every other write in the process
+    # (logins failed after busy_timeout with "database is locked").
+    await db.rollback()
     return FileResponse(
         path,
         media_type=stream.guess_mime(path),

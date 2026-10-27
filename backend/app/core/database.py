@@ -4,6 +4,7 @@ import logging
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -55,22 +56,30 @@ if _IS_SQLITE:
         finally:
             cursor.close()
 
-    @event.listens_for(engine.sync_engine, "begin")
-    def _sqlite_begin_immediate(connection):  # noqa: ANN001
-        # Always take the write lock *before* reading.
-        #
-        # A transaction that reads first has to upgrade its WAL snapshot when it
-        # later writes, and if any other connection committed in between SQLite
-        # rejects the upgrade instantly - busy_timeout is not consulted at all.
-        # That single behaviour caused both observed failures: the English scan
-        # died as soon as anything else wrote, and unrelated requests (login)
-        # failed with "database is locked" while the scan held its lock.
-        #
-        # BEGIN IMMEDIATE removes the upgrade, so contention becomes a bounded
-        # wait instead of an error. Every transaction is short in this app, so
-        # serialising writers is cheap; readers are serialised too, which keeps
-        # the invariant simple and predictable.
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
+async def begin_write(db: AsyncSession) -> None:
+    """Start the unit of work as an SQLite *writer*.
+
+    Why this exists: under WAL, a transaction that READS first and writes later
+    has to upgrade its read snapshot. If any other connection committed in
+    between, SQLite rejects the upgrade **immediately** and never consults
+    ``busy_timeout`` - the caller sees "database is locked" without waiting.
+
+    Starting with ``BEGIN IMMEDIATE`` takes the write lock up front, so there is
+    no upgrade and contention becomes a bounded wait instead.
+
+    Why it is NOT applied to every transaction: a transaction that only reads
+    would then take the write lock too, and any long-lived response (a paused
+    video keeps its HTTP connection open indefinitely) would hold that lock for
+    as long as it lives, blocking every writer in the process. Readers therefore
+    stay deferred; only read-modify-write paths call this.
+
+    Call it as the FIRST thing in a unit of work. It commits any pending changes
+    first so the BEGIN is unambiguous.
+    """
+    if not _IS_SQLITE:
+        return
+    await db.commit()  # never nest: an open transaction cannot be upgraded
+    await db.execute(text("BEGIN IMMEDIATE"))
 
 
 async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -270,9 +279,9 @@ async def _cleanup_log_spam() -> None:
     # above, so we now open a fresh connection and run VACUUM in autocommit.
     try:
         # A throwaway AUTOCOMMIT engine: VACUUM cannot run inside a transaction,
-        # and the main engine now opens one with BEGIN IMMEDIATE on every
-        # statement. This engine carries no "begin" listener, so the statement
-        # reaches SQLite unwrapped.
+        # and the request session may already have one open. This engine carries
+        # no listeners and no transaction of its own, so the statement reaches
+        # SQLite unwrapped.
         vacuum_engine = create_async_engine(
             settings.DATABASE_URL,
             isolation_level="AUTOCOMMIT",
