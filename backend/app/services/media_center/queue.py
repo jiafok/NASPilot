@@ -210,6 +210,16 @@ class MediaQueueManager:
                 finished_at=_now(),
                 error_message=None,
             )
+            # A file just landed in the media library, so the English Center
+            # should pick it up now instead of waiting for the next poll.
+            # Imported lazily to avoid a media_center -> english import cycle,
+            # and it can never affect the download result.
+            try:
+                from app.services.english import watcher as _english_watcher
+
+                _english_watcher.request_scan("download")
+            except Exception:  # pragma: no cover - never break a download
+                logger.debug("english auto-scan request failed", exc_info=True)
 
     async def _finish_cancelled(self, task_id: int) -> None:
         await self._set(task_id, status="cancelled", speed=None, eta=None, finished_at=_now())

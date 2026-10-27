@@ -99,8 +99,14 @@ class Settings(BaseSettings):
     ENGLISH_ROOT: str = ""
     #: How many vocabulary terms to keep per course after extraction.
     ENGLISH_VOCAB_LIMIT: int = 300
-    #: Scan the library on startup (off by default; scanning is cheap but logs).
+    #: Scan the library once at startup. Off by default: the watcher below
+    #: already notices a changed library within its interval.
     ENGLISH_SCAN_ON_STARTUP: bool = False
+    #: Poll interval for the auto-scan watcher, in seconds. 0 disables it.
+    #: Polling compares a cheap fingerprint (file count / total size / newest
+    #: mtime) and only runs an *incremental* scan when something changed, so a
+    #: short interval costs almost nothing.
+    ENGLISH_AUTO_SCAN_SECONDS: int = 60
 
     # ── Media servers (deep links + library hints) ────────────────────
     EMBY_URL: str = ""

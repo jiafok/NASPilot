@@ -56,6 +56,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from app.core.metrics import start_collector
     start_collector()
 
+    # English Learning Center — keep classifications up to date automatically.
+    # The watcher covers every way a file can appear (download, SMB/SFTP copy,
+    # rsync) with a single mechanism.
+    from app.services.english import watcher as english_watcher
+
+    english_watcher.start_watcher(int(settings.ENGLISH_AUTO_SCAN_SECONDS or 0))
+    if settings.ENGLISH_SCAN_ON_STARTUP:
+        english_watcher.request_scan("startup")
+
     # Media Subscription Center — detect yt-dlp/ffmpeg (auto-installs yt-dlp
     # when missing). Runs in the background so a slow pip never blocks boot.
     import asyncio
@@ -65,4 +74,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────
+    from app.services.english import watcher as english_watcher
+
+    await english_watcher.stop_watcher()
     await shutdown_scheduler()

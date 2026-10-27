@@ -10,6 +10,7 @@ Directory → hierarchy rules are documented in
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -20,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -50,6 +52,13 @@ DEFAULT_COURSE = "未分类"
 #: stripped before deriving the channel/course identity.
 MODE_SEGMENTS = {"video", "audio"}
 
+#: Serialises scans process-wide. SQLite permits a single writer, so two scans
+#: running at once (a manual POST while the watcher polls, say) would block each
+#: other on every commit and, past ``busy_timeout``, surface as "database is
+#: locked" on unrelated requests such as login. The guard lives here rather than
+#: in the caller so no future call site can bypass it.
+_SCAN_LOCK = asyncio.Lock()
+
 #: Generic container folders some providers add. They add no meaning to a
 #: lesson title, so they are not used as a title prefix.
 GENERIC_SEGMENTS = {"videos", "streams", "shorts", "playlist", "playlists"}
@@ -79,6 +88,8 @@ class ScanReport:
     transcripts_parsed: int = 0
     vocabulary_terms: int = 0
     skipped: int = 0
+    #: Files whose size/mtime/classification were already up to date.
+    lessons_skipped: int = 0
     errors: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, object]:
@@ -92,6 +103,7 @@ class ScanReport:
             "lessons_missing": self.lessons_missing,
             "transcripts_parsed": self.transcripts_parsed,
             "vocabulary_terms": self.vocabulary_terms,
+            "lessons_skipped": self.lessons_skipped,
             "skipped": self.skipped,
             "errors": self.errors[:20],
         }
@@ -266,6 +278,49 @@ def _probe_duration(path: Path) -> int:
         return 0
 
 
+def _is_unchanged(
+    existing: EnglishLesson,
+    asset: Asset,
+    course: EnglishCourse,
+    position: int,
+) -> bool:
+    """True when re-processing this file would produce exactly the same row.
+
+    Deliberately strict — a wrong ``True`` means stale data, so anything that
+    could change the outcome (file contents, subtitle sidecar, course, order,
+    or the classification algorithm version) forces the full path.
+    """
+    if existing.status != "ready" or not existing.level:
+        return False
+    if existing.course_id != course.id or existing.position != position:
+        return False
+    # A subtitle added (or replaced) later must be picked up.
+    if (existing.subtitle_path or "") != (str(asset.subtitle) if asset.subtitle else ""):
+        return False
+    features = existing.features if isinstance(existing.features, dict) else {}
+    if features.get("v") != taxonomy.TAXONOMY_VERSION:
+        return False
+    try:
+        stat = asset.media.stat()  # type: ignore[union-attr]
+    except OSError:
+        return False
+    if existing.size_bytes != stat.st_size:
+        return False
+    published = existing.published_at
+    if published is None:
+        return False
+    # _mtime() stores the UTC wall clock, but SQLite has no timezone type so it
+    # comes back naive. Reading it as "now" is how the incremental check broke
+    # for every row in a UTC+8 host: each timestamp looked 8 hours off and the
+    # whole library was re-parsed on every scan. Treat a naive value as UTC.
+    if published.tzinfo is None:
+        published = published.replace(tzinfo=timezone.utc)
+    # compare at whole-second resolution (SQLite round-trips may lose sub-second)
+    if int(published.timestamp()) != int(stat.st_mtime):
+        return False
+    return True
+
+
 def _mtime(path: Path) -> datetime | None:
     try:
         return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
@@ -338,6 +393,7 @@ async def _upsert_lesson(
     position: int,
     title_prefix: str,
     report: ScanReport,
+    existing: EnglishLesson | None = None,
 ) -> EnglishLesson:
     assert asset.media is not None
     file_path = str(asset.media)
@@ -373,9 +429,21 @@ async def _upsert_lesson(
     except OSError:
         size = 0
 
-    existing = (
-        await db.execute(select(EnglishLesson).where(EnglishLesson.file_path == file_path))
-    ).scalar_one_or_none()
+    if existing is None:
+        # The scan prefetches every lesson by path, so this only runs for files
+        # that are genuinely new (or appeared while we were walking).
+        existing = (
+            await db.execute(select(EnglishLesson).where(EnglishLesson.file_path == file_path))
+        ).scalar_one_or_none()
+
+    # ── Incremental fast path ────────────────────────────────────────────
+    # Auto-scanning runs often, and re-parsing every subtitle + re-measuring
+    # every file costs ~60s on a 400-lesson library. Nothing has to be redone
+    # when the file itself, its subtitle and the classification algorithm are
+    # all unchanged, so those rows are skipped outright.
+    if existing is not None and _is_unchanged(existing, asset, course, position):
+        report.lessons_skipped += 1
+        return existing
 
     if not duration:
         # Reuse the cached value so an unchanged file is never probed twice.
@@ -483,7 +551,11 @@ async def library_stats(db: AsyncSession) -> tuple[Counter[str], int]:
     dictionary would file it as intermediate. Computed once per scan.
     """
     rows = (await db.execute(select(EnglishTranscript.search_text))).scalars().all()
-    return vocab.library_document_frequency([r for r in rows if r])
+    # End the read transaction before the CPU work: with BEGIN IMMEDIATE a
+    # transaction owns the write lock, and measuring the whole library would
+    # otherwise block every other writer for seconds.
+    await db.commit()
+    return await asyncio.to_thread(vocab.library_document_frequency, [r for r in rows if r])
 
 
 def _turns_of(segments: list[dict[str, object]] | None) -> int:
@@ -641,8 +713,17 @@ async def refresh_course_vocabulary(
     ).scalars().all()
 
     texts = [t for t in rows if t]
+    # Release the write lock before scoring: the computation takes tens of
+    # seconds on a large library and must not hold the database hostage.
+    await db.commit()
     if texts:
-        result = vocab.extract_new_words(
+        # Scoring the whole course corpus is CPU-bound and took ~55s of
+        # straight-line Python on a 400-lesson library. Running it inline
+        # froze the event loop for that long, so every HTTP request
+        # (logins included) timed out. A worker thread keeps the API
+        # responsive; the result is unchanged.
+        result = await asyncio.to_thread(
+            vocab.extract_new_words,
             texts,
             library_df=library_df,
             library_size=library_size,
@@ -678,7 +759,7 @@ async def refresh_course_vocabulary(
     return len(items)
 
 
-async def scan(
+async def _scan_impl(
     db: AsyncSession,
     *,
     root: Path | None = None,
@@ -697,11 +778,21 @@ async def scan(
     by_dir = collect_assets(base)
 
     touched_courses: dict[int, EnglishCourse] = {}
+    # Courses whose lessons actually changed. Their classification and word
+    # list are recomputed at the end; untouched courses keep the previous
+    # values, which is what makes an idle scan cheap instead of a minute of
+    # pointless CPU work.
+    dirty_courses: set[int] = set()
     seen_files: set[str] = set()
+    # One query for the whole library instead of one per file: the per-row
+    # round-trip is what made an idle scan take ~10s instead of ~1s.
+    existing_by_path = {
+        lesson.file_path: lesson
+        for lesson in (await db.execute(select(EnglishLesson))).scalars().all()
+    }
+    await db.commit()
     corpus_df: Counter[str] = Counter()
     corpus_size = 0
-    if with_vocabulary:
-        corpus_df, corpus_size = await library_stats(db)
 
     for directory, assets in sorted(by_dir.items(), key=lambda kv: str(kv[0])):
         channel, course_name, prefix = _course_identity(base, directory)
@@ -730,6 +821,7 @@ async def scan(
                 continue
             seen_files.add(str(asset.media))
             try:
+                before_changes = report.lessons_created + report.lessons_updated
                 await _upsert_lesson(
                     db,
                     course=course,
@@ -737,10 +829,29 @@ async def scan(
                     position=index,
                     title_prefix=prefix,
                     report=report,
+                    existing=existing_by_path.get(str(asset.media)),
                 )
+                if report.lessons_created + report.lessons_updated > before_changes:
+                    dirty_courses.add(course.id)
+            except OperationalError as exc:
+                # Lost the write lock. Rollback leaves the session unusable for
+                # the loaded courses, and a partial scan is perfectly safe: it
+                # is idempotent and the next pass finishes the job. Aborting
+                # here also keeps us from marking files "missing" based on an
+                # incomplete walk.
+                await db.rollback()
+                report.errors.append(f"{asset.media.name}: {exc}")
+                logger.warning("Scan aborted after write contention on %s", asset.media)
+                return report.as_dict()
             except Exception as exc:  # one bad file must not stop the scan
                 report.errors.append(f"{asset.media.name}: {exc}")
                 logger.warning("Scan failed for %s", asset.media, exc_info=True)
+            # One transaction per lesson. All the slow work (reading the
+            # subtitle, ffprobe, classification) happens before the first
+            # statement, so the write lock is held for milliseconds rather than
+            # seconds - which is what keeps concurrent requests waiting instead
+            # of failing.
+            await db.commit()
         await db.flush()
 
     # Anything on disk no longer present → missing (rows are kept)
@@ -753,6 +864,7 @@ async def scan(
         if lesson.status != "missing":
             lesson.status = "missing"
             report.lessons_missing += 1
+            dirty_courses.add(lesson.course_id)
         # Aggregates are recomputed for `touched_courses` only, so every course
         # owning a missing lesson must be queued as well — otherwise its
         # lesson_count keeps showing the stale value (and would never drop to
@@ -762,8 +874,14 @@ async def scan(
             if course is not None:
                 touched_courses[course.id] = course
 
+    if with_vocabulary and dirty_courses:
+        # Library-wide word statistics are only used to score word lists, so an
+        # unchanged library never pays for them.
+        corpus_df, corpus_size = await library_stats(db)
+
     # Update course aggregates + cover
     # (must run AFTER missing detection so counts exclude gone files)
+    await db.commit()
     for course_id, course in touched_courses.items():
         lessons = (
             await db.execute(select(EnglishLesson).where(EnglishLesson.course_id == course_id))
@@ -778,6 +896,12 @@ async def scan(
                 cover = _pick_course_cover(directory, assets)
                 if cover is not None:
                     course.cover_path = str(cover)
+
+        if course_id not in dirty_courses:
+            # Counts above are cheap and always refreshed; the expensive parts
+            # cannot have changed.
+            await db.commit()
+            continue
 
         # Classification needs the transcripts, so it runs in the aggregation
         # pass — after every lesson of the course has been upserted.
@@ -798,10 +922,43 @@ async def scan(
                 )
             except Exception:
                 logger.warning("Vocabulary refresh failed for course %s", course_id, exc_info=True)
+        # Commit per course: taxonomy + vocabulary are the two slowest writes
+        # in the scan and there is no reason to hold the lock across courses.
+        await db.commit()
 
     await db.commit()
     logger.info("English scan finished: %s", report.as_dict())
     return report.as_dict()
+
+
+def fingerprint(root: Path | None = None) -> str:
+    """Cheap signature of the library: file count, total size, newest mtime.
+
+    Used by the auto-scan watcher to decide whether anything changed at all.
+    Walking 800 files takes a few milliseconds, which is cheap enough to poll
+    every minute; parsing their subtitles is not.
+    """
+    base = root or english_root()
+    if not base.is_dir():
+        return "missing"
+    count = 0
+    total = 0
+    newest = 0.0
+    for current, dirnames, filenames in os.walk(base):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in {"@eaDir", "#recycle"}]
+        for name in filenames:
+            if name.startswith("."):
+                continue
+            if Path(name).suffix.lower() not in MEDIA_EXTS | subtitles.SUBTITLE_EXTS:
+                continue
+            try:
+                stat = os.stat(os.path.join(current, name))
+            except OSError:
+                continue
+            count += 1
+            total += stat.st_size
+            newest = max(newest, stat.st_mtime)
+    return f"{count}:{total}:{int(newest)}"
 
 
 async def stats(db: AsyncSession) -> dict[str, object]:
@@ -846,6 +1003,19 @@ async def stats(db: AsyncSession) -> dict[str, object]:
     }
 
 
+async def scan(
+    db: AsyncSession,
+    *,
+    root: Path | None = None,
+    with_vocabulary: bool = True,
+) -> dict[str, object]:
+    """Scan the English library, one scan at a time across the process."""
+    if _SCAN_LOCK.locked():
+        logger.info("Scan requested while another is running; waiting for it")
+    async with _SCAN_LOCK:
+        return await _scan_impl(db, root=root, with_vocabulary=with_vocabulary)
+
+
 __all__ = [
     "AUDIO_EXTS",
     "IMAGE_EXTS",
@@ -855,6 +1025,7 @@ __all__ = [
     "collect_assets",
     "english_root",
     "is_inside_root",
+    "fingerprint",
     "library_stats",
     "refresh_course_taxonomy",
     "refresh_course_vocabulary",

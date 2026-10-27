@@ -13,6 +13,8 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
 
+_IS_SQLITE = "sqlite" in settings.DATABASE_URL
+
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
@@ -21,8 +23,55 @@ engine = create_async_engine(
     max_overflow=settings.DB_POOL_OVERFLOW,
     pool_timeout=settings.DB_POOL_TIMEOUT,
     pool_recycle=settings.DB_POOL_RECYCLE,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
+    connect_args={"check_same_thread": False} if _IS_SQLITE else {},
 )
+
+if _IS_SQLITE:
+    # ── Concurrency settings, required now that maintenance runs in background ──
+    #
+    # SQLite's default rollback journal lets a single writer block every other
+    # reader *and* writer for the whole transaction. That was tolerable while
+    # heavy work was user-triggered — but the English scan now runs on its own,
+    # and a 60s scan made an unrelated `POST /auth/login` fail with
+    # "database is locked".
+    #
+    #   WAL          readers never block the writer and vice versa
+    #   busy_timeout instead of failing immediately, wait for the lock
+    #   synchronous  NORMAL is the safe pairing with WAL (full fsync is only
+    #                needed for rollback journal mode)
+    from sqlalchemy import event
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _sqlite_pragmas(dbapi_connection, _record):  # noqa: ANN001
+        # Transactions are opened explicitly (see _sqlite_begin_immediate), so
+        # the driver must not open its own deferred one.
+        dbapi_connection.isolation_level = None
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=15000")
+            cursor.execute("PRAGMA foreign_keys=ON")
+        finally:
+            cursor.close()
+
+    @event.listens_for(engine.sync_engine, "begin")
+    def _sqlite_begin_immediate(connection):  # noqa: ANN001
+        # Always take the write lock *before* reading.
+        #
+        # A transaction that reads first has to upgrade its WAL snapshot when it
+        # later writes, and if any other connection committed in between SQLite
+        # rejects the upgrade instantly - busy_timeout is not consulted at all.
+        # That single behaviour caused both observed failures: the English scan
+        # died as soon as anything else wrote, and unrelated requests (login)
+        # failed with "database is locked" while the scan held its lock.
+        #
+        # BEGIN IMMEDIATE removes the upgrade, so contention becomes a bounded
+        # wait instead of an error. Every transaction is short in this app, so
+        # serialising writers is cheap; readers are serialised too, which keeps
+        # the invariant simple and predictable.
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+
 
 async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -220,11 +269,20 @@ async def _cleanup_log_spam() -> None:
     # SQLite forbids VACUUM from within a transaction.  The DELETE committed
     # above, so we now open a fresh connection and run VACUUM in autocommit.
     try:
-        async with engine.connect() as conn:
-            # SQLite requires autocommit / no active transaction for VACUUM.
-            # On aioodbc/aiosqlite, exec_driver_sql bypasses SQLAlchemy's
-            # implicit transaction and sends the statement directly.
-            await conn.exec_driver_sql("VACUUM")
+        # A throwaway AUTOCOMMIT engine: VACUUM cannot run inside a transaction,
+        # and the main engine now opens one with BEGIN IMMEDIATE on every
+        # statement. This engine carries no "begin" listener, so the statement
+        # reaches SQLite unwrapped.
+        vacuum_engine = create_async_engine(
+            settings.DATABASE_URL,
+            isolation_level="AUTOCOMMIT",
+            connect_args={"check_same_thread": False} if _IS_SQLITE else {},
+        )
+        try:
+            async with vacuum_engine.connect() as conn:
+                await conn.exec_driver_sql("VACUUM")
             logger.info("Database vacuum completed")
+        finally:
+            await vacuum_engine.dispose()
     except Exception:
         logger.exception("Database vacuum failed (non-fatal — disk space not reclaimed)")

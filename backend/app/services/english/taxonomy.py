@@ -36,6 +36,12 @@ from app.services.english import vocabulary as vocab
 
 LEVELS: tuple[str, ...] = ("A1", "A2", "B1", "B2", "C1")
 
+#: Bumped whenever the scoring changes. The value is stored inside
+#: ``lessons.features`` so an incremental scan can tell a row produced by an
+#: older algorithm from a current one and re-measure it — otherwise tuning the
+#: thresholds would silently leave the whole library on the old scale.
+TAXONOMY_VERSION = 2
+
 #: CEFR → the coarse label the old UI used.
 LEVEL_TO_DIFFICULTY = {
     "A1": "beginner",
@@ -124,6 +130,7 @@ class Features:
             "wps": round(self.wps, 2),
             "turns": self.turns,
             "dialogue": self.is_dialogue,
+            "v": TAXONOMY_VERSION,
         }
 
 
@@ -519,6 +526,7 @@ def aggregate_format(formats: list[str | None]) -> str:
 __all__ = [
     "FORMAT_LABEL",
     "LEVELS",
+    "TAXONOMY_VERSION",
     "LEVEL_TO_DIFFICULTY",
     "SKILL_RULES",
     "TOPIC_RULES",

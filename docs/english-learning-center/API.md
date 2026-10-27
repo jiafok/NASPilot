@@ -190,9 +190,47 @@ Lesson 001.jpg
 
 | 方式 | 说明 |
 | --- | --- |
+| 自动（默认） | 后台 watcher 每 `ENGLISH_AUTO_SCAN_SECONDS`（默认 60）秒比对一次媒体库指纹，有变化就自动扫描并完成分类 |
+| 下载完成 | 媒体中心任务置为 completed 时立即请求一次扫描，不等下一轮轮询 |
 | Web 页「扫描」按钮 | `POST /api/v1/english/admin/scan` |
 | API | 同上 |
-| 定时 | 沿用 NASPilot 调度器，可选开启（默认关闭） |
+| 启动时 | `ENGLISH_SCAN_ON_STARTUP=true` 时在 lifespan 中扫一次（默认关闭） |
+
+- 关掉自动扫描：`ENGLISH_AUTO_SCAN_SECONDS=0`，仍可手动点按钮。
+- 指纹 = 文件数 + 总字节数 + 最新 mtime（只统计媒体/字幕扩展名），
+  所以新增、删除、改名、覆盖都会触发。
+- 同一时刻只允许一次扫描（`_SCAN_LOCK`）；手动点按钮时若已有扫描在跑，
+  请求会等它结束而不是并发跑第二个 —— 两个并发扫描会互相抢 SQLite 写锁。
+
+### A.7.1 增量扫描
+
+未变化的课时整行跳过，报告里的 `lessons_skipped` 即命中数。判定为"未变化"需要
+同时满足：`status=ready`、有 `level`、课程与序号未变、字幕路径未变、
+`features.v` 等于当前 `TAXONOMY_VERSION`、字节数一致、mtime（秒级）一致。
+
+`TAXONOMY_VERSION` 在分类打分规则变化时递增，这样已入库的行会被重新测量。
+
+课程维度的聚合（难度中位数、话题、技能、形式）与词表只对**本次真的有课时变化**
+的课程重算，因此空闲扫描很便宜：
+
+| 场景 | 耗时（398 课时 / 18 GB） |
+| --- | --- |
+| 无变化 | ~10s（全部 `lessons_skipped`，不重算词表） |
+| 全量（字幕全部重解析） | ~70–90s |
+
+### A.7.2 扫描报告字段
+
+```json
+{
+  "root": "/app/data/media",
+  "exists": true,
+  "courses_created": 0, "courses_updated": 2,
+  "lessons_created": 1, "lessons_updated": 0, "lessons_missing": 0,
+  "lessons_skipped": 398,
+  "transcripts_parsed": 1, "vocabulary_terms": 300,
+  "skipped": 0, "errors": []
+}
+```
 
 ---
 
