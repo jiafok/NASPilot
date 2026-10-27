@@ -91,6 +91,10 @@ class ScanReport:
     skipped: int = 0
     #: Files whose size/mtime/classification were already up to date.
     lessons_skipped: int = 0
+    #: Subtitles that exist on disk but produced no text (unreadable mount,
+    #: unsupported format, empty file). Those lessons get no transcript, so
+    #: classification falls back to the default B1 level.
+    subtitles_failed: int = 0
     errors: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, object]:
@@ -105,6 +109,7 @@ class ScanReport:
             "transcripts_parsed": self.transcripts_parsed,
             "vocabulary_terms": self.vocabulary_terms,
             "lessons_skipped": self.lessons_skipped,
+            "subtitles_failed": self.subtitles_failed,
             "skipped": self.skipped,
             "errors": self.errors[:20],
         }
@@ -301,6 +306,13 @@ def _is_unchanged(
     features = existing.features if isinstance(existing.features, dict) else {}
     if features.get("v") != taxonomy.TAXONOMY_VERSION:
         return False
+    # A lesson measured from an empty transcript keeps the B1 fallback. The
+    # sidecar path, size and mtime of the media file are all unchanged when that
+    # happens (an unreadable network mount, a fixed format, a newly readable
+    # file), so nothing else here would ever re-measure it — it would stay B1
+    # forever even after the cause is gone. Force one re-run instead.
+    if asset.subtitle is not None and not features.get("words"):
+        return False
     try:
         stat = asset.media.stat()  # type: ignore[union-attr]
     except OSError:
@@ -445,6 +457,14 @@ async def _upsert_lesson(
     if existing is not None and _is_unchanged(existing, asset, course, position):
         report.lessons_skipped += 1
         return existing
+
+    if asset.subtitle is not None and not segments:
+        # The sidecar exists but yielded no cues. Without a transcript the
+        # difficulty signals (sentence length, rarity, speech rate) cannot be
+        # measured, so the lesson silently keeps the B1 fallback. Count it so a
+        # uniformly-B1 library is explainable instead of mysterious.
+        report.subtitles_failed += 1
+        logger.warning("字幕解析为空，课时将回退为 B1 分级: %s", asset.subtitle)
 
     if not duration:
         # Reuse the cached value so an unchanged file is never probed twice.
@@ -940,6 +960,12 @@ async def _scan_impl(
 
     await db.commit()
     logger.info("English scan finished: %s", report.as_dict())
+    if report.subtitles_failed:
+        logger.warning(
+            "English scan: %d 个字幕没有解析出内容，对应课时缺少转录文本，"
+            "分级会回退为 B1。请检查字幕文件是否可读（网络/FUSE 挂载）或格式是否受支持。",
+            report.subtitles_failed,
+        )
     return report.as_dict()
 
 
@@ -993,6 +1019,16 @@ async def stats(db: AsyncSession) -> dict[str, object]:
     transcripts = (
         await db.execute(select(func.count()).select_from(EnglishTranscript))
     ).scalar() or 0
+    # Coverage explains the level distribution: a lesson without a transcript
+    # cannot be measured, so it is classified as B1.
+    covered = (
+        await db.execute(
+            select(func.count())
+            .select_from(EnglishLesson)
+            .join(EnglishTranscript, EnglishTranscript.lesson_id == EnglishLesson.id)
+            .where(EnglishLesson.status == "ready", EnglishTranscript.segment_count > 0)
+        )
+    ).scalar() or 0
     words = (await db.execute(select(func.count()).select_from(EnglishVocabulary))).scalar() or 0
     seconds = (
         await db.execute(
@@ -1010,6 +1046,8 @@ async def stats(db: AsyncSession) -> dict[str, object]:
         "lessons": lessons,
         "lessons_missing": missing,
         "transcripts": transcripts,
+        "lessons_with_transcript": int(covered),
+        "lessons_without_transcript": int(max(0, lessons - covered)),
         "vocabulary": words,
         "total_seconds": int(seconds),
     }

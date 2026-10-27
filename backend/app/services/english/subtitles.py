@@ -11,6 +11,7 @@ from __future__ import annotations
 import html
 import logging
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -95,9 +96,36 @@ def _clean_text(raw: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+#: A network/FUSE mount (rclone, Alist, SMB) raises a transient ``OSError``
+#: when the backing drive throttles — ``[Errno 5] Input/output error`` or
+#: ``Transport endpoint is not connected``. Losing such a read silently drops
+#: the whole transcript, and a lesson without a transcript is classified as
+#: B1, so a flaky mount makes an entire library look like B1. A couple of
+#: short retries ride out the blip.
+_READ_ATTEMPTS = 3
+_READ_RETRY_DELAY = 0.25
+
+
 def read_text(path: Path) -> str:
-    """Decode a subtitle file, tolerating BOM and non-UTF-8 encodings."""
-    data = path.read_bytes()
+    """Decode a subtitle file, tolerating BOM, encodings and flaky mounts."""
+    data: bytes | None = None
+    last_error: OSError | None = None
+    for attempt in range(_READ_ATTEMPTS):
+        try:
+            data = path.read_bytes()
+            break
+        except OSError as exc:
+            last_error = exc
+            if attempt + 1 < _READ_ATTEMPTS:
+                logger.debug(
+                    "Subtitle read failed (%s: %s), retrying %s",
+                    type(exc).__name__,
+                    exc,
+                    path,
+                )
+                time.sleep(_READ_RETRY_DELAY * (attempt + 1))
+    if data is None:
+        raise last_error if last_error is not None else OSError(f"cannot read {path}")
     for encoding in ("utf-8-sig", "utf-8", "gbk", "latin-1"):
         try:
             return data.decode(encoding)
@@ -352,8 +380,12 @@ def parse_file(path: Path) -> list[Segment]:
         if not segments:
             logger.debug("No segments parsed from %s", path)
         return segments
-    except Exception:
-        logger.warning("Failed to parse subtitle %s", path, exc_info=True)
+    except Exception as exc:
+        # The log center only parses the first formatted line, so the reason has
+        # to be part of it — the traceback below is invisible there.
+        logger.warning(
+            "Failed to parse subtitle %s (%s: %s)", path, type(exc).__name__, exc, exc_info=True
+        )
         return []
 
 

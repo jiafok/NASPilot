@@ -36,6 +36,53 @@ KEY_BASE_URL = "AI_BASE_URL"
 KEY_MODEL = "AI_MODEL"
 
 DEFAULT_TIMEOUT = 90.0
+_CHAT_COMPLETIONS_SUFFIX = "/chat/completions"
+
+
+def _chat_completions_url(base_url: str) -> str:
+    base = base_url.rstrip("/")
+    if base.lower().endswith(_CHAT_COMPLETIONS_SUFFIX):
+        return base
+    return f"{base}{_CHAT_COMPLETIONS_SUFFIX}"
+
+
+def _describe_http_error(status: int, body: str) -> str:
+    """Turn a provider HTTP error into one actionable line.
+
+    The provider's own message is what separates "API key invalid" from "model
+    not available", so it has to reach the UI instead of a bare
+    ``Client error '401 Unauthorized'``.
+    """
+    message = ""
+    try:
+        payload = json.loads(body)
+    except (TypeError, ValueError):
+        payload = None
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict):
+            code = str(error.get("code") or "").strip()
+            message = str(error.get("message") or "").strip()
+            if code and message:
+                message = f"{message}（code {code}）"
+            elif not message:
+                message = code
+        elif isinstance(error, str):
+            message = error
+        if not message:
+            message = str(payload.get("message") or payload.get("msg") or "")
+    if not message:
+        message = (body or "").strip()[:200] or "无响应内容"
+
+    hints = {
+        401: "API Key 无效或已过期（智谱 Key 形如 id.secret，约 49 位，不要只粘贴前半段）",
+        403: "API Key 无权访问该模型",
+        404: "接口路径或模型不存在（Base URL 不要附加 /chat/completions）",
+        429: "触发限流或额度用尽",
+    }
+    hint = hints.get(status)
+    headline = f"HTTP {status} —— {hint}" if hint else f"HTTP {status}"
+    return f"{headline}；服务端返回：{message}"
 
 
 class AIUnavailable(RuntimeError):
@@ -136,14 +183,15 @@ async def chat(
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(
-            f"{cfg.base_url}/chat/completions",
+            _chat_completions_url(cfg.base_url),
             headers={
                 "Authorization": f"Bearer {cfg.api_key}",
                 "Content-Type": "application/json",
             },
             json=payload,
         )
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            raise RuntimeError(_describe_http_error(resp.status_code, resp.text))
         data = resp.json()
 
     try:
@@ -193,7 +241,7 @@ async def stream_chat(
     async with httpx.AsyncClient(timeout=timeout) as client:
         async with client.stream(
             "POST",
-            f"{cfg.base_url}/chat/completions",
+            _chat_completions_url(cfg.base_url),
             headers={
                 "Authorization": f"Bearer {cfg.api_key}",
                 "Content-Type": "application/json",
@@ -201,7 +249,11 @@ async def stream_chat(
             },
             json=payload,
         ) as resp:
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                # A streaming body has not been read yet, and the provider
+                # explains the failure in it.
+                await resp.aread()
+                raise RuntimeError(_describe_http_error(resp.status_code, resp.text))
             raw_lines: list[str] = []
             async for line in resp.aiter_lines():
                 if not line:

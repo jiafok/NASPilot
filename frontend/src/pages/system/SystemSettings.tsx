@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Form, Input, Button, Switch, message, Typography, Card, Spin, Tabs, Modal, Space, Row, Col, Statistic, Alert } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
-import { SaveOutlined, ReloadOutlined, LockOutlined, SettingOutlined, RobotOutlined, FolderOpenOutlined, CopyOutlined, AppstoreOutlined, BellOutlined, VideoCameraOutlined } from '@ant-design/icons';
+import { SaveOutlined, ReloadOutlined, LockOutlined, SettingOutlined, RobotOutlined, FolderOpenOutlined, AppstoreOutlined, BellOutlined, VideoCameraOutlined } from '@ant-design/icons';
 
 const { Title, Paragraph } = Typography;
 
@@ -85,7 +85,9 @@ export default function SystemSettings() {
       await api.put('/system/settings', entries);
       message.success('配置已保存');
     } catch (err: any) {
-      message.error('保存失败');
+      const detail = err?.response?.data?.detail;
+      const reason = typeof detail === 'string' ? detail : err?.message;
+      message.error(reason ? `保存失败：${reason}` : '保存失败');
     } finally { setSaving(false); }
   };
 
@@ -103,12 +105,6 @@ export default function SystemSettings() {
       else message.error('更改失败');
     }
     finally { setPwdChanging(false); }
-  };
-
-  const generateApiToken = () => {
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    const token = Array.from({length: 32}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    form.setFieldValue('AI_API_KEY', `naspilot-${token}`);
   };
 
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
@@ -203,7 +199,11 @@ export default function SystemSettings() {
               </Form.Item>
             </Col>
             <Col xs={24} sm={12}>
-              <Form.Item name="AI_BASE_URL" label="API Base URL" help="默认 https://api.openai.com/v1">
+              <Form.Item
+                name="AI_BASE_URL"
+                label="API Base URL"
+                help="智谱示例：https://open.bigmodel.cn/api/paas/v4；不要附加 /chat/completions"
+              >
                 <Input placeholder="https://api.openai.com/v1" />
               </Form.Item>
             </Col>
@@ -211,9 +211,6 @@ export default function SystemSettings() {
               <Form.Item name="AI_MODEL" label="Model" help="默认 gpt-4o">
                 <Input placeholder="gpt-4o" />
               </Form.Item>
-            </Col>
-            <Col xs={24} sm={12} style={{ display: 'flex', alignItems: 'center', paddingTop: 28 }}>
-              <Button icon={<CopyOutlined />} onClick={generateApiToken}>生成 API Token</Button>
             </Col>
           </Row>
         </>

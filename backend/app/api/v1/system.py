@@ -43,6 +43,20 @@ from app.services.docker_service import (
 
 router = APIRouter(prefix="/system", tags=["system"])
 
+_MEDIA_PATH_SETTING_KEYS = {"MEDIA_ROOT", "MEDIA_VIDEO_DIR", "MEDIA_AUDIO_DIR"}
+
+
+async def _refresh_media_paths_if_changed(keys: set[str], db: AsyncSession) -> None:
+    if not keys.intersection(_MEDIA_PATH_SETTING_KEYS):
+        return
+
+    from app.services.media_center import settings_store
+    from app.services.english import watcher
+
+    await settings_store.load(db=db)
+    settings_store.ensure_dirs()
+    watcher.request_scan("media_paths_updated")
+
 # Regex matching the formatted log line:
 # "2026-07-23 16:30:09 [INFO    ] naspilot.plugin.pt_rss — message text"
 LOG_RE = re.compile(
@@ -269,6 +283,7 @@ async def batch_update_settings(
                 )
             )
     await db.commit()
+    await _refresh_media_paths_if_changed({entry.key for entry in body}, db)
     return {"message": "saved", "count": len(body)}
 
 
@@ -297,6 +312,7 @@ async def update_setting(
         raise HTTPException(status_code=404, detail="Setting not found")
     setting.value = body.value
     await db.commit()
+    await _refresh_media_paths_if_changed({key}, db)
     await db.refresh(setting)
     return setting
 
