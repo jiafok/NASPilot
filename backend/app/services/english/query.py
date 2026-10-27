@@ -8,7 +8,7 @@ thin HTTP layer, and the same payloads can later be reused by a scheduled
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Sequence
 
 from sqlalchemy import func, or_, select, text
@@ -905,3 +905,145 @@ __all__ = [
     "upsert_progress",
     "vocabulary_payload",
 ]
+
+
+# ── Learning statistics ──────────────────────────────────────────────────
+#
+# The daily aggregate already exists (``learning_statistics``, written by
+# ``upsert_progress``), so this is pure read-side work: the app needs a
+# heat-map, a streak and per-level distribution, none of which the home
+# payload exposes.
+
+
+def _streak(days_with_activity: set[str], today: date) -> int:
+    """Consecutive days of study ending today (or yesterday, gracefully)."""
+    if not days_with_activity:
+        return 0
+    cursor = today
+    if today.isoformat() not in days_with_activity:
+        # Nothing yet today is normal at 08:00; keep the streak alive if the
+        # user studied yesterday.
+        cursor = today - timedelta(days=1)
+        if cursor.isoformat() not in days_with_activity:
+            return 0
+    count = 0
+    while cursor.isoformat() in days_with_activity:
+        count += 1
+        cursor -= timedelta(days=1)
+    return count
+
+
+async def stats_payload(db: AsyncSession, user_id: int, *, days: int = 90) -> dict[str, Any]:
+    """Learning report: streak, daily series, heat-map, totals, level mix."""
+    days = max(7, min(int(days or 90), 730))
+    today = date.today()
+    first_day = (today - timedelta(days=days - 1)).isoformat()
+
+    rows = (
+        await db.execute(
+            select(EnglishDailyStat.day, EnglishDailyStat.listen_seconds, EnglishDailyStat.lessons_completed)
+            .where(EnglishDailyStat.user_id == user_id, EnglishDailyStat.day >= first_day)
+            .order_by(EnglishDailyStat.day.asc())
+        )
+    ).all()
+    by_day = {str(day): int(seconds or 0) for day, seconds, _done in rows}
+    completed_by_day = {str(day): int(done or 0) for day, _seconds, done in rows}
+
+    active_days = {d for d, s in by_day.items() if s > 0}
+
+    # Fill gaps so the client never has to reason about missing dates.
+    series: list[dict[str, Any]] = []
+    for offset in range(days):
+        day = (today - timedelta(days=days - 1 - offset)).isoformat()
+        series.append(
+            {
+                "day": day,
+                "seconds": by_day.get(day, 0),
+                "minutes": round(by_day.get(day, 0) / 60),
+                "lessons_completed": completed_by_day.get(day, 0),
+            }
+        )
+
+    week = series[-7:]
+    month = series[-30:]
+
+    # Totals come from the progress table, not the daily rollup, so a lesson
+    # finished before the rollup existed still counts.
+    completed_lessons = (
+        await db.execute(
+            select(func.count())
+            .select_from(EnglishProgress)
+            .where(EnglishProgress.user_id == user_id, EnglishProgress.completed.is_(True))
+        )
+    ).scalar() or 0
+    total_seconds = (
+        await db.execute(
+            select(func.coalesce(func.sum(EnglishProgress.listen_seconds), 0)).where(
+                EnglishProgress.user_id == user_id
+            )
+        )
+    ).scalar() or 0
+    started_lessons = (
+        await db.execute(
+            select(func.count()).select_from(EnglishProgress).where(EnglishProgress.user_id == user_id)
+        )
+    ).scalar() or 0
+    favorites = (
+        await db.execute(
+            select(func.count()).select_from(EnglishFavorite).where(EnglishFavorite.user_id == user_id)
+        )
+    ).scalar() or 0
+    bookmarks = (
+        await db.execute(
+            select(func.count()).select_from(EnglishBookmark).where(EnglishBookmark.user_id == user_id)
+        )
+    ).scalar() or 0
+
+    # Level mix of what the user has *completed* — this is the "am I improving"
+    # signal, so it must follow the lesson's own classification, not the course.
+    level_rows = (
+        await db.execute(
+            select(EnglishLesson.level, func.count())
+            .join(EnglishProgress, EnglishProgress.lesson_id == EnglishLesson.id)
+            .where(EnglishProgress.user_id == user_id, EnglishProgress.completed.is_(True))
+            .group_by(EnglishLesson.level)
+        )
+    ).all()
+    levels = {str(level or "B1"): int(count or 0) for level, count in level_rows}
+
+    finished_at = await db.execute(
+        select(func.max(EnglishProgress.last_played_at)).where(EnglishProgress.user_id == user_id)
+    )
+    last_played = finished_at.scalar()
+
+    return {
+        "days": days,
+        "streak": _streak(active_days, today),
+        "today": {
+            "day": today.isoformat(),
+            "seconds": by_day.get(today.isoformat(), 0),
+            "minutes": round(by_day.get(today.isoformat(), 0) / 60),
+        },
+        "series": series,
+        "week": {
+            "seconds": sum(item["seconds"] for item in week),
+            "minutes": sum(item["minutes"] for item in week),
+            "days_active": sum(1 for item in week if item["seconds"] > 0),
+        },
+        "month": {
+            "seconds": sum(item["seconds"] for item in month),
+            "minutes": sum(item["minutes"] for item in month),
+            "days_active": sum(1 for item in month if item["seconds"] > 0),
+        },
+        "totals": {
+            "lessons_started": int(started_lessons),
+            "lessons_completed": int(completed_lessons),
+            "listen_seconds": int(total_seconds),
+            "listen_minutes": round(int(total_seconds) / 60),
+            "favorites": int(favorites),
+            "bookmarks": int(bookmarks),
+            "active_days": len(active_days),
+        },
+        "levels": levels,
+        "last_played_at": last_played.isoformat() if last_played else None,
+    }

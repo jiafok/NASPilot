@@ -241,6 +241,29 @@ class EnglishDailyStat(TimestampMixin, Base):
     words_learned: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
+class EnglishWordLookup(TimestampMixin, Base):
+    """Cached dictionary entry for a single word.
+
+    The learner taps arbitrary words in the subtitles, so a per-course word
+    list is not enough. Looking each one up through the AI costs money and
+    seconds, and the same word is tapped across hundreds of lessons, so the
+    answer is cached by normalised word — the second lookup is instant and free.
+
+    ``payload`` holds ``{word, phonetic, senses: [{pos, meaning}], example,
+    source}``; ``source`` is ``ai`` or ``builtin`` so a low-quality AI entry can
+    be spotted and refreshed later.
+    """
+
+    __tablename__ = "word_lookups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    #: Lower-cased, stripped surface form — the cache key.
+    word: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    payload: Mapped[dict | None] = mapped_column(JSON)
+    source: Mapped[str] = mapped_column(String(16), default="ai", server_default="ai")
+    hits: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
 __all__ = [
     "EnglishBookmark",
     "EnglishCourse",
@@ -250,4 +273,5 @@ __all__ = [
     "EnglishProgress",
     "EnglishTranscript",
     "EnglishVocabulary",
+    "EnglishWordLookup",
 ]

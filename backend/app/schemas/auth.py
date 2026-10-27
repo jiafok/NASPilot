@@ -13,8 +13,22 @@ class LoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    #: Seconds until ``access_token`` expires (clients refresh before this).
     expires_in: int
+    #: Long-lived credential for ``POST /auth/refresh``. Rotated on every use.
+    refresh_token: str | None = None
+    #: Seconds until ``refresh_token`` expires.
+    refresh_expires_in: int | None = None
     user: "UserOut"
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=8, max_length=256)
+
+
+class LogoutRequest(BaseModel):
+    #: Optional so a client can log out an expired session without holding one.
+    refresh_token: str | None = Field(None, max_length=256)
 
 
 class UserOut(BaseModel):

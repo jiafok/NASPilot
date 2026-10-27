@@ -16,8 +16,10 @@ Credentials resolution order:
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
+from collections.abc import AsyncIterator
 from typing import Any, Iterable
 
 import httpx
@@ -51,8 +53,15 @@ class AIConfig:
         return bool(self.api_key)
 
 
+#: Strings a JS front-end sends when a form field was never filled in. They are
+#: stored verbatim, and treating them as real values made `is_configured()` say
+#: yes while every call failed with "URL is missing an http:// protocol".
+_SENTINELS = {"undefined", "null", "none", "nan", "false", "0"}
+
+
 def _clean(value: Any) -> str:
-    return str(value or "").strip()
+    text = str(value or "").strip()
+    return "" if text.lower() in _SENTINELS else text
 
 
 async def _db_settings(db: AsyncSession) -> dict[str, str]:
@@ -75,13 +84,17 @@ async def resolve_config(db: AsyncSession | None = None) -> AIConfig:
     if db is not None:
         db_values = await _db_settings(db)
 
-    api_key = db_values.get(KEY_API_KEY) or _clean(settings.OPENAI_API_KEY)
+    api_key = _clean(db_values.get(KEY_API_KEY)) or _clean(settings.OPENAI_API_KEY)
     base_url = (
-        db_values.get(KEY_BASE_URL)
+        _clean(db_values.get(KEY_BASE_URL))
         or _clean(settings.OPENAI_BASE_URL)
         or "https://api.openai.com/v1"
     )
-    model = db_values.get(KEY_MODEL) or _clean(settings.OPENAI_MODEL) or "gpt-4o-mini"
+    model = _clean(db_values.get(KEY_MODEL)) or _clean(settings.OPENAI_MODEL) or "gpt-4o-mini"
+    if not base_url.startswith(("http://", "https://")):
+        # A stored value without a scheme can never work; fall back rather than
+        # failing every request with UnsupportedProtocol.
+        base_url = "https://api.openai.com/v1"
     return AIConfig(api_key=api_key, base_url=base_url.rstrip("/"), model=model)
 
 
@@ -139,6 +152,108 @@ async def chat(
         raise RuntimeError(f"AI 返回格式异常: {data}") from exc
 
 
+async def stream_chat(
+    messages: Iterable[dict[str, str]],
+    *,
+    system: str | None = None,
+    db: AsyncSession | None = None,
+    temperature: float = 0.3,
+    max_tokens: int = 1024,
+    timeout: float = DEFAULT_TIMEOUT,
+    config: "AIConfig | None" = None,
+) -> AsyncIterator[str]:
+    """Yield answer fragments as the model produces them.
+
+    The non-streaming ``chat`` leaves the UI on a blank screen for the whole
+    generation (3-15s for a tutor answer), which reads as a freeze. Server-sent
+    events fix that by showing the first words within a second.
+
+    A provider that ignores ``stream=true`` still works: the whole body comes
+    back as one JSON document, which is emitted as a single fragment.
+
+    ``config`` lets the caller resolve settings *before* it releases its
+    database session: a streaming response outlives the request handler, and
+    the session is not usable inside the generator.
+    """
+    cfg = config or await resolve_config(db)
+    if not cfg.configured:
+        raise AIUnavailable(
+            "AI 未配置。请在「系统设置 → AI」填写 API Key，"
+            "或设置环境变量 OPENAI_API_KEY。"
+        )
+
+    payload = {
+        "model": cfg.model,
+        "messages": _messages(system, messages),
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": True,
+    }
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async with client.stream(
+            "POST",
+            f"{cfg.base_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {cfg.api_key}",
+                "Content-Type": "application/json",
+                "Accept": "text/event-stream",
+            },
+            json=payload,
+        ) as resp:
+            resp.raise_for_status()
+            raw_lines: list[str] = []
+            async for line in resp.aiter_lines():
+                if not line:
+                    continue
+                chunk = line.strip()
+                if chunk.startswith("data:"):
+                    chunk = chunk[5:].strip()
+                if chunk == "[DONE]":
+                    break
+                if not chunk:
+                    continue
+                if not chunk.startswith("{"):
+                    # Provider ignored stream=true and sent plain JSON.
+                    raw_lines.append(chunk)
+                    continue
+                try:
+                    data = json.loads(chunk)
+                except json.JSONDecodeError:
+                    continue
+                text = _delta_text(data)
+                if text:
+                    yield text
+
+            if raw_lines:
+                try:
+                    data = json.loads("\n".join(raw_lines))
+                except json.JSONDecodeError:
+                    data = None
+                if isinstance(data, dict):
+                    text = _delta_text(data, allow_full=True)
+                    if text:
+                        yield text
+
+
+def _delta_text(data: dict[str, Any], *, allow_full: bool = False) -> str:
+    """Pull the incremental text out of one streaming chunk."""
+    try:
+        choice = data["choices"][0]
+    except (KeyError, IndexError, TypeError):
+        return ""
+    if not isinstance(choice, dict):
+        return ""
+    delta = choice.get("delta")
+    if isinstance(delta, dict) and isinstance(delta.get("content"), str):
+        return delta["content"]
+    if allow_full:
+        message = choice.get("message")
+        if isinstance(message, dict) and isinstance(message.get("content"), str):
+            return message["content"]
+    return ""
+
+
 async def ask(
     question: str,
     *,
@@ -158,6 +273,7 @@ __all__ = [
     "KEY_MODEL",
     "ask",
     "chat",
+    "stream_chat",
     "is_configured",
     "resolve_config",
 ]

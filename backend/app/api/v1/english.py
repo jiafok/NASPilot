@@ -11,12 +11,13 @@ win, so `/api/media/subscriptions` keeps working).
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,7 +28,7 @@ from app.core.deps import CurrentUser
 from app.core.security import decode_access_token
 from app.models import EnglishCourse, EnglishLesson, EnglishTranscript, User
 from app.services import ai_service
-from app.services.english import query, scanner, stream
+from app.services.english import dictionary, query, scanner, stream
 
 logger = logging.getLogger("naspilot.english.api")
 
@@ -99,6 +100,13 @@ class FavoriteIn(BaseModel):
     favorite: bool = True
 
 
+class WordIn(BaseModel):
+    word: str = Field(..., min_length=1, max_length=64)
+    #: The sentence the word was tapped in — improves the definition picked.
+    sentence: str | None = Field(None, max_length=400)
+    lesson_id: int | None = None
+
+
 class ChatIn(BaseModel):
     lesson_id: int
     question: str = Field(..., min_length=1, max_length=2000)
@@ -113,6 +121,11 @@ class SummaryIn(BaseModel):
     lesson_id: int | None = None
     course_id: int | None = None
     language: str = "zh"
+
+
+def _sse(event: str, data: dict[str, Any]) -> str:
+    """Format one server-sent event."""
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -169,6 +182,36 @@ async def english_filters(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     return await query.course_filters(db)
+
+
+@router.get("/stats", summary="学习统计（连续天数 / 每日曲线 / 热力图 / 总量）")
+async def english_stats(
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    days: int = Query(90, ge=7, le=730, description="热力图覆盖的天数"),
+):
+    return await query.stats_payload(db, user.id, days=days)
+
+
+@router.post("/word", summary="单词查询（词典卡）")
+async def english_word(
+    body: WordIn,
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Resolve one word for the tap-a-word card.
+
+    Cached by normalised form, so repeat taps cost nothing. Returns 404 only
+    when the AI is genuinely unable to answer (unconfigured, or an answer that
+    could not be parsed) — never a fabricated definition.
+    """
+    try:
+        entry = await dictionary.lookup(db, body.word, sentence=body.sentence)
+    except ai_service.AIUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if entry is None:
+        raise HTTPException(status_code=404, detail="暂时无法查到该词，请稍后重试")
+    return entry
 
 
 @router.get("/lessons", summary="课时列表（按单个文件的难度/话题筛选）")
@@ -391,6 +434,68 @@ async def english_ai_chat(
         "context_used": ["transcript"] if context else [],
         "lesson_id": lesson.id,
     }
+
+
+@router.post("/ai/chat/stream", summary="AI 老师问答（SSE 流式）")
+async def english_ai_chat_stream(
+    body: ChatIn,
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Same answer as ``/ai/chat``, delivered as server-sent events.
+
+    Non-streaming left the client blank for the whole generation. Event shapes:
+
+        event: delta   data: {"text": "..."}      # append to the answer
+        event: done    data: {"lesson_id": 12}    # generation finished
+        event: error   data: {"detail": "..."}    # AI unavailable / failed
+    """
+    lesson, context = await query.lesson_context(db, body.lesson_id)
+    if lesson is None:
+        raise HTTPException(status_code=404, detail="课时不存在")
+
+    parts = [f"课程：《{lesson.title}》"]
+    if context:
+        parts.append(f"字幕内容（节选）：\n{context}")
+    parts.append(f"学生问题：{body.question}")
+    prompt = "\n\n".join(parts)
+    lesson_id = lesson.id
+
+    # Resolve AI settings while the session is still usable: the generator runs
+    # long after this coroutine returns, and the DB dependency is only torn down
+    # once the response finishes, so it must not hold a transaction while we
+    # stream.
+    try:
+        ai_config = await ai_service.resolve_config(db)
+    except Exception:  # pragma: no cover - config problems surface as AIUnavailable
+        ai_config = None
+    await db.rollback()
+
+    async def event_stream():
+        try:
+            async for fragment in ai_service.stream_chat(
+                [{"role": "user", "content": prompt}],
+                system=_TUTOR_SYSTEM,
+                config=ai_config,
+            ):
+                yield _sse("delta", {"text": fragment})
+            yield _sse("done", {"lesson_id": lesson_id})
+        except ai_service.AIUnavailable as exc:
+            yield _sse("error", {"detail": str(exc)})
+        except Exception as exc:  # pragma: no cover - provider failure
+            logger.warning("AI stream failed", exc_info=True)
+            yield _sse("error", {"detail": f"AI 调用失败：{exc}"})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # Tell nginx & friends not to buffer, or the "stream" arrives at once.
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/ai/explain", summary="逐句讲解")

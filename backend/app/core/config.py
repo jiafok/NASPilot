@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     # start when unset, so a plain `docker compose up` just works.
     SECRET_KEY: str = ""
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24h
+    #: Lifetime of a refresh token, in days. Mobile clients stay signed in this
+    #: long without re-entering a password, which is the whole point: a 24h
+    #: access token alone forced a login on the second morning.
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     ALGORITHM: str = "HS256"
 
     # ── Database ───────────────────────────────────────────────────────

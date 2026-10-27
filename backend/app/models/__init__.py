@@ -71,6 +71,32 @@ class ApiKey(TimestampMixin, Base):
     user: Mapped["User"] = relationship(back_populates="api_keys")
 
 
+class RefreshToken(TimestampMixin, Base):
+    """A long-lived, revocable session credential.
+
+    Access tokens stay short (24h) and stateless, so a mobile client cannot
+    renew them on its own. Without this table every user had to type their
+    password again on the second day, which is fatal for a commute-time app.
+
+    Only the SHA-256 hash is persisted — the raw token is shown to the client
+    exactly once. Rotation on every use means a stolen token is single-shot and
+    its reuse is detectable (see ``services/auth_service.refresh_session``).
+    """
+
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Free-form label so a user can tell sessions apart later ("iPhone", …).
+    device: Mapped[str | None] = mapped_column(String(128))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped["User"] = relationship()
+
+
 # ══════════════════════════════════════════════════════════════════════
 #  Task System (replaces cron)
 # ══════════════════════════════════════════════════════════════════════
@@ -267,4 +293,5 @@ from app.models.english import (  # noqa: E402,F401
     EnglishProgress,
     EnglishTranscript,
     EnglishVocabulary,
+    EnglishWordLookup,
 )
