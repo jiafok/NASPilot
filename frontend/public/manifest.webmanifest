@@ -1,0 +1,27 @@
+{
+  "name": "EnglishFlow · 英语学习",
+  "short_name": "EnglishFlow",
+  "description": "把真实的英语音频变成可跟读、可点词、可复习的课程。",
+  "start_url": "/m",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0F172A",
+  "theme_color": "#2563EB",
+  "lang": "zh-CN",
+  "categories": ["education"],
+  "icons": [
+    {
+      "src": "/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

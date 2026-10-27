@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ConfigProvider, App as AntApp, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { AuthProvider } from './hooks/useAuth';
@@ -24,6 +24,22 @@ import BtrfsCleanup from './pages/plugins/BtrfsCleanup';
 import RcloneMount from './pages/plugins/RcloneMount';
 import MediaCenter from './pages/media/MediaCenter';
 import EnglishCenter from './pages/english/EnglishCenter';
+import MobileApp from './pwa/MobileApp';
+
+/**
+ * Phones get the PWA shell, not the admin-width table view.
+ *
+ * A phone screen cannot show the desktop course table without horizontal
+ * scrolling, which the UI contract forbids. `?desktop=1` escapes the redirect
+ * for the rare case someone wants the dense view on a tablet-sized window.
+ */
+function MobileGate({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const narrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches;
+  const forced = new URLSearchParams(location.search).get('desktop') === '1';
+  if (narrow && !forced) return <Navigate to="/m" replace />;
+  return <>{children}</>;
+}
 
 function App() {
   return (
@@ -40,6 +56,9 @@ function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/logs/full" element={<LogFullPage />} />
+              {/* Mobile PWA: its own shell (5 tabs) and its own full-screen player.
+                  Standalone route so a phone never has to load the admin layout. */}
+              <Route path="/m" element={<AuthGuard><MobileApp /></AuthGuard>} />
               <Route path="/" element={<AuthGuard><MainLayout /></AuthGuard>}>
                 <Route index element={<Dashboard />} />
                 <Route path="automation" element={<TaskList />} />
@@ -80,7 +99,7 @@ function App() {
                 <Route path="media/youtube" element={<Navigate to="/media/subscriptions" replace />} />
 
                 {/* English Learning Center */}
-                <Route path="english" element={<EnglishCenter />} />
+                <Route path="english" element={<MobileGate><EnglishCenter /></MobileGate>} />
               </Route>
             </Routes>
           </BrowserRouter>

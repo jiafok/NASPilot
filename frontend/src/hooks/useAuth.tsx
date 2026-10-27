@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import api from '../utils/api';
-import { getToken, setToken, setUser, getUser, logout } from '../utils/auth';
+import { getToken, setToken, setRefreshToken, setUser, getUser, logout } from '../utils/auth';
 import type { UserInfo } from '../utils/auth';
 
 interface AuthContextType {
@@ -38,6 +38,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loginFn = useCallback(async (username: string, password: string) => {
     const res = await api.post('/auth/login', { username, password });
     setToken(res.data.access_token);
+    // Persisted so the session survives the 24h access-token lifetime instead
+    // of forcing a password prompt the next morning.
+    setRefreshToken(res.data.refresh_token);
     const me = await api.get('/auth/me');
     setUserState(me.data);
     setUser(me.data);
@@ -45,6 +48,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logoutFn = useCallback(() => {
     setUserState(null);
+    // Revoke server-side first: clearing storage alone would leave a valid
+    // refresh token behind, so the device stayed signed in.
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (refreshToken) {
+      api.post('/auth/logout', { refresh_token: refreshToken }).catch(() => undefined);
+    }
     logout();
   }, []);
 

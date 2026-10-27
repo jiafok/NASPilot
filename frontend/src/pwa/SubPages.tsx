@@ -1,0 +1,240 @@
+import { useCallback, useEffect, useState } from 'react';
+import { apiGet, errText, type Course, type StatsPayload } from './api';
+import { EmptyState, ErrorState, IconBack, SkeletonList } from './components';
+import { Heatmap } from './MePage';
+import { CourseRow } from './HomePage';
+import { listWords, removeWord } from './wordStore';
+
+function SubHeader({ title, onBack }: { title: string; onBack: () => void }) {
+  return (
+    <div className="ef-player-top" style={{ marginBottom: 4 }}>
+      <button type="button" className="ef-icon-btn" onClick={onBack} aria-label="返回" style={{ color: 'inherit' }}>
+        <IconBack />
+      </button>
+      <h1 className="ef-section-title" style={{ fontSize: 18 }}>
+        {title}
+      </h1>
+      <span />
+    </div>
+  );
+}
+
+// ── Stats ────────────────────────────────────────────────────────────────
+
+export function StatsPage({ onBack }: { onBack: () => void }) {
+  const [stats, setStats] = useState<StatsPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError('');
+    apiGet
+      .stats(90)
+      .then(setStats)
+      .catch((err) => setError(errText(err, '网络不可用')))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(load, [load]);
+
+  if (loading) {
+    return (
+      <div className="ef-page">
+        <SubHeader title="学习统计" onBack={onBack} />
+        <SkeletonList rows={3} />
+      </div>
+    );
+  }
+  if (error || !stats) {
+    return (
+      <div className="ef-page">
+        <SubHeader title="学习统计" onBack={onBack} />
+        <ErrorState message={error || '没有数据'} onRetry={load} />
+      </div>
+    );
+  }
+
+  const maxSeconds = Math.max(1, ...stats.series.map((item) => item.seconds));
+
+  return (
+    <div className="ef-page">
+      <SubHeader title="学习统计" onBack={onBack} />
+
+      <section className="ef-section">
+        <div className="ef-stat-grid">
+          <div className="ef-stat">
+            <b>{stats.streak}</b>
+            <span>连续天数</span>
+          </div>
+          <div className="ef-stat">
+            <b>{stats.week.minutes}</b>
+            <span>本周分钟</span>
+          </div>
+          <div className="ef-stat">
+            <b>{stats.totals.lessons_completed}</b>
+            <span>完成课时</span>
+          </div>
+          <div className="ef-stat">
+            <b>{stats.totals.active_days}</b>
+            <span>有学习的天数</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="ef-section">
+        <div className="ef-section-head">
+          <h2 className="ef-section-title">近 90 天</h2>
+          <span style={{ fontSize: 13, color: 'var(--ef-ink-sub)' }}>
+            共 {stats.month.minutes} 分钟（近 30 天）
+          </span>
+        </div>
+        <Heatmap series={stats.series} />
+      </section>
+
+      <section className="ef-section">
+        <div className="ef-section-head">
+          <h2 className="ef-section-title">每日时长</h2>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 96 }}>
+          {stats.series.slice(-30).map((day) => (
+            <span
+              key={day.day}
+              title={`${day.day} · ${day.minutes} 分钟`}
+              style={{
+                flex: 1,
+                height: `${Math.max(2, (day.seconds / maxSeconds) * 100)}%`,
+                background:
+                  day.seconds > 0 ? 'var(--ef-primary)' : 'rgba(148, 163, 184, 0.25)',
+                borderRadius: 3,
+              }}
+            />
+          ))}
+        </div>
+        <p className="ef-sub" style={{ marginTop: 8 }}>
+          最近 30 天
+        </p>
+      </section>
+
+      <section className="ef-section">
+        <div className="ef-section-head">
+          <h2 className="ef-section-title">已完成的难度分布</h2>
+        </div>
+        {Object.keys(stats.levels).length === 0 ? (
+          <p className="ef-sub">完成第一节课后，这里会显示你的难度分布。</p>
+        ) : (
+          <div className="ef-list">
+            {Object.entries(stats.levels)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([level, count]) => (
+                <div key={level} className="ef-row" style={{ cursor: 'default' }}>
+                  <span className="ef-tag">{level}</span>
+                  <span className="ef-row-body">
+                    <span className="ef-bar">
+                      <i
+                        style={{
+                          width: `${Math.round(
+                            (count / Math.max(1, stats.totals.lessons_completed)) * 100,
+                          )}%`,
+                        }}
+                      />
+                    </span>
+                  </span>
+                  <span style={{ fontSize: 13, color: 'var(--ef-ink-sub)' }}>{count} 课</span>
+                </div>
+              ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// ── Favorites ────────────────────────────────────────────────────────────
+
+export function FavoritesPage({
+  onBack,
+  onOpenCourse,
+}: {
+  onBack: () => void;
+  onOpenCourse: (courseId: number) => void;
+}) {
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(() => {
+    setLoading(true);
+    apiGet
+      .courses({ favorite: true, page_size: 50 })
+      .then((data) => setCourses(data.items || []))
+      .catch((err) => setError(errText(err, '网络不可用')))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(load, [load]);
+
+  return (
+    <div className="ef-page">
+      <SubHeader title="我的收藏" onBack={onBack} />
+      {loading ? (
+        <SkeletonList rows={4} />
+      ) : error ? (
+        <ErrorState message={error} onRetry={load} />
+      ) : courses.length === 0 ? (
+        <EmptyState title="还没有收藏" description="在课程详情页点「收藏」就会出现在这里。" />
+      ) : (
+        <div className="ef-list">
+          {courses.map((course) => (
+            <CourseRow key={course.id} course={course} onOpen={() => onOpenCourse(course.id)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Words ────────────────────────────────────────────────────────────────
+
+export function WordsPage({ onBack }: { onBack: () => void }) {
+  const [words, setWords] = useState(listWords());
+
+  return (
+    <div className="ef-page">
+      <SubHeader title="我的生词" onBack={onBack} />
+      <div className="ef-notice">
+        这些词保存在本机浏览器里。服务端生词本还在开发中，换设备不会同步。
+      </div>
+
+      {words.length === 0 ? (
+        <EmptyState
+          title="还没有生词"
+          description="播放时点「查词」，把想记的词加入生词即可。"
+        />
+      ) : (
+        <div className="ef-list">
+          {words.map((item) => (
+            <div key={item.word} className="ef-row" style={{ cursor: 'default' }}>
+              <span className="ef-row-body">
+                <span style={{ fontSize: 16, fontWeight: 600 }}>{item.word}</span>
+                {item.phonetic && (
+                  <span className="ef-sub" style={{ marginLeft: 6 }}>
+                    {item.phonetic}
+                  </span>
+                )}
+                <span className="ef-row-meta">{item.meaning}</span>
+              </span>
+              <button
+                type="button"
+                className="ef-btn"
+                onClick={() => setWords(removeWord(item.word))}
+              >
+                删除
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

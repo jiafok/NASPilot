@@ -102,9 +102,28 @@ if os.path.isfile(_index_html):
     # Serve static assets (js, css, images, etc.)
     app.mount("/assets", StaticFiles(directory=os.path.join(_frontend_dist, "assets")), name="assets")
 
+    #: Real files that live at the root of the bundle. Without this the catch-all
+    #: below answered index.html for them with `text/html`, which silently broke
+    #: the web app manifest and made the service worker refuse to register
+    #: ("unsupported MIME type"). Anything not listed still falls through to SPA
+    #: routing, which is what deep links need.
+    _root_files = {
+        "sw.js": "text/javascript",
+        "manifest.webmanifest": "application/manifest+json",
+        "favicon.svg": "image/svg+xml",
+        "pwa-icon.svg": "image/svg+xml",
+        "pwa-icon-maskable.svg": "image/svg+xml",
+        "icons.svg": "image/svg+xml",
+    }
+
     @app.get("/{full_path:path}", response_class=HTMLResponse)
     async def spa_fallback(full_path: str):
-        """Catch-all: serve index.html for all non-API, non-asset routes (SPA routing)."""
+        """Serve a real root file when it exists, otherwise index.html."""
+        media_type = _root_files.get(full_path)
+        if media_type:
+            candidate = os.path.join(_frontend_dist, full_path)
+            if os.path.isfile(candidate):
+                return FileResponse(candidate, media_type=media_type)
         return FileResponse(_index_html)
 
 else:
