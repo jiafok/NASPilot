@@ -61,6 +61,17 @@ _WPS_BANDS = (1.70, 2.05, 2.40, 2.75)
 #: and speech rate is the strongest cue for listening difficulty.
 _WEIGHTS = (0.35, 0.40, 0.25)
 
+#: Dialogue needs different weights. Measured on the real library, at the same
+#: vocabulary difficulty dialogues run 1-3 words per sentence shorter than
+#: monologues (rare=mid: 6.96 vs 7.87, rare=high: 7.87 vs 10.74), so scoring
+#: them with the monologue weights labels every conversation one band easier
+#: than it is. A two-person exchange is short *by nature* — what actually makes
+#: it hard is the vocabulary, so that weight moves to rarity.
+_WEIGHTS_DIALOGUE = (0.15, 0.60, 0.25)
+
+#: turn density (turns / sentences) above which text counts as a dialogue
+_DIALOGUE_DENSITY = 0.15
+
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _WORD = re.compile(r"[A-Za-z][A-Za-z'\-]+")
 
@@ -96,6 +107,14 @@ class Features:
     def wps(self) -> float:
         return self.words / self.duration if self.duration else 0.0
 
+    @property
+    def dialogue_ratio(self) -> float:
+        return self.turns / self.sentences if self.sentences else 0.0
+
+    @property
+    def is_dialogue(self) -> bool:
+        return self.dialogue_ratio >= _DIALOGUE_DENSITY
+
     def as_dict(self) -> dict[str, float]:
         return {
             "words": self.words,
@@ -104,6 +123,7 @@ class Features:
             "rare_ratio": round(self.rare_ratio, 4),
             "wps": round(self.wps, 2),
             "turns": self.turns,
+            "dialogue": self.is_dialogue,
         }
 
 
@@ -132,9 +152,8 @@ def level_index(features: Features) -> int:
     sent = _band(features.sent_len or 0.0, _SENT_LEN_BANDS)
     rare = _band(features.rare_ratio, _RARE_BANDS)
     rate = _band(features.wps or 0.0, _WPS_BANDS) if features.wps else sent
-    score = (
-        _WEIGHTS[0] * sent + _WEIGHTS[1] * rare + _WEIGHTS[2] * rate
-    )
+    weights = _WEIGHTS_DIALOGUE if features.is_dialogue else _WEIGHTS
+    score = weights[0] * sent + weights[1] * rare + weights[2] * rate
     return max(0, min(len(LEVELS) - 1, round(score)))
 
 
@@ -405,123 +424,96 @@ class Taxonomy:
         }
 
 
-def _majority_format(
-    lesson_titles: list[str],
+def classify_lesson(
     *,
-    lesson_turns: list[int],
-    lesson_sentences: list[int],
-    duration: int,
-) -> str | None:
-    """Vote per lesson instead of matching all titles at once.
+    title: str,
+    course_titles: list[str] | None = None,
+    text: str = "",
+    duration: int = 0,
+    turns: int = 0,
+    content_words: list[str] | None = None,
+) -> Taxonomy:
+    """Classify ONE lesson — the file, not the course.
 
-    Joining every lesson title means a single episode called "Job Interview"
-    reclassifies a whole podcast as 访谈. Voting keeps the majority honest.
+    A course is only an aggregate; individual episodes differ a lot (an intro
+    episode is easier than the debate one). Everything here is measured from
+    this lesson's own transcript, with the course titles used as *context* for
+    topic detection: a single title like "001 - Getting Started" carries no
+    topic words, so falling back to the course name is the honest choice.
     """
-    counts: dict[str, int] = {}
-    for index, title in enumerate(lesson_titles):
-        turns = lesson_turns[index] if index < len(lesson_turns) else 0
-        sentences = lesson_sentences[index] if index < len(lesson_sentences) else 0
-        label = format_for(
+    features = measure(text, duration=duration, turns=turns)
+    level = level_for(features)
+
+    lesson_topics = topics_for(titles=[title], content_words=content_words)
+    if lesson_topics == ["其他"] and course_titles:
+        # Nothing in the episode title; borrow the course's subject matter.
+        lesson_topics = topics_for(
+            titles=[title] + list(course_titles), content_words=content_words
+        )
+
+    media_format = (
+        format_from_title([title])
+        or format_for(
             titles=[title],
             turns=turns,
             duration=duration,
-            sentence_count=sentences,
+            sentence_count=features.sentences,
         )
-        counts[label] = counts.get(label, 0) + 1
+    )
+
+    return Taxonomy(
+        level=level,
+        difficulty=difficulty_for(level),
+        topics=lesson_topics,
+        skills=skills_for(
+            titles=[title] + list(course_titles or []),
+            media_format=media_format,
+            topics=lesson_topics,
+        ),
+        format=media_format,
+        features=features.as_dict(),
+    )
+
+
+def aggregate_level(levels: list[str]) -> str:
+    """Median lesson level — a course must not be pulled by one outlier."""
+    indices = sorted(
+        LEVELS.index(lv) for lv in levels if isinstance(lv, str) and lv in LEVELS
+    )
+    if not indices:
+        return "B1"
+    return LEVELS[indices[len(indices) // 2]]
+
+
+def aggregate_labels(
+    groups: list[list[str] | None], *, limit: int = 4
+) -> list[str]:
+    """Most common labels across the lessons, keeping a stable order."""
+    counts: dict[str, int] = {}
+    for group in groups:
+        for label in group or []:
+            counts[str(label)] = counts.get(str(label), 0) + 1
     if not counts:
-        return None
+        return []
+    return [
+        label
+        for label, _ in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]
+    ]
+
+
+def aggregate_format(formats: list[str | None]) -> str:
+    """Majority format, preferring the more specific label on a tie."""
+    counts: dict[str, int] = {}
+    for value in formats:
+        if value:
+            counts[value] = counts.get(value, 0) + 1
+    if not counts:
+        return "monologue"
     best = max(counts.values())
-    # Tie → the more specific label wins (dialogue over monologue).
     for preferred in ("dialogue", "interview", "lecture", "story", "song", "news", "monologue"):
         if counts.get(preferred) == best:
             return preferred
     return next(iter(counts))
-
-
-def classify_course(
-    *,
-    titles: list[str],
-    description: str | None,
-    lesson_texts: list[str],
-    lesson_durations: list[int],
-    lesson_turns: list[int],
-    lesson_titles: list[str] | None = None,
-    course_titles: list[str] | None = None,
-    content_words: list[str] | None = None,
-) -> Taxonomy:
-    """Combine per-lesson features into one course classification.
-
-    The level is the **median lesson level**, so a course with two easy and two
-    hard episodes does not get pulled to an extreme by a single outlier. Signals
-    (sentence length, rarity, speech rate) are aggregated over the whole course
-    rather than averaged per lesson, which keeps short lessons from dominating.
-    """
-    total_text = "\n".join(t for t in lesson_texts if t)
-    total_duration = sum(d for d in lesson_durations if d)
-    total_turns = sum(t for t in lesson_turns if t)
-
-    pooled = measure(total_text, duration=total_duration, turns=total_turns)
-
-    per_lesson_levels: list[int] = []
-    per_lesson_sentences: list[int] = []
-    per_lesson_titles: list[str] = []
-    for index, (text, duration, turns) in enumerate(
-        zip(lesson_texts, lesson_durations, lesson_turns)
-    ):
-        if lesson_titles and index < len(lesson_titles):
-            per_lesson_titles.append(lesson_titles[index])
-        if not (text or "").strip():
-            continue
-        features = measure(text, duration=duration, turns=turns)
-        per_lesson_levels.append(level_index(features))
-        per_lesson_sentences.append(features.sentences)
-
-    if per_lesson_levels:
-        ordered = sorted(per_lesson_levels)
-        index = ordered[len(ordered) // 2]
-        # Nudge with the pooled measurement so a single huge lesson cannot
-        # outweigh the rest of the course.
-        index = round((index + level_index(pooled)) / 2)
-    else:
-        index = level_index(pooled)
-    level = LEVELS[max(0, min(len(LEVELS) - 1, index))]
-
-    # Priority: an explicit keyword in the course/channel name, then a vote
-    # across the lesson titles, then the pooled turn pattern.
-    media_format = (
-        format_from_title(course_titles or [])
-        or _majority_format(
-            per_lesson_titles,
-            lesson_turns=lesson_turns,
-            lesson_sentences=per_lesson_sentences,
-            duration=total_duration,
-        )
-        or format_for(
-            titles=titles,
-            turns=total_turns,
-            duration=total_duration,
-            sentence_count=pooled.sentences,
-        )
-    )
-
-    topics = topics_for(
-        titles=titles,
-        description=description,
-        content_words=content_words,
-    )
-    return Taxonomy(
-        level=level,
-        difficulty=difficulty_for(level),
-        topics=topics,
-        skills=skills_for(
-            titles=titles,
-            description=description,
-            media_format=media_format,
-            topics=topics,
-        ),
-        format=media_format,
-        features=pooled.as_dict(),
-    )
 
 
 __all__ = [
@@ -532,7 +524,10 @@ __all__ = [
     "TOPIC_RULES",
     "Features",
     "Taxonomy",
-    "classify_course",
+    "aggregate_format",
+    "aggregate_labels",
+    "aggregate_level",
+    "classify_lesson",
     "difficulty_for",
     "format_for",
     "format_from_title",

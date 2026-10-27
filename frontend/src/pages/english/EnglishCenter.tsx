@@ -70,6 +70,11 @@ interface LessonBrief {
   has_subtitle: boolean;
   progress: number;
   completed: boolean;
+  /** Classification of this file (not the course). */
+  level: string;
+  topics: string[];
+  skills: string[];
+  format: string;
 }
 
 interface CourseDetail extends Course {
@@ -114,6 +119,11 @@ interface LessonDetail {
   has_subtitle: boolean;
   vocabulary: VocabItem[];
   bookmarks: Bookmark[];
+  level: string;
+  topics: string[];
+  skills: string[];
+  format: string;
+  features?: Record<string, number>;
   progress: { position: number; completed: boolean; listen_seconds: number };
   prev_lesson_id?: number | null;
   next_lesson_id?: number | null;
@@ -254,6 +264,8 @@ export default function EnglishCenter() {
   const [skill, setSkill] = useState<string | undefined>();
   const [format, setFormat] = useState<string | undefined>();
   const [onlyFavorite, setOnlyFavorite] = useState(false);
+  /** Filter the lesson list by that lesson's own level. */
+  const [lessonLevel, setLessonLevel] = useState<string | undefined>();
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [lesson, setLesson] = useState<LessonDetail | null>(null);
@@ -335,6 +347,7 @@ export default function EnglishCenter() {
       setLesson(null);
       setSegments([]);
       setAiOutput('');
+      setLessonLevel(undefined);
     } catch (err) {
       message.error(errText(err, '加载课程失败'));
     }
@@ -556,7 +569,7 @@ export default function EnglishCenter() {
   if (lesson) {
     return (
       <div>
-        <Space style={{ marginBottom: 16 }} wrap>
+        <Space style={{ marginBottom: 8 }} wrap>
           <Button icon={<ArrowLeftOutlined />} onClick={() => setLesson(null)}>
             返回课程
           </Button>
@@ -582,6 +595,28 @@ export default function EnglishCenter() {
           <Button icon={<StarOutlined />} onClick={() => void addBookmark()}>
             收藏当前句
           </Button>
+        </Space>
+
+        <Space size={[6, 6]} wrap style={{ marginBottom: 16 }}>
+          <Tooltip title="本课时实测难度：句长 + 生词比 + 语速">
+            <Tag color={LEVEL_COLOR[lesson.level] || 'default'}>
+              本课时 {lesson.level}
+            </Tag>
+          </Tooltip>
+          {lesson.format && (
+            <Tag color="cyan">{FORMAT_LABEL[lesson.format] || lesson.format}</Tag>
+          )}
+          {lesson.topics.map((x) => (
+            <Tag key={`lt-${x}`}>{x}</Tag>
+          ))}
+          {lesson.skills.map((x) => (
+            <Tag key={`ls-${x}`} color="purple">{x}</Tag>
+          ))}
+          {course && lesson.level !== course.level && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              （本课程整体 {course.level}）
+            </Text>
+          )}
         </Space>
 
         <Row gutter={[16, 16]}>
@@ -779,11 +814,32 @@ export default function EnglishCenter() {
           </Row>
         </Card>
 
-        <Card title={<Space><BookOutlined />课时列表</Space>} size="small">
+        <Card
+          title={<Space><BookOutlined />课时列表</Space>}
+          extra={
+            <Space size={6}>
+              <Text type="secondary" style={{ fontSize: 12 }}>按本课时难度</Text>
+              <Select
+                allowClear
+                size="small"
+                placeholder="全部"
+                style={{ width: 110 }}
+                value={lessonLevel}
+                onChange={setLessonLevel}
+                options={Array.from(new Set(course.lessons.map((l) => l.level)))
+                  .sort()
+                  .map((lv) => ({ value: lv, label: lv }))}
+              />
+            </Space>
+          }
+          size="small"
+        >
           {course.lessons.length === 0 ? (
             <Empty description="该课程还没有课时" />
           ) : (
-            course.lessons.map((ls) => (
+            course.lessons
+              .filter((ls) => !lessonLevel || ls.level === lessonLevel)
+              .map((ls) => (
               <div
                 key={ls.id}
                 onClick={() => void openLesson(ls.id)}
@@ -800,8 +856,17 @@ export default function EnglishCenter() {
                 {ls.media_type === 'video' ? <VideoCameraOutlined /> : <CustomerServiceOutlined />}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <Text strong ellipsis style={{ display: 'block' }}>{ls.title}</Text>
-                  <Space size={6}>
+                  <Space size={6} wrap>
                     <Text type="secondary" style={{ fontSize: 12 }}>{fmtDuration(ls.duration)}</Text>
+                    <Tooltip title={`本课时实测难度（句长/生词比/语速）`}>
+                      <Tag color={LEVEL_COLOR[ls.level] || 'default'}>{ls.level}</Tag>
+                    </Tooltip>
+                    {ls.topics.slice(0, 2).map((x) => (
+                      <Tag key={`${ls.id}-t-${x}`}>{x}</Tag>
+                    ))}
+                    {ls.format && (
+                      <Tag color="cyan">{FORMAT_LABEL[ls.format] || ls.format}</Tag>
+                    )}
                     {ls.has_subtitle && <Tag color="blue">字幕</Tag>}
                     {ls.completed && <Tag color="green">已完成</Tag>}
                   </Space>
@@ -810,7 +875,7 @@ export default function EnglishCenter() {
                   <Progress percent={Math.round((ls.progress || 0) * 100)} size="small" />
                 </div>
               </div>
-            ))
+              ))
           )}
         </Card>
       </div>

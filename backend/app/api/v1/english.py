@@ -171,6 +171,35 @@ async def english_filters(
     return await query.course_filters(db)
 
 
+@router.get("/lessons", summary="课时列表（按单个文件的难度/话题筛选）")
+async def english_lessons(
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    q: str | None = Query(None, description="标题 / 课程搜索"),
+    course_id: int | None = None,
+    level: str | None = Query(None, description="CEFR: A1 | A2 | B1 | B2 | C1"),
+    topic: str | None = Query(None, description="话题，如 商务 / 日常 / 饮食"),
+    skill: str | None = Query(None, description="技能，如 听力 / 词汇 / 语法"),
+    format: str | None = Query(None, description="形式：dialogue | interview | …"),
+    sort: str = Query("recent", description="recent | title | duration"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    return await query.list_lessons(
+        db,
+        user.id,
+        q=q,
+        course_id=course_id,
+        level=level,
+        topic=topic,
+        skill=skill,
+        format=format,
+        sort=sort,
+        page=page,
+        page_size=page_size,
+    )
+
+
 @router.get("/course/{course_id}", summary="课程详情（含课时列表）")
 async def english_course(
     course_id: int,
@@ -533,6 +562,10 @@ async def english_admin_lessons(
                 "duration": ls.duration,
                 "status": ls.status,
                 "has_subtitle": bool(ls.subtitle_path),
+                "level": ls.level or "B1",
+                "topics": list(ls.topics or []),
+                "format": ls.format or "monologue",
+                "features": ls.features or {},
                 "file_path": ls.file_path,
             }
             for ls in rows

@@ -13,7 +13,7 @@
 | 表 | 作用 | 关键索引 |
 | --- | --- | --- |
 | `courses` | 课程 | `(channel, slug)` 唯一 |
-| `lessons` | 课时 | `file_path` 唯一；`course_id`、`published_at` |
+| `lessons` | 课时（**每个文件独立分类**） | `file_path` 唯一；`course_id`、`level`、`topics` |
 | `transcripts` | 字幕（按课时 1:1） | `lesson_id` 唯一；`search_text` |
 | `vocabulary` | 生词/短语 | `(course_id, word)` 唯一 |
 | `user_progress` | 学习进度（按用户×课时） | `(user_id, lesson_id)` 唯一 |
@@ -61,6 +61,11 @@
 | position | int | 课程内序号 |
 | status | str(16) | ready / missing |
 | published_at | datetime | mtime |
+| level | str(4) | **本文件**的 CEFR 难度（A1..C1），从它自己的字幕实测 |
+| topics | JSON | 本课时话题（多值）；标题无话题词时借用课程话题 |
+| skills | JSON | 本课时技能侧重 |
+| format | str(24) | 本课时形式 |
+| features | JSON | 判定依据 `{words, sentences, sent_len, rare_ratio, wps, turns, dialogue}` |
 | created_at / updated_at | datetime | |
 
 ### transcripts

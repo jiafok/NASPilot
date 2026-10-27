@@ -351,6 +351,23 @@ async def _upsert_lesson(
     segments = subtitles.parse_file(asset.subtitle) if asset.subtitle else []
     duration = subtitles.duration_ms(segments) // 1000
 
+    # Classify this file on its own — see taxonomy.classify_lesson. The course
+    # titles are only context for topic detection.
+    text = subtitles.search_text(segments) if segments else ""
+    turns = sum(
+        1
+        for index, seg in enumerate(segments)
+        if seg.speaker is not None
+        and (index == 0 or segments[index - 1].speaker != seg.speaker)
+    )
+    taxonomy_result = taxonomy.classify_lesson(
+        title=title,
+        course_titles=[course.title, course.channel],
+        text=text,
+        duration=duration,
+        turns=turns,
+    )
+
     try:
         size = asset.media.stat().st_size
     except OSError:
@@ -382,6 +399,11 @@ async def _upsert_lesson(
             position=position,
             status="ready",
             published_at=_mtime(asset.media),
+            level=taxonomy_result.level,
+            topics=taxonomy_result.topics,
+            skills=taxonomy_result.skills,
+            format=taxonomy_result.format,
+            features=taxonomy_result.features,
         )
         db.add(lesson)
         await db.flush()
@@ -402,6 +424,13 @@ async def _upsert_lesson(
         lesson.position = position
         lesson.status = "ready"
         lesson.published_at = _mtime(asset.media)
+        # A re-scan must refresh the classification: the transcript may have
+        # only appeared now, and the measurement depends on it.
+        lesson.level = taxonomy_result.level
+        lesson.topics = taxonomy_result.topics
+        lesson.skills = taxonomy_result.skills
+        lesson.format = taxonomy_result.format
+        lesson.features = taxonomy_result.features
         report.lessons_updated += 1
 
     await _upsert_transcript(db, lesson=lesson, segments=segments, report=report)
@@ -488,11 +517,16 @@ async def refresh_course_taxonomy(
     *,
     override: dict | None = None,
 ) -> dict[str, object]:
-    """Recompute every classification dimension for one course.
+    """Aggregate the per-lesson classifications into course-level values.
 
-    Difficulty is measured from the transcripts (sentence length, rare-word
-    ratio, speech rate); topics and skills come from titles plus content words;
-    the media form comes from the title and the speaker-turn pattern.
+    Each lesson already measured itself when it was upserted, so the course is
+    just a summary of those rows — that keeps one measurement per file instead
+    of re-reading every transcript here, and it guarantees the course badge is
+    consistent with the badges shown on its lessons.
+
+    ``level`` uses the **median** lesson level so a single easy intro or one
+    very hard episode cannot mislabel the whole course; topics/skills use the
+    most common labels; the format takes a majority vote.
     """
     rows = (
         await db.execute(
@@ -506,43 +540,84 @@ async def refresh_course_taxonomy(
         )
     ).all()
 
+    lesson_levels: list[str] = []
+    lesson_topics: list[list[str] | None] = []
+    lesson_skills: list[list[str] | None] = []
+    lesson_formats: list[str | None] = []
     lesson_texts: list[str] = []
-    lesson_durations: list[int] = []
-    lesson_turns: list[int] = []
-    titles: list[str] = [course.title, course.channel]
-    lesson_titles: list[str] = []
+    stale: list[EnglishLesson] = []
+
     for lesson, transcript in rows:
-        titles.append(lesson.title)
-        lesson_titles.append(lesson.title)
-        text = (transcript.search_text if transcript else "") or ""
-        lesson_texts.append(text)
-        lesson_durations.append(int(lesson.duration or 0))
-        lesson_turns.append(_turns_of(transcript.segments if transcript else None))
+        if not lesson.level:
+            stale.append(lesson)
+        lesson_levels.append(lesson.level or "")
+        lesson_topics.append(list(lesson.topics or []))
+        lesson_skills.append(list(lesson.skills or []))
+        lesson_formats.append(lesson.format)
+        lesson_texts.append((transcript.search_text if transcript else "") or "")
 
-    content = _content_words("\n".join(lesson_texts))
-    result = taxonomy.classify_course(
-        titles=titles,
+    # Rows written before per-lesson classification existed have no level yet;
+    # classify them now so the aggregate is not built from empty values.
+    for lesson in stale:
+        transcript = (
+            await db.execute(
+                select(EnglishTranscript).where(EnglishTranscript.lesson_id == lesson.id)
+            )
+        ).scalar_one_or_none()
+        measured = taxonomy.classify_lesson(
+            title=lesson.title,
+            course_titles=[course.title, course.channel],
+            text=(transcript.search_text if transcript else "") or "",
+            duration=int(lesson.duration or 0),
+            turns=_turns_of(transcript.segments if transcript else None),
+        )
+        lesson.level = measured.level
+        lesson.topics = measured.topics
+        lesson.skills = measured.skills
+        lesson.format = measured.format
+        lesson.features = measured.features
+        lesson_levels.append(measured.level)
+        lesson_topics.append(list(measured.topics))
+        lesson_skills.append(list(measured.skills))
+        lesson_formats.append(measured.format)
+
+    level = taxonomy.aggregate_level(lesson_levels)
+    course_topics = taxonomy.aggregate_labels(lesson_topics)
+    course_skills = taxonomy.aggregate_labels(lesson_skills, limit=3)
+    media_format = taxonomy.aggregate_format(lesson_formats)
+
+    # The course title carries information the lessons may not (e.g. "TED
+    # Lectures" when every episode is just a talk title), so merge it in.
+    title_topics = taxonomy.topics_for(
+        titles=[course.title, course.channel],
         description=course.description,
-        lesson_texts=lesson_texts,
-        lesson_durations=lesson_durations,
-        lesson_turns=lesson_turns,
-        lesson_titles=lesson_titles,
-        course_titles=[course.title, course.channel],
-        content_words=content,
+        content_words=_content_words("\n".join(lesson_texts)),
     )
+    merged_topics: list[str] = []
+    for label in title_topics + course_topics:
+        if label != "其他" and label not in merged_topics:
+            merged_topics.append(label)
+    course.topics = (merged_topics or course_topics or ["其他"])[:4]
 
-    course.level = result.level
-    course.topics = result.topics
-    course.skills = result.skills
-    course.format = result.format
+    course.level = level
+    course.skills = course_skills
+    course.format = media_format
 
     # A hand-written course.json always wins over inference.
     override = override or {}
     if not override.get("category"):
-        course.category = result.topics[0] if result.topics else course.category or "其他"
+        course.category = course.topics[0] if course.topics else course.category or "其他"
     if not override.get("difficulty"):
-        course.difficulty = result.difficulty
-    return result.as_dict()
+        course.difficulty = taxonomy.difficulty_for(level)
+
+    return {
+        "level": level,
+        "difficulty": course.difficulty,
+        "topics": course.topics,
+        "skills": course.skills,
+        "format": course.format,
+        "lesson_levels": lesson_levels,
+    }
 
 
 async def refresh_course_vocabulary(

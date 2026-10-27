@@ -167,6 +167,99 @@ async def list_courses(
     }
 
 
+async def list_lessons(
+    db: AsyncSession,
+    user_id: int,
+    *,
+    q: str | None = None,
+    course_id: int | None = None,
+    level: str | None = None,
+    topic: str | None = None,
+    skill: str | None = None,
+    format: str | None = None,
+    sort: str = "recent",
+    page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
+    """Flat lesson list, filterable by the per-file classification.
+
+    Course-level filters answer "which series should I start"; this answers
+    "give me something at my level right now", across every course.
+    """
+    stmt = (
+        select(EnglishLesson, EnglishCourse)
+        .join(EnglishCourse, EnglishCourse.id == EnglishLesson.course_id)
+        .where(EnglishLesson.status == "ready")
+    )
+    if q:
+        like = f"%{q.strip()}%"
+        stmt = stmt.where(
+            or_(EnglishLesson.title.ilike(like), EnglishCourse.title.ilike(like))
+        )
+    if course_id is not None:
+        stmt = stmt.where(EnglishLesson.course_id == course_id)
+    if level:
+        stmt = stmt.where(EnglishLesson.level == level)
+    if format:
+        stmt = stmt.where(EnglishLesson.format == format)
+    if topic:
+        stmt = stmt.where(_json_has("lessons.topics", "topic_value", topic))
+    if skill:
+        stmt = stmt.where(_json_has("lessons.skills", "skill_value", skill))
+
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0
+
+    if sort == "title":
+        stmt = stmt.order_by(EnglishLesson.title.asc())
+    elif sort == "duration":
+        stmt = stmt.order_by(EnglishLesson.duration.desc())
+    else:
+        stmt = stmt.order_by(EnglishLesson.id.desc())
+
+    page = max(1, page)
+    page_size = min(max(1, page_size), 100)
+    rows = (
+        await db.execute(stmt.offset((page - 1) * page_size).limit(page_size))
+    ).all()
+
+    progress_rows = (
+        await db.execute(
+            select(EnglishProgress).where(EnglishProgress.user_id == user_id)
+        )
+    ).scalars().all()
+    progress = {p.lesson_id: p for p in progress_rows}
+
+    return {
+        "items": [
+            {
+                "id": lesson.id,
+                "course_id": lesson.course_id,
+                "course_title": course.title,
+                "channel": course.channel,
+                "title": lesson.title,
+                "position": lesson.position,
+                "duration": lesson.duration,
+                "media_type": lesson.media_type,
+                "level": lesson.level or "B1",
+                "topics": list(lesson.topics or []),
+                "skills": list(lesson.skills or []),
+                "format": lesson.format or "monologue",
+                "progress": _progress_ratio(
+                    progress[lesson.id].position if lesson.id in progress else 0.0,
+                    lesson.duration,
+                ),
+                "completed": bool(progress[lesson.id].completed)
+                if lesson.id in progress
+                else False,
+            }
+            for lesson, course in rows
+        ],
+        "total": int(total),
+        "page": page,
+        "page_size": page_size,
+    }
+
+
 async def course_filters(db: AsyncSession) -> dict[str, list[str]]:
     """Everything the UI can filter by, in display order.
 
@@ -216,6 +309,43 @@ async def course_filters(db: AsyncSession) -> dict[str, list[str]]:
         "skills": sorted(skill_counts, key=lambda k: (-skill_counts[k], k)),
         "formats": [f for f in formats if f],
         "format_labels": FORMAT_LABEL,
+        "lesson_filters": await lesson_filters(db),
+    }
+
+
+async def lesson_filters(db: AsyncSession) -> dict[str, list[str]]:
+    """Filter options computed from the lesson rows themselves.
+
+    A course may sit at B1 while a few of its episodes are A2, so the options
+    for a per-file filter have to come from the files, not from the courses.
+    """
+    from app.services.english.taxonomy import FORMAT_LABEL, LEVELS
+
+    levels = (await db.execute(select(EnglishLesson.level).distinct())).scalars().all()
+    formats = (await db.execute(select(EnglishLesson.format).distinct())).scalars().all()
+    rows = (
+        await db.execute(
+            select(EnglishLesson.topics, EnglishLesson.skills).where(
+                EnglishLesson.status == "ready"
+            )
+        )
+    ).all()
+
+    topic_counts: dict[str, int] = {}
+    skill_counts: dict[str, int] = {}
+    for topics, skills in rows:
+        for label in topics or []:
+            topic_counts[str(label)] = topic_counts.get(str(label), 0) + 1
+        for label in skills or []:
+            skill_counts[str(label)] = skill_counts.get(str(label), 0) + 1
+
+    found = {lv for lv in levels if lv}
+    return {
+        "levels": [lv for lv in LEVELS if lv in found],
+        "topics": sorted(topic_counts, key=lambda k: (-topic_counts[k], k)),
+        "skills": sorted(skill_counts, key=lambda k: (-skill_counts[k], k)),
+        "formats": [f for f in formats if f],
+        "format_labels": FORMAT_LABEL,
     }
 
 
@@ -259,6 +389,11 @@ async def course_detail(
             "media_ext": lesson.media_ext,
             "has_subtitle": lesson.id in transcript_ids,
             "has_cover": bool(lesson.cover_path),
+            # per-lesson classification (this file, not the course)
+            "level": lesson.level or "B1",
+            "topics": list(lesson.topics or []),
+            "skills": list(lesson.skills or []),
+            "format": lesson.format or "monologue",
             "progress": _progress_ratio(
                 progress[lesson.id].position if lesson.id in progress else 0.0, lesson.duration
             ),
@@ -348,6 +483,12 @@ async def lesson_detail(
         "media_ext": lesson.media_ext,
         "duration": lesson.duration,
         "size_bytes": lesson.size_bytes,
+        # classification of this file (see taxonomy.classify_lesson)
+        "level": lesson.level or "B1",
+        "topics": list(lesson.topics or []),
+        "skills": list(lesson.skills or []),
+        "format": lesson.format or "monologue",
+        "features": lesson.features or {},
         "stream_url": media_url(lesson),
         "subtitle_url": subtitle_url(lesson),
         "has_subtitle": transcript is not None and bool(transcript.segment_count),

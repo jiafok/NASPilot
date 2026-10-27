@@ -105,6 +105,13 @@ data/media/loose.mp4
 
 ## A.3.3 分类维度（多维，正交）
 
+**分类的粒度是「一个文件 = 一个课时」**，课程级只是汇总。同课程的两集难度可能差两级，
+所以 `lessons` 表自己带 `level / topics / skills / format / features`。
+
+课程级按下面的规则从课时聚合：`level` 取**中位数**（一节简单的开场或一节超难的辩论
+不能给整门课定性），`topics`/`skills` 取出现次数最多的标签，`format` 多数投票，并把课程名
+本身的话题并入（「TED Lectures」下面每集只有演讲标题时仍能识别出话题）。
+
 一门课只用一个 `category` 无法描述材料，所以每门课同时给出五个维度：
 
 | 维度 | 取值 | 如何得到 |
@@ -127,6 +134,19 @@ level_score = 0.35 × 句长档位 + 0.40 × 生词比档位 + 0.25 × 语速档
 课程级别取**各课时难度的中位数**，再与本课程整体测量值平均，避免一节超长课把整门课带偏。
 
 `course.json` 里手写的 `category` / `difficulty` 优先于推断结果。
+
+### 对话材料单独加权
+
+实测同一词汇难度下，对话的句长比独白短 1–3 词（rare 中等：6.96 vs 7.87；rare 高：7.87 vs 10.74），
+若沿用独白权重，所有对话都会被判低一档。两人对话「句子短」是体裁使然，真正决定难度的是词汇，
+因此对话把句长的权重让给生词比：
+
+```
+独白  0.35 × 句长 + 0.40 × 生词比 + 0.25 × 语速
+对话  0.15 × 句长 + 0.60 × 生词比 + 0.25 × 语速
+```
+
+对话判定：`turns / sentences >= 0.15`。修正前后同一节课从 A2 变为 B1。
 
 ## A.4 同名绑定
 
@@ -211,6 +231,27 @@ Lesson 001.jpg
 ```
 
 话题/技能按出现次数降序，`levels` 按 CEFR 顺序而不是字典序。
+
+### `GET /api/english/lessons`（按单个文件筛选）
+
+跨课程列出课时，参数与 `/courses` 同名但作用于 `lessons` 的字段：
+`level` / `topic` / `skill` / `format` / `course_id` / `q` / `sort`（`recent|title|duration`）。
+
+```json
+{
+  "items": [{
+    "id": 802, "course_id": 4, "course_title": "MrEnglish",
+    "title": "A Day with Marina's life",
+    "duration": 661,
+    "level": "B2",
+    "topics": ["日常"], "skills": ["听力"], "format": "monologue",
+    "progress": 0.06, "completed": false
+  }],
+  "total": 398, "page": 1, "page_size": 20
+}
+```
+
+课程详情里的 `lessons[]` 也带同样四个字段，所以列表能把每集自己的难度显示出来。
 
 ### `GET /api/english/courses`
 查询参数：`q`、`channel`、`category`、`difficulty`、`favorite`(0/1)、

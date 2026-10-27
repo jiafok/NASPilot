@@ -88,6 +88,7 @@ class EnglishLesson(TimestampMixin, Base):
         UniqueConstraint("file_path", name="uq_lessons_file_path"),
         Index("ix_lessons_course_position", "course_id", "position"),
         Index("ix_lessons_status", "status"),
+        Index("ix_lessons_level", "level"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -106,6 +107,17 @@ class EnglishLesson(TimestampMixin, Base):
     position: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     status: Mapped[str] = mapped_column(String(16), default="ready", server_default="ready")
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # ── Classification, per file ──────────────────────────────────────
+    # Every lesson is measured on its own: one episode can be far easier than
+    # the rest of its course, and the course-level numbers are only an
+    # aggregate of these rows.
+    level: Mapped[str] = mapped_column(String(4), default="B1", server_default="B1")
+    topics: Mapped[list[str] | None] = mapped_column(JSON, default=list)
+    skills: Mapped[list[str] | None] = mapped_column(JSON, default=list)
+    format: Mapped[str | None] = mapped_column(String(24), default="monologue")
+    #: Raw signals behind ``level``, kept so the UI can explain the decision.
+    features: Mapped[dict | None] = mapped_column(JSON)
 
     course: Mapped[EnglishCourse] = relationship(back_populates="lessons")
     transcript: Mapped["EnglishTranscript | None"] = relationship(
