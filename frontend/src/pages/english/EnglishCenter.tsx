@@ -44,6 +44,14 @@ interface Course {
   channel: string;
   category: string;
   difficulty: string;
+  /** CEFR band measured from the transcripts. */
+  level: string;
+  /** Multi-label topics, e.g. ["商务", "日常"]. */
+  topics: string[];
+  /** Skill focus, e.g. ["听力", "词汇"]. */
+  skills: string[];
+  /** dialogue / interview / monologue / lecture / news / story / song. */
+  format: string;
   description?: string | null;
   tags: string[];
   lesson_count: number;
@@ -159,19 +167,41 @@ interface LibStats {
   total_seconds: number;
 }
 
-const DIFFICULTY_COLOR: Record<string, string> = {
-  beginner: 'green',
-  intermediate: 'blue',
-  advanced: 'purple',
-  mixed: 'default',
+const LEVEL_COLOR: Record<string, string> = {
+  A1: 'green',
+  A2: 'lime',
+  B1: 'blue',
+  B2: 'geekblue',
+  C1: 'purple',
 };
 
-const DIFFICULTY_LABEL: Record<string, string> = {
-  beginner: '入门',
-  intermediate: '中级',
-  advanced: '进阶',
-  mixed: '混合',
+const LEVEL_HINT: Record<string, string> = {
+  A1: '入门：短句 + 高频词',
+  A2: '初级：日常对话',
+  B1: '中级：自然语速',
+  B2: '中高级：长句 + 生词多',
+  C1: '高级：接近母语语速',
 };
+
+const FORMAT_LABEL: Record<string, string> = {
+  dialogue: '对话',
+  interview: '访谈',
+  monologue: '独白',
+  lecture: '讲座',
+  news: '新闻',
+  story: '故事',
+  song: '歌曲',
+};
+
+interface Filters {
+  channels: string[];
+  categories: string[];
+  difficulties: string[];
+  levels: string[];
+  topics: string[];
+  skills: string[];
+  formats: string[];
+}
 
 function fmtDuration(seconds: number | null | undefined): string {
   const total = Math.max(0, Math.round(seconds || 0));
@@ -206,17 +236,23 @@ export default function EnglishCenter() {
   const [home, setHome] = useState<HomeData | null>(null);
   const [stats, setStats] = useState<LibStats | null>(null);
   const [courses, setCourses] = useState<Course[]>([]);
-  const [filters, setFilters] = useState<{ channels: string[]; categories: string[]; difficulties: string[] }>({
+  const [filters, setFilters] = useState<Filters>({
     channels: [],
     categories: [],
     difficulties: [],
+    levels: [],
+    topics: [],
+    skills: [],
+    formats: [],
   });
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [q, setQ] = useState('');
   const [channel, setChannel] = useState<string | undefined>();
-  const [category, setCategory] = useState<string | undefined>();
-  const [difficulty, setDifficulty] = useState<string | undefined>();
+  const [level, setLevel] = useState<string | undefined>();
+  const [topic, setTopic] = useState<string | undefined>();
+  const [skill, setSkill] = useState<string | undefined>();
+  const [format, setFormat] = useState<string | undefined>();
   const [onlyFavorite, setOnlyFavorite] = useState(false);
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
@@ -241,15 +277,17 @@ export default function EnglishCenter() {
       const params: Record<string, unknown> = { page_size: 60 };
       if (q.trim()) params.q = q.trim();
       if (channel) params.channel = channel;
-      if (category) params.category = category;
-      if (difficulty) params.difficulty = difficulty;
+      if (level) params.level = level;
+      if (topic) params.topic = topic;
+      if (skill) params.skill = skill;
+      if (format) params.format = format;
       if (onlyFavorite) params.favorite = true;
 
       const [homeRes, dirRes, listRes, filterRes, aiRes] = await Promise.all([
         api.get<HomeData>('/english/home'),
         api.get<{ root: string; stats: LibStats }>('/english/directories'),
         api.get<{ items: Course[] }>('/english/courses', { params }),
-        api.get<{ channels: string[]; categories: string[]; difficulties: string[] }>('/english/filters'),
+        api.get<Filters>('/english/filters'),
         api.get<{ configured: boolean }>('/english/ai/status').catch(() => ({ data: { configured: false } })),
       ]);
       setHome(homeRes.data);
@@ -262,7 +300,7 @@ export default function EnglishCenter() {
     } finally {
       setLoading(false);
     }
-  }, [q, channel, category, difficulty, onlyFavorite]);
+  }, [q, channel, level, topic, skill, format, onlyFavorite]);
 
   useEffect(() => {
     void loadOverview();
@@ -495,10 +533,13 @@ export default function EnglishCenter() {
               </Text>
             </div>
             <Space size={4} style={{ marginTop: 8 }} wrap>
-              <Tag color={DIFFICULTY_COLOR[item.difficulty] || 'default'}>
-                {DIFFICULTY_LABEL[item.difficulty] || item.difficulty}
-              </Tag>
-              {item.category && <Tag>{item.category}</Tag>}
+              <Tooltip title={LEVEL_HINT[item.level] || ''}>
+                <Tag color={LEVEL_COLOR[item.level] || 'default'}>{item.level}</Tag>
+              </Tooltip>
+              {item.topics.slice(0, 2).map((x) => (
+                <Tag key={x}>{x}</Tag>
+              ))}
+              {item.format && <Tag color="cyan">{FORMAT_LABEL[item.format] || item.format}</Tag>}
               {item.is_favorite && <Tag color="gold">收藏</Tag>}
             </Space>
           </Card>
@@ -717,12 +758,18 @@ export default function EnglishCenter() {
               <Title level={4} style={{ marginTop: 0 }}>{course.title}</Title>
               <Space wrap size={[8, 8]}>
                 <Tag>{course.channel}</Tag>
-                <Tag color={DIFFICULTY_COLOR[course.difficulty] || 'default'}>
-                  {DIFFICULTY_LABEL[course.difficulty] || course.difficulty}
-                </Tag>
-                <Tag>{course.category}</Tag>
+                <Tag color={LEVEL_COLOR[course.level] || 'default'}>{course.level}</Tag>
+                {course.format && (
+                  <Tag color="cyan">{FORMAT_LABEL[course.format] || course.format}</Tag>
+                )}
+                {course.topics.map((x) => (
+                  <Tag key={`t-${x}`}>{x}</Tag>
+                ))}
+                {course.skills.map((x) => (
+                  <Tag key={`s-${x}`} color="purple">{x}</Tag>
+                ))}
                 {course.tags.map((t) => (
-                  <Tag key={t} color="cyan">{t}</Tag>
+                  <Tag key={t} color="gold">{t}</Tag>
                 ))}
               </Space>
               <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
@@ -846,19 +893,38 @@ export default function EnglishCenter() {
           />
           <Select
             allowClear
-            placeholder="分类"
-            style={{ width: 140 }}
-            value={category}
-            onChange={setCategory}
-            options={filters.categories.map((c) => ({ value: c, label: c }))}
+            placeholder="难度（CEFR）"
+            style={{ width: 150 }}
+            value={level}
+            onChange={setLevel}
+            options={filters.levels.map((lv) => ({
+              value: lv,
+              label: `${lv} · ${LEVEL_HINT[lv] || ''}`,
+            }))}
           />
           <Select
             allowClear
-            placeholder="难度"
+            placeholder="话题"
             style={{ width: 130 }}
-            value={difficulty}
-            onChange={setDifficulty}
-            options={filters.difficulties.map((d) => ({ value: d, label: DIFFICULTY_LABEL[d] || d }))}
+            value={topic}
+            onChange={setTopic}
+            options={filters.topics.map((x) => ({ value: x, label: x }))}
+          />
+          <Select
+            allowClear
+            placeholder="技能"
+            style={{ width: 120 }}
+            value={skill}
+            onChange={setSkill}
+            options={filters.skills.map((x) => ({ value: x, label: x }))}
+          />
+          <Select
+            allowClear
+            placeholder="形式"
+            style={{ width: 120 }}
+            value={format}
+            onChange={setFormat}
+            options={filters.formats.map((x) => ({ value: x, label: FORMAT_LABEL[x] || x }))}
           />
           <Tooltip title="只看收藏">
             <Button

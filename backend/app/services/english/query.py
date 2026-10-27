@@ -11,7 +11,7 @@ import logging
 from datetime import date, datetime, timezone
 from typing import Any, Sequence
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -68,6 +68,11 @@ async def serialize_course(
         "channel": course.channel,
         "category": course.category,
         "difficulty": course.difficulty,
+        # multi-dimensional classification (see services/english/taxonomy.py)
+        "level": course.level or "B1",
+        "topics": list(course.topics or []),
+        "skills": list(course.skills or []),
+        "format": course.format or "monologue",
         "description": course.description,
         "tags": list(course.tags or []),
         "lesson_count": course.lesson_count,
@@ -79,6 +84,13 @@ async def serialize_course(
     }
 
 
+def _json_has(column: str, param: str, value: str):
+    """``EXISTS`` for a label inside a JSON array column (SQLite json_each)."""
+    return text(
+        f"EXISTS (SELECT 1 FROM json_each({column}) AS je WHERE je.value = :{param})"
+    ).bindparams(**{param: value})
+
+
 async def list_courses(
     db: AsyncSession,
     user_id: int,
@@ -87,6 +99,10 @@ async def list_courses(
     channel: str | None = None,
     category: str | None = None,
     difficulty: str | None = None,
+    level: str | None = None,
+    topic: str | None = None,
+    skill: str | None = None,
+    format: str | None = None,
     favorite: bool | None = None,
     sort: str = "recent",
     page: int = 1,
@@ -108,6 +124,18 @@ async def list_courses(
         stmt = stmt.where(EnglishCourse.category == category)
     if difficulty:
         stmt = stmt.where(EnglishCourse.difficulty == difficulty)
+    if level:
+        stmt = stmt.where(EnglishCourse.level == level)
+    if format:
+        stmt = stmt.where(EnglishCourse.format == format)
+    # topics/skills are JSON arrays. A LIKE on the raw column cannot work:
+    # SQLAlchemy serialises JSON with ensure_ascii=True, so the column holds
+    # "\u65e5\u5e38" instead of "日常". json_each decodes it properly and
+    # compares exact labels (so "词汇" never matches a longer label).
+    if topic:
+        stmt = stmt.where(_json_has("courses.topics", "topic_value", topic))
+    if skill:
+        stmt = stmt.where(_json_has("courses.skills", "skill_value", skill))
     if favorite:
         stmt = stmt.where(
             EnglishCourse.id.in_(select(EnglishFavorite.course_id).where(EnglishFavorite.user_id == user_id))
@@ -140,6 +168,14 @@ async def list_courses(
 
 
 async def course_filters(db: AsyncSession) -> dict[str, list[str]]:
+    """Everything the UI can filter by, in display order.
+
+    Levels are emitted in CEFR order rather than alphabetically, and topics /
+    skills are de-duplicated across the JSON arrays with a stable ordering so
+    the filter bar does not jump around between loads.
+    """
+    from app.services.english.taxonomy import FORMAT_LABEL, LEVELS
+
     channels = (
         await db.execute(select(EnglishCourse.channel).distinct().order_by(EnglishCourse.channel))
     ).scalars().all()
@@ -151,10 +187,35 @@ async def course_filters(db: AsyncSession) -> dict[str, list[str]]:
             select(EnglishCourse.difficulty).distinct().order_by(EnglishCourse.difficulty)
         )
     ).scalars().all()
+    levels = (
+        await db.execute(select(EnglishCourse.level).distinct())
+    ).scalars().all()
+    formats = (
+        await db.execute(select(EnglishCourse.format).distinct())
+    ).scalars().all()
+    rows = (
+        await db.execute(select(EnglishCourse.topics, EnglishCourse.skills))
+    ).all()
+
+    topic_counts: dict[str, int] = {}
+    skill_counts: dict[str, int] = {}
+    for topics, skills in rows:
+        for label in topics or []:
+            topic_counts[str(label)] = topic_counts.get(str(label), 0) + 1
+        for label in skills or []:
+            skill_counts[str(label)] = skill_counts.get(str(label), 0) + 1
+
+    found_levels = {lv for lv in levels if lv}
     return {
         "channels": [c for c in channels if c],
         "categories": [c for c in categories if c],
         "difficulties": [d for d in difficulties if d],
+        "levels": [lv for lv in LEVELS if lv in found_levels],
+        # most common first, so the useful filters are within reach
+        "topics": sorted(topic_counts, key=lambda k: (-topic_counts[k], k)),
+        "skills": sorted(skill_counts, key=lambda k: (-skill_counts[k], k)),
+        "formats": [f for f in formats if f],
+        "format_labels": FORMAT_LABEL,
     }
 
 

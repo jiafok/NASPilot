@@ -23,6 +23,7 @@ NASPilot
     ├── Metadata Engine       services/english/metadata.py
     ├── Transcript Engine     services/english/subtitles.py
     ├── Vocabulary Engine     services/english/vocabulary.py
+    ├── Taxonomy Engine       services/english/taxonomy.py（难度/话题/技能/形式）
     ├── Learning Progress     services/english/query.py
     ├── AI Tutor              services/ai_service.py（共用）
     ├── Media Stream Service  services/english/stream.py

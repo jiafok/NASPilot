@@ -103,6 +103,31 @@ data/media/loose.mp4
 `spk` 只表示「轮换」，因为自动字幕只告诉我们「换人了」，并不知道是谁；
 无 `>>` 标记的材料（独白）`spk` 为 `null`。
 
+## A.3.3 分类维度（多维，正交）
+
+一门课只用一个 `category` 无法描述材料，所以每门课同时给出五个维度：
+
+| 维度 | 取值 | 如何得到 |
+| --- | --- | --- |
+| `level` | `A1 A2 B1 B2 C1` | **从字幕实测**：句长、生词比、语速三项加权取整 |
+| `topics` | 多值，最多 4 个（商务/日常/旅行/饮食/健康/科技/教育/新闻/文化/娱乐/音乐/语法/词汇/发音/考试/社交/科学/运动/其他） | 标题 + 频道 + 描述 + 课程高频内容词 |
+| `skills` | 多值（听力/口语/发音/词汇/语法/阅读/写作/考试） | 标题关键词；无关键词时按形式与话题兜底 |
+| `format` | `dialogue interview monologue lecture news story song` | 课程名关键词优先，其次逐课时投票，最后看 `>>` 换人密度 |
+| `difficulty` | `beginner intermediate advanced` | 由 `level` 派生（兼容旧字段） |
+
+难度为什么不靠猜：目录名给不出难度，但每节课都有字幕，因此用三个客观信号：
+
+```
+level_score = 0.35 × 句长档位 + 0.40 × 生词比档位 + 0.25 × 语速档位
+```
+
+档位边界是拿真实 397 节课的分布校准的（句长 3.6–13.4，生词比 0.05–0.26，
+语速 1.4–2.8 词/秒）；用教科书假设的阈值会让 74% 的库都落到 A2，筛选就失去意义。
+
+课程级别取**各课时难度的中位数**，再与本课程整体测量值平均，避免一节超长课把整门课带偏。
+
+`course.json` 里手写的 `category` / `difficulty` 优先于推断结果。
+
 ## A.4 同名绑定
 
 同一目录中基名相同的多个文件视为**同一课时**：
@@ -171,6 +196,21 @@ Lesson 001.jpg
   "recommended": [ … ]
 }
 ```
+
+`GET /api/english/filters` 返回全部可选值：
+
+```json
+{
+  "channels": ["youtube"],
+  "levels": ["A2", "B1"],
+  "topics": ["日常", "饮食", "词汇"],
+  "skills": ["口语", "听力", "词汇"],
+  "formats": ["dialogue"],
+  "format_labels": { "dialogue": "对话", "interview": "访谈", "monologue": "独白" }
+}
+```
+
+话题/技能按出现次数降序，`levels` 按 CEFR 顺序而不是字典序。
 
 ### `GET /api/english/courses`
 查询参数：`q`、`channel`、`category`、`difficulty`、`favorite`(0/1)、

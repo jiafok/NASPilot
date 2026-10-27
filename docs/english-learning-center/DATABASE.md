@@ -30,8 +30,12 @@
 | channel | str(191) | 频道名，来自目录一级 |
 | title | str(255) | 课程名，来自目录二级（可被 `course.json` 覆盖） |
 | slug | str(191) | `title` 归一化，用于 `(channel, slug)` 去重 |
-| category | str(64) | Business / Daily / Podcast / TED / BBC / 其它 |
-| difficulty | str(16) | beginner / intermediate / advanced / mixed |
+| category | str(64) | 第一个话题（兼容旧客户端的单值字段） |
+| difficulty | str(16) | beginner / intermediate / advanced（由 level 派生） |
+| level | str(4) | CEFR 难度 A1..C1，**从字幕实测**（句长/生词比/语速） |
+| topics | JSON | 多标签话题，如 `["日常","饮食"]` |
+| skills | JSON | 技能侧重，如 `["听力","词汇"]` |
+| format | str(24) | dialogue / interview / monologue / lecture / news / story / song |
 | description | text | 来自 `course.json` 或留空 |
 | cover_path | str(1024) | 封面图绝对路径 |
 | lesson_count | int | 冗余计数，扫描时更新 |

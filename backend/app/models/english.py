@@ -48,14 +48,25 @@ class EnglishCourse(TimestampMixin, Base):
         UniqueConstraint("channel", "slug", name="uq_courses_channel_slug"),
         Index("ix_courses_category", "category"),
         Index("ix_courses_difficulty", "difficulty"),
+        Index("ix_courses_level", "level"),
+        Index("ix_courses_format", "format"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     channel: Mapped[str] = mapped_column(String(191), nullable=False, default="默认")
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(191), nullable=False)
+    #: Primary topic (first element of ``topics``) — kept for older clients.
     category: Mapped[str] = mapped_column(String(64), default="其他")
+    #: Coarse label derived from ``level``: beginner / intermediate / advanced.
     difficulty: Mapped[str] = mapped_column(String(16), default="mixed")
+    #: CEFR band measured from the transcripts (A1..C1).
+    level: Mapped[str] = mapped_column(String(4), default="B1", server_default="B1")
+    #: Multi-label topics («商务», «饮食», …) and skill focus («听力», «词汇», …).
+    topics: Mapped[list[str] | None] = mapped_column(JSON, default=list)
+    skills: Mapped[list[str] | None] = mapped_column(JSON, default=list)
+    #: Media form: dialogue / interview / monologue / lecture / news / story / song.
+    format: Mapped[str | None] = mapped_column(String(24), default="monologue")
     description: Mapped[str | None] = mapped_column(Text)
     cover_path: Mapped[str | None] = mapped_column(String(1024))
     directory: Mapped[str | None] = mapped_column(String(1024), index=True)

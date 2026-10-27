@@ -56,6 +56,14 @@ async def init_db() -> None:
     # The legacy YouTube tables are only present on pre-media-center databases;
     # `services/media_center/migrate_legacy.py` reads them with raw SQL and
     # handles the audio_only → media_mode mapping, so no column migration here.
+    # English Learning Center — multi-dimensional classification columns
+    for column, ddl in (
+        ("level", "VARCHAR(4)"),
+        ("topics", "JSON"),
+        ("skills", "JSON"),
+        ("format", "VARCHAR(24)"),
+    ):
+        await _add_column_if_missing("courses", column, ddl)
     # Media Download Center — task metadata snapshot columns
     for column, ddl in (
         ("channel_name", "VARCHAR(255)"),

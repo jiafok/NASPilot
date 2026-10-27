@@ -31,6 +31,7 @@ from app.models import (
 )
 from app.services.media_center import settings_store as media_paths
 from app.services.english import metadata as meta
+from app.services.english import taxonomy
 from app.services.english import subtitles
 from app.services.english import vocabulary as vocab
 
@@ -456,6 +457,94 @@ async def library_stats(db: AsyncSession) -> tuple[Counter[str], int]:
     return vocab.library_document_frequency([r for r in rows if r])
 
 
+def _turns_of(segments: list[dict[str, object]] | None) -> int:
+    """Count speaker turns in a stored transcript."""
+    if not segments:
+        return 0
+    turns = 0
+    previous: object = object()
+    for seg in segments:
+        speaker = seg.get("spk")
+        if isinstance(speaker, str) and speaker != previous:
+            turns += 1
+        previous = speaker
+    return turns
+
+
+def _content_words(text: str, limit: int = 200) -> list[str]:
+    """Most frequent non-trivial words of a course, for topic detection."""
+    counts = Counter(vocab.tokenize(text))
+    ranked = [
+        (word, count)
+        for word, count in counts.most_common(limit * 4)
+        if len(word) > 3 and not vocab.known_form(word)
+    ]
+    return [word for word, _ in ranked[:limit]]
+
+
+async def refresh_course_taxonomy(
+    db: AsyncSession,
+    course: EnglishCourse,
+    *,
+    override: dict | None = None,
+) -> dict[str, object]:
+    """Recompute every classification dimension for one course.
+
+    Difficulty is measured from the transcripts (sentence length, rare-word
+    ratio, speech rate); topics and skills come from titles plus content words;
+    the media form comes from the title and the speaker-turn pattern.
+    """
+    rows = (
+        await db.execute(
+            select(EnglishLesson, EnglishTranscript)
+            .outerjoin(EnglishTranscript, EnglishTranscript.lesson_id == EnglishLesson.id)
+            .where(
+                EnglishLesson.course_id == course.id,
+                EnglishLesson.status == "ready",
+            )
+            .order_by(EnglishLesson.position.asc())
+        )
+    ).all()
+
+    lesson_texts: list[str] = []
+    lesson_durations: list[int] = []
+    lesson_turns: list[int] = []
+    titles: list[str] = [course.title, course.channel]
+    lesson_titles: list[str] = []
+    for lesson, transcript in rows:
+        titles.append(lesson.title)
+        lesson_titles.append(lesson.title)
+        text = (transcript.search_text if transcript else "") or ""
+        lesson_texts.append(text)
+        lesson_durations.append(int(lesson.duration or 0))
+        lesson_turns.append(_turns_of(transcript.segments if transcript else None))
+
+    content = _content_words("\n".join(lesson_texts))
+    result = taxonomy.classify_course(
+        titles=titles,
+        description=course.description,
+        lesson_texts=lesson_texts,
+        lesson_durations=lesson_durations,
+        lesson_turns=lesson_turns,
+        lesson_titles=lesson_titles,
+        course_titles=[course.title, course.channel],
+        content_words=content,
+    )
+
+    course.level = result.level
+    course.topics = result.topics
+    course.skills = result.skills
+    course.format = result.format
+
+    # A hand-written course.json always wins over inference.
+    override = override or {}
+    if not override.get("category"):
+        course.category = result.topics[0] if result.topics else course.category or "其他"
+    if not override.get("difficulty"):
+        course.difficulty = result.difficulty
+    return result.as_dict()
+
+
 async def refresh_course_vocabulary(
     db: AsyncSession,
     course: EnglishCourse,
@@ -615,6 +704,18 @@ async def scan(
                 if cover is not None:
                     course.cover_path = str(cover)
 
+        # Classification needs the transcripts, so it runs in the aggregation
+        # pass — after every lesson of the course has been upserted.
+        try:
+            directory = Path(course.directory) if course.directory else None
+            await refresh_course_taxonomy(
+                db,
+                course,
+                override=meta.read_course_override(directory) if directory else {},
+            )
+        except Exception:
+            logger.warning("Taxonomy failed for course %s", course_id, exc_info=True)
+
         if with_vocabulary and course.lesson_count:
             try:
                 report.vocabulary_terms += await refresh_course_vocabulary(
@@ -680,6 +781,7 @@ __all__ = [
     "english_root",
     "is_inside_root",
     "library_stats",
+    "refresh_course_taxonomy",
     "refresh_course_vocabulary",
     "scan",
     "stats",
