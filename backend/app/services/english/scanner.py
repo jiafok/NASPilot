@@ -113,7 +113,7 @@ def english_root() -> Path:
     try:
         return media_paths.root()
     except Exception:  # pragma: no cover - settings store is defensive already
-        return Path(settings.MEDIA_ROOT)
+        return media_paths.default_root()
 
 
 def is_inside_root(path: Path, root: Path) -> bool:

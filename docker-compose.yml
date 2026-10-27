@@ -22,11 +22,15 @@ services:
     network_mode: host
 
     volumes:
-      # ── 必须 1：数据库和配置 ─────────────────────────────
+      # ── 唯一必须的挂载：数据库 + 日志 + 媒体文件 ───────────
+      # 媒体在 data/media（容器内 /app/data/media），媒体中心与英语学习
+      # 共用这一份，不需要再挂 /Media。
       - ./data:/app/data
+
+      # ── 可选：容器管理 / 脚本任务 / 访问 NAS 上的其他目录 ───
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - ./scripts:/scripts:ro
-      - /volume1:/volume1:rw
+      - /volume1:/volume1:ro
       - /volumeUSB1/usbshare:/usb:rw
 
     environment:
@@ -35,7 +39,8 @@ services:
       # - FIRST_ADMIN_PASSWORD=admin123       # 留空 = 首次启动随机生成
       # - MEDIA_PROXY_URL=http://192.168.1.10:7890
       # - MEDIA_DEFAULT_VIDEO_HEIGHT=1080     # 默认 480，0 = 原画
-      # - ENGLISH_ROOT=/Media/English         # 留空即此值
+      # - MEDIA_ROOT=/volume1/media           # 留空 = data/media
+      # - ENGLISH_ROOT=/Media/English         # 留空 = 复用媒体库
 
     # 日志轮转：防止日志把磁盘写满（单个 10MB，最多留 3 个）
     logging:

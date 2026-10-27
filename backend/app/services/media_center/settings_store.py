@@ -10,7 +10,9 @@ Resolution order, highest priority first::
     per-directory override   DB setting MEDIA_VIDEO_DIR / MEDIA_AUDIO_DIR
                              (falls back to the same-named env var)
     root                     DB setting MEDIA_ROOT
-                             (falls back to env MEDIA_ROOT, then /Media)
+                             (falls back to env MEDIA_ROOT, then
+                             <DATA_DIR>/media — i.e. the same volume as the
+                             database, so one ``./data`` mount covers both)
     final path               <root>/Video  and  <root>/Audio
 
 Everything is cached in memory so the hot download path never touches the
@@ -33,18 +35,34 @@ KEY_ROOT = "MEDIA_ROOT"
 KEY_VIDEO = "MEDIA_VIDEO_DIR"
 KEY_AUDIO = "MEDIA_AUDIO_DIR"
 
-#: Default container-side root; `Video/` and `Audio/` live underneath it.
-DEFAULT_ROOT = Path("/Media")
+#: Legacy container-side root. Databases created before the media folder moved
+#: into the data volume still point here; `load()` migrates them.
+LEGACY_ROOT = Path("/Media")
+
+
+def default_root() -> Path:
+    """Root when nothing is configured: ``<DATA_DIR>/media``.
+
+    Deriving it from ``DATA_DIR`` is what makes the deployment a single volume:
+    ``./data`` is mounted at ``/app/data``, so media lands in
+    ``/app/data/media`` with no extra mount and no extra setting.
+    """
+    base = Path(settings.DATA_DIR)
+    try:
+        base = base.resolve()
+    except OSError:  # pragma: no cover - resolve rarely fails
+        base = base.absolute()
+    return base / "media"
 
 #: Seeded rows so the values are editable in the UI without SQL.
 #: (key, value, value_type, description)
 SEEDS: tuple[tuple[str, str, str, str], ...] = (
     (
         KEY_ROOT,
-        str(DEFAULT_ROOT),
+        "",  # empty = <DATA_DIR>/media (filled in by load())
         "string",
-        "媒体下载根目录（容器内路径）。其下自动使用 Video/ 与 Audio/ 两个子目录，"
-        "对应宿主机挂载的目录。改这里即可换存储位置，无需改 compose。",
+        "媒体下载根目录（容器内路径）。留空 = 数据目录下的 media/，"
+        "与数据库同一个挂载卷。其下自动使用 Video/ 与 Audio/。",
     ),
     (
         KEY_VIDEO,
@@ -81,7 +99,10 @@ def _resolve_root() -> Path:
     for candidate in (_db_value(KEY_ROOT), _env_value(KEY_ROOT)):
         if candidate:
             return Path(candidate)
-    return Path(settings.MEDIA_ROOT)
+    configured = str(settings.MEDIA_ROOT or "").strip()
+    if configured:
+        return Path(configured)
+    return default_root()
 
 
 def _resolve_dir(key: str, env_name: str, leaf: str) -> Path:
@@ -165,6 +186,9 @@ async def load(db: Any = None) -> None:
         for key in (KEY_ROOT, KEY_VIDEO, KEY_AUDIO):
             row = found.get(key)
             _cache[key] = _clean(getattr(row, "value", "") if row else "")
+
+        await _migrate_legacy_root(session, found)
+
         _loaded = True
         logger.info("Media paths resolved: %s", snapshot())
     except Exception as exc:  # pragma: no cover - defensive
@@ -172,6 +196,66 @@ async def load(db: Any = None) -> None:
     finally:
         if owns_session and session is not None:
             await session.__aexit__(None, None, None)
+
+
+async def _migrate_legacy_root(session: Any, found: dict[str, Any]) -> None:
+    """Point a pre-existing database at the new default root.
+
+    Older deployments mounted the media folder at ``/Media`` and stored that
+    path in the settings table, in subscriptions and on every lesson row. Once
+    the folder lives inside the data volume (``/app/data/media``) those paths
+    are dead, so every ``/Media`` prefix has to be rewritten — otherwise the
+    library silently shows up empty after the upgrade.
+    """
+    legacy = str(LEGACY_ROOT)
+    target = default_root()
+
+    current = _db_value(KEY_ROOT)
+    points_at_legacy = (not current) or current == legacy or current.startswith(legacy + "/")
+    if not points_at_legacy:
+        return
+    if Path(legacy).exists():
+        # The old mount is still there; do not touch a working setup.
+        return
+
+    logger.info("Migrating media paths %s -> %s", legacy, target)
+
+    # 1) the settings row itself
+    if KEY_ROOT in found and getattr(found[KEY_ROOT], "value", None) is not None:
+        found[KEY_ROOT].value = str(target)
+    _cache[KEY_ROOT] = str(target)
+
+    # 2) every stored absolute path
+    replacements = (
+        ("settings", "value"),
+        ("media_subscriptions", "download_path"),
+        ("media_download_history", "file_path"),
+        ("courses", "directory"),
+        ("courses", "cover_path"),
+        ("lessons", "file_path"),
+        ("lessons", "subtitle_path"),
+        ("lessons", "cover_path"),
+    )
+    from sqlalchemy import text
+
+    for table, column in replacements:
+        try:
+            await session.execute(
+                text(
+                    f"UPDATE {table} SET {column} = :new || substr({column}, :cut) "
+                    f"WHERE {column} = :old OR {column} LIKE :like"
+                ),
+                {
+                    "new": str(target),
+                    "cut": len(legacy) + 1,
+                    "old": legacy,
+                    "like": legacy + "/%",
+                },
+            )
+        except Exception as exc:  # table may not exist yet on a fresh install
+            logger.debug("Skip %s.%s during media path migration: %s", table, column, exc)
+
+    await session.commit()
 
 
 async def update(key: str, value: str, db: Any = None) -> dict[str, str]:
@@ -229,11 +313,12 @@ def is_loaded() -> bool:
 
 
 __all__ = [
-    "DEFAULT_ROOT",
+    "LEGACY_ROOT",
     "KEY_AUDIO",
     "KEY_ROOT",
     "KEY_VIDEO",
     "audio_dir",
+    "default_root",
     "dir_for_mode",
     "ensure_dirs",
     "is_loaded",

@@ -14,7 +14,7 @@
 ## A.1 根目录
 
 ```
-ENGLISH_ROOT（默认 = 媒体库根目录 /Media，即直接复用媒体中心下载的文件）
+ENGLISH_ROOT（默认 = 媒体库根目录 <DATA_DIR>/media，即直接复用媒体中心下载的文件）
 ├── Video/            ← 媒体中心视频输出（<provider>/<channel>/<playlist>/）
 ├── Audio/            ← 媒体中心音频输出
 ├── Business English/
@@ -44,22 +44,22 @@ ENGLISH_ROOT（默认 = 媒体库根目录 /Media，即直接复用媒体中心�
 示例：
 
 ```
-/Media/Video/youtube/Mr English Channel/Lesson 001.mp4
+data/media/Video/youtube/Mr English Channel/Lesson 001.mp4
   → channel = "youtube"          （媒体中心布局：provider = 频道）
   → course  = "Mr English Channel"
   → lesson  = "Lesson 001"
 
-/Media/Mr English Channel/Business English/Lesson 001.mp4
+data/media/Mr English Channel/Business English/Lesson 001.mp4
   → channel = "Mr English Channel"
   → course  = "Business English"
   → lesson  = "Lesson 001"
 
-/Media/TED/How to speak.mp3
+data/media/TED/How to speak.mp3
   → channel = "TED"
   → course  = "TED"          （1 级目录时 course 取同名）
   → lesson  = "How to speak"
 
-/Media/loose.mp4
+data/media/loose.mp4
   → channel = "默认"
   → course  = "未分类"
 ```

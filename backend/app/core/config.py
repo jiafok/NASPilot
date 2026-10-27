@@ -64,8 +64,10 @@ class Settings(BaseSettings):
 
     # ── Media Download Center (unified, all providers) ─────────────────
     # 只需要一个根目录：其下自动使用 Video/ 与 Audio/。
+    # 留空 = <DATA_DIR>/media，也就是跟数据库在同一个挂载卷里，
+    # 因此 compose 只需要 - ./data:/app/data 一行，不用再挂 /Media。
     # 运行时可从「系统设置」页修改（存 settings 表，优先于这里的默认值）。
-    MEDIA_ROOT: Path = Path("/Media")
+    MEDIA_ROOT: str = ""
     # 可选：单独覆盖某个子目录（留空 = <MEDIA_ROOT>/Video 或 /Audio）
     MEDIA_VIDEO_DIR: str = ""
     MEDIA_AUDIO_DIR: str = ""
@@ -91,7 +93,7 @@ class Settings(BaseSettings):
     # ── English Learning Center ───────────────────────────────────────
     #: Root of the English library. Empty means "reuse the media library":
     #: the scanner walks MEDIA_ROOT itself, so everything the Media Download
-    #: Center put under /Media/Video or /Media/Audio shows up as lessons with
+    #: Center put under <MEDIA_ROOT>/Video or /Audio shows up as lessons with
     #: no second copy and no extra config. Set it only to point at another
     #: directory entirely.
     ENGLISH_ROOT: str = ""

@@ -13,7 +13,7 @@ NASPilot (唯一服务端)
 ├── Docker Module          ← 复用：容器管理
 ├── File Manager           ← 复用：目录浏览白名单
 ├── AI Center              ← 复用：统一 AI 客户端（本次抽离）
-├── Media Download Center  ← 上游：把资源下载到 /Media
+├── Media Download Center  ← 上游：把资源下载到 <DATA_DIR>/media
 │
 └── English Learning Center        ← 本次新增
     ├── Resource Scanner
@@ -48,7 +48,7 @@ frontend/src/pages/english/EnglishCenter.tsx   Web 管理/浏览页
 ## 3. 数据流
 
 ```
-Media Download Center ──▶ /Media/<Video|Audio>/<Channel>/<Course>/<Lesson>.mp4|.mp3
+Media Download Center ──▶ <DATA_DIR>/media/<Video|Audio>/<Channel>/…/<Lesson>.mp4|.mp3
                                         │
                                    Resource Scanner（手动/定时）
                                         ▼

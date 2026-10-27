@@ -100,8 +100,8 @@ npm run dev
 NASPilot 内置的英语学习服务端模块（EnglishFlow 客户端专用）：
 资源扫描、课程/课时元数据、字幕解析、生词提取、学习进度、AI 老师与媒体流。
 
-- 直接复用媒体库：媒体中心下载的文件自动成为课时，无需单独目录
-- 目录约定：`/Media/<频道>/<课程>/<课时>.mp4|.mp3`（同名 `.srt`/`.vtt` 自动绑定）
+- 直接复用媒体库：媒体在 `data/media`（容器内 `/app/data/media`），媒体中心下载的文件自动成为课时，无需单独目录或额外挂载
+- 目录约定：`data/media/<频道>/<课程>/<课时>.mp4|.mp3`（同名 `.srt`/`.vtt` 自动绑定）
 - 网页入口：菜单「英语学习」
 - 客户端接口：`/api/english/*`，媒体 `/api/media/{lessonId}`
 - 设计与接口：`docs/english-learning-center/`

@@ -31,11 +31,11 @@ NASPilot
 
 ## 快速开始
 
-1. 不需要单独建目录——**直接复用媒体库**。媒体中心下载完成的文件
+1. 不需要单独建目录——**直接复用媒体库**（`data/media`，容器内 `/app/data/media`）。媒体中心下载完成的文件
    已经在 `/Media/Video`、`/Media/Audio` 下，扫描即成为课时：
 
 ```
-/Media/                                  ← 媒体根目录
+data/media/                              ← 媒体根目录
 ├── Video/                               ← 媒体中心输出（provider/channel/…）
 │   └── youtube/Mr English Channel/
 │       ├── Lesson 001.mp4

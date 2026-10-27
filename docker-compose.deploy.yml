@@ -34,17 +34,21 @@ services:
       - "${NASPILOT_PORT:-8082}:8082"
 
     volumes:
-      # ── 持久化数据（SQLite + 日志 + 插件配置）──────────────
+      # ── 唯一必须的挂载：数据库 + 日志 + 媒体文件 ─────────────
+      # 媒体落在 data/media（容器内 /app/data/media），英语学习直接复用，
+      # 所以媒体中心、英语学习都不需要额外的挂载或设置。
+      #
+      # data/
+      # ├── naspilot.db
+      # ├── logs/
+      # └── media/
+      #     ├── Video/    ← 媒体中心视频 / 英语学习课时
+      #     └── Audio/    ← 媒体中心音频
+      #
+      # 想把媒体放到另一块盘（例如 NAS 的 /volume1/media），加一行即可，
+      # 并在「系统设置 → 媒体」把根目录改过去：
+      # - /volume1/media:/media-external
       - ${NASPILOT_DATA:-./data}:/app/data
-
-      # ── 媒体下载（必须，否则重启后下载的文件会丢）──────────
-      # 一个挂载点即可：容器内自动使用 /Media/Video 与 /Media/Audio
-      - ${NAS_MEDIA_ROOT:-./data/media}:/Media
-
-      # ── 英语学习中心直接复用上面这个 /Media，无需额外挂载 ──
-      # 媒体中心下载的文件会自动出现在英语学习里；想另放一棵目录树时
-      # 才需要加一行挂载并设 ENGLISH_ROOT：
-      # - /volume1/English:/English
 
       # ── 字幕/封面等附属文件与媒体同目录，无需额外挂载 ───────
 
