@@ -48,6 +48,7 @@ export default function MobileApp() {
   }, []);
 
   const openCourse = useCallback((id: number) => {
+    setSubPage(null);
     setCourseId(id);
   }, []);
 

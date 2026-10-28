@@ -58,16 +58,17 @@ export default function HomePage({ onOpenLesson, onOpenCourse, onGoDiscover, onG
 
   const { greeting, stats, continue_learning: continueLearning, recommended, recent } = data;
   const next = continueLearning[0];
+  const featured = recommended[0] || recent[0];
+  const featuredCover = next?.cover || featured?.cover;
 
   return (
-    <div className="ef-page">
-      <header className="ef-greeting">
+    <div className="ef-page ef-home">
+      <header className="ef-greeting ef-home-heading">
         <div style={{ minWidth: 0 }}>
-          <h1>{greeting}</h1>
+          <span className="ef-home-brand">NASPILOT · LEARNING</span>
+          <h1>EnglishFlow</h1>
           <p>
-            {stats.completed > 0
-              ? `今天已学 ${stats.minutes_today} 分钟 · 累计完成 ${stats.completed} 课`
-              : "Let's start your first lesson"}
+            {greeting}
           </p>
         </div>
         <button type="button" className="ef-avatar" onClick={onGoMe} aria-label="我的">
@@ -75,45 +76,25 @@ export default function HomePage({ onOpenLesson, onOpenCourse, onGoDiscover, onG
         </button>
       </header>
 
-      {/* Section 2 — Continue learning. Falls back to a starter card so the
-          first screen is never empty for a new account. */}
-      <section className="ef-section">
-        {next ? (
+      <section className="ef-section ef-home-feature">
+        {next || featured ? (
           <button
             type="button"
-            className="ef-card ef-continue"
-            onClick={() => onOpenLesson(next.lesson_id)}
+            className="ef-feature-scene"
+            onClick={() => next ? onOpenLesson(next.lesson_id) : featured && onOpenCourse(featured.id)}
           >
-            <span className="ef-cover">
-              {next.cover ? <img src={withToken(next.cover)} alt="" /> : <IconPlay />}
-            </span>
-            <span className="ef-continue-body">
-              <p className="ef-title-2">继续学习 · {next.lesson_title}</p>
-              <p className="ef-sub">
-                {next.course_title} · {fmtTime(next.position)} / {fmtTime(next.duration)}
-              </p>
-              <span className="ef-bar">
-                <i style={{ width: `${Math.round((next.progress || 0) * 100)}%` }} />
+            <img className="ef-feature-image" src={withToken(featuredCover) || COURSE_PLACEHOLDER} alt="" />
+            <span className="ef-feature-shade" />
+            <span className="ef-feature-content">
+              <span className="ef-feature-eyebrow">{next ? '继续学习' : '今日精选'}</span>
+              <strong>{next?.lesson_title || featured?.title}</strong>
+              <span className="ef-feature-meta">
+                {next ? `${next.course_title} · ${fmtTime(next.position)} / ${fmtTime(next.duration)}` : `${featured?.level} · ${featured?.lesson_count} 课时`}
               </span>
             </span>
-          </button>
-        ) : recommended.length > 0 ? (
-          <button
-            type="button"
-            className="ef-card ef-continue"
-            onClick={() => onOpenCourse(recommended[0].id)}
-          >
-            <span className="ef-cover">
-              {recommended[0].cover ? <img src={withToken(recommended[0].cover)} alt="" /> : <IconPlay />}
-            </span>
-            <span className="ef-continue-body">
-              <p className="ef-title-2">从这里开始</p>
-              <p className="ef-sub">
-                {recommended[0].title} · {recommended[0].lesson_count} 课
-              </p>
-              <span className="ef-bar">
-                <i style={{ width: '0%' }} />
-              </span>
+            <span className="ef-feature-play" aria-hidden="true"><IconPlay /></span>
+            <span className="ef-feature-progress">
+              <i style={{ width: `${Math.round((next?.progress || 0) * 100)}%` }} />
             </span>
           </button>
         ) : (
@@ -122,6 +103,12 @@ export default function HomePage({ onOpenLesson, onOpenCourse, onGoDiscover, onG
             description="管理员扫描媒体库后，课程会自动出现在这里。"
           />
         )}
+      </section>
+
+      <section className="ef-home-numbers" aria-label="学习概览">
+        <div><strong>{stats.minutes_today}<small> min</small></strong><span>今日学习</span></div>
+        <div><strong>{stats.completed}</strong><span>已完成课时</span></div>
+        <div><strong>{stats.courses}</strong><span>可学课程</span></div>
       </section>
 
       {continueLearning.length > 1 && (
@@ -153,9 +140,9 @@ export default function HomePage({ onOpenLesson, onOpenCourse, onGoDiscover, onG
       {recommended.length > 0 && (
         <section className="ef-section">
           <SectionHead title="适合你" action="去发现" onAction={onGoDiscover} />
-          <div className="ef-list">
-            {recommended.slice(0, 5).map((course) => (
-              <CourseRow key={course.id} course={course} onOpen={() => onOpenCourse(course.id)} />
+          <div className="ef-course-grid">
+            {recommended.slice(0, 6).map((course) => (
+              <CourseTile key={course.id} course={course} onOpen={() => onOpenCourse(course.id)} />
             ))}
           </div>
         </section>
@@ -164,9 +151,9 @@ export default function HomePage({ onOpenLesson, onOpenCourse, onGoDiscover, onG
       {recent.length > 0 && (
         <section className="ef-section">
           <SectionHead title="最近更新" />
-          <div className="ef-list">
-            {recent.slice(0, 5).map((course) => (
-              <CourseRow key={course.id} course={course} onOpen={() => onOpenCourse(course.id)} />
+          <div className="ef-course-grid">
+            {recent.slice(0, 6).map((course) => (
+              <CourseTile key={course.id} course={course} onOpen={() => onOpenCourse(course.id)} />
             ))}
           </div>
         </section>
@@ -175,10 +162,29 @@ export default function HomePage({ onOpenLesson, onOpenCourse, onGoDiscover, onG
   );
 }
 
+const COURSE_PLACEHOLDER = '/learning-cover.jpg';
+
+export function CourseTile({ course, onOpen }: { course: Course; onOpen: () => void }) {
+  return (
+    <button className="ef-course-tile" type="button" onClick={onOpen}>
+      <span className="ef-course-art">
+        <img src={withToken(course.cover) || COURSE_PLACEHOLDER} alt="" loading="lazy" />
+        <span className="ef-course-level">{course.level}</span>
+        <span className="ef-course-play" aria-hidden="true"><IconPlay /></span>
+      </span>
+      <span className="ef-course-info">
+        <span className="ef-course-channel">{course.channel}</span>
+        <strong>{course.title}</strong>
+        <span>{course.lesson_count} 课时 · {fmtTime(course.total_seconds)}</span>
+      </span>
+    </button>
+  );
+}
+
 export function CourseRow({ course, onOpen }: { course: Course; onOpen: () => void }) {
   return (
     <button type="button" className="ef-row" onClick={onOpen}>
-      <span className="ef-cover" style={{ width: 64, height: 44, fontSize: 14 }}>
+      <span className="ef-cover" style={{ width: 88, height: 66, fontSize: 14 }}>
         {course.cover ? <img src={withToken(course.cover)} alt="" /> : null}
       </span>
       <span className="ef-row-body">

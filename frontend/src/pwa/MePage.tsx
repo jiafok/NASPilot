@@ -3,6 +3,8 @@ import { apiGet, errText, fmtTime, type Course, type StatsPayload } from './api'
 import { ErrorState, SectionHead, SkeletonList } from './components';
 import { useAuth } from '../hooks/useAuth';
 import { CourseRow } from './HomePage';
+import { useNavigate } from 'react-router-dom';
+import { BookOutlined, BarChartOutlined, LogoutOutlined, RightOutlined } from '@ant-design/icons';
 
 interface Props {
   onOpenCourse: (courseId: number) => void;
@@ -13,6 +15,7 @@ interface Props {
 
 export default function MePage({ onOpenCourse, onOpenStats, onOpenWords, onOpenFavorites }: Props) {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [stats, setStats] = useState<StatsPayload | null>(null);
   const [favorites, setFavorites] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,13 +59,14 @@ export default function MePage({ onOpenCourse, onOpenStats, onOpenWords, onOpenF
   const { totals, streak, today, week } = stats;
 
   return (
-    <div className="ef-page">
-      <header className="ef-greeting">
+    <div className="ef-page ef-me-page">
+      <header className="ef-greeting ef-profile-heading">
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', minWidth: 0 }}>
           <span className="ef-avatar" style={{ width: 48, height: 48, borderRadius: 24, fontSize: 18 }}>
             {(user?.username || 'U').slice(0, 1).toUpperCase()}
           </span>
           <div style={{ minWidth: 0 }}>
+            <span className="ef-eyebrow">MY LEARNING JOURNAL</span>
             <h1 style={{ fontSize: 22 }}>{user?.username || '我'}</h1>
             <p>连续学习 {streak} 天 · 今天 {today.minutes} 分钟</p>
           </div>
@@ -99,7 +103,7 @@ export default function MePage({ onOpenCourse, onOpenStats, onOpenWords, onOpenF
             <span
               key={alpha}
               className="ef-heat-cell"
-              style={{ background: `rgba(37, 99, 235, ${alpha})` }}
+              style={{ background: `rgba(23, 107, 86, ${alpha})` }}
             />
           ))}
           <span>多</span>
@@ -121,23 +125,31 @@ export default function MePage({ onOpenCourse, onOpenStats, onOpenWords, onOpenF
 
       <section className="ef-section">
         <div className="ef-list">
-          <button type="button" className="ef-row" onClick={onOpenWords}>
+          {!user?.is_admin && <button type="button" className="ef-row ef-account-action" onClick={() => navigate('/membership')}>
+            <span className="ef-action-symbol"><BarChartOutlined /></span>
+            <span className="ef-row-body"><span>学习权益与套餐</span><span className="ef-row-meta">{user?.membership?.expires_at ? `有效期至 ${new Date(user.membership.expires_at).toLocaleDateString()}` : '长期有效'}</span></span>
+            <RightOutlined />
+          </button>}
+          <button type="button" className="ef-row ef-account-action" onClick={onOpenWords}>
+            <span className="ef-action-symbol"><BookOutlined /></span>
             <span className="ef-row-body">
               <span style={{ fontSize: 15 }}>我的生词</span>
-              <span className="ef-row-meta">点词加入的生词都收在这里</span>
             </span>
+            <RightOutlined />
           </button>
-          <button type="button" className="ef-row" onClick={onOpenStats}>
+          <button type="button" className="ef-row ef-account-action" onClick={onOpenStats}>
+            <span className="ef-action-symbol"><BarChartOutlined /></span>
             <span className="ef-row-body">
               <span style={{ fontSize: 15 }}>学习统计</span>
-              <span className="ef-row-meta">每日时长、成长曲线</span>
             </span>
+            <RightOutlined />
           </button>
-          <button type="button" className="ef-row" onClick={logout}>
+          <button type="button" className="ef-row ef-account-action ef-account-logout" onClick={logout}>
+            <span className="ef-action-symbol"><LogoutOutlined /></span>
             <span className="ef-row-body">
               <span style={{ fontSize: 15 }}>退出登录</span>
-              <span className="ef-row-meta">会同时撤销本机的登录状态</span>
             </span>
+            <RightOutlined />
           </button>
         </div>
       </section>
@@ -169,7 +181,7 @@ export function Heatmap({ series }: { series: StatsPayload['series'] }) {
                 key={day.day}
                 className="ef-heat-cell"
                 title={`${day.day} · ${day.minutes} 分钟`}
-                style={alpha ? { background: `rgba(37, 99, 235, ${alpha})` } : undefined}
+                style={alpha ? { background: `rgba(23, 107, 86, ${alpha})` } : undefined}
               />
             );
           })}

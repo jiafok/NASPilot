@@ -277,13 +277,17 @@ def _course_identity(root: Path, directory: Path) -> tuple[str, str, str]:
 
 
 def _pick_course_cover(directory: Path, assets: dict[str, Asset]) -> Path | None:
-    for asset in assets.values():
-        if asset.cover is not None:
-            return asset.cover
-    for name in ("cover.jpg", "cover.png", "cover.webp", "folder.jpg", "poster.jpg"):
+    for name in _COVER_NAMES:
         candidate = directory / name
         if candidate.is_file():
             return candidate
+    media_stems = set(assets)
+    for image in sorted(directory.iterdir()):
+        if image.is_file() and image.suffix.lower() in IMAGE_EXTS and image.stem not in media_stems:
+            return image
+    for asset in sorted(assets.values(), key=lambda item: meta.lesson_position(item.media.name if item.media else item.stem)):
+        if asset.cover is not None:
+            return asset.cover
     return None
 
 
@@ -852,19 +856,22 @@ async def _scan_impl(
 
     for directory, assets in sorted(by_dir.items(), key=lambda kv: str(kv[0])):
         channel, course_name, prefix = _course_identity(base, directory)
-        override = meta.read_course_override(directory)
+        relative_parts = directory.relative_to(base).parts
+        depth = 3 if relative_parts and relative_parts[0].lower() in MODE_SEGMENTS else 2
+        course_directory = base.joinpath(*relative_parts[:depth])
+        override = meta.read_course_override(course_directory)
         course = await _get_or_create_course(
             db,
             channel=meta.clean_title(channel) or channel,
             title=meta.clean_title(course_name) or course_name,
-            directory=directory,
+            directory=course_directory,
             report=report,
             override=override,
         )
         touched_courses[course.id] = course
         if override.get("cover"):
-            candidate = directory / str(override["cover"])
-            if candidate.is_file():
+            candidate = course_directory / str(override["cover"])
+            if candidate.is_file() and is_inside_root(candidate, base):
                 course.cover_path = str(candidate)
 
         # Order lessons by leading index, then by name
@@ -975,13 +982,24 @@ async def _scan_impl(
         ready = [ls for ls in lessons if ls.status == "ready"]
         course.lesson_count = len(ready)
         course.total_seconds = sum(ls.duration or 0 for ls in ready)
-        if not course.cover_path and course.directory:
+        course.cover_path = None
+        if course.directory:
             directory = Path(course.directory)
             if directory.is_dir():
                 assets = by_dir.get(directory, {})
                 cover = _pick_course_cover(directory, assets)
-                if cover is not None:
+                override_cover = meta.read_course_override(directory).get("cover")
+                if override_cover:
+                    candidate = directory / str(override_cover)
+                    if candidate.is_file() and is_inside_root(candidate, base):
+                        cover = candidate
+                if cover is not None and is_inside_root(cover, base):
                     course.cover_path = str(cover)
+        if not course.cover_path:
+            for lesson in sorted(ready, key=lambda item: (item.position, item.title, item.id)):
+                if lesson.cover_path and is_inside_root(Path(lesson.cover_path), base) and Path(lesson.cover_path).is_file():
+                    course.cover_path = lesson.cover_path
+                    break
 
         if course_id not in dirty_courses:
             # Counts above are cheap and always refreshed; the expensive parts

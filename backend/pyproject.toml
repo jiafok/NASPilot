@@ -9,6 +9,7 @@ authors = [{ name = "NASPilot Contributors" }]
 keywords = ["nas", "automation", "docker", "pt", "rss", "qbittorrent", "alist", "cloudflare", "ddns", "homenlab"]
 
 dependencies = [
+    "alibabacloud_dysmsapi20170525>=4.6.0,<5",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "sqlalchemy[asyncio]>=2.0.30",

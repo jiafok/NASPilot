@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiGet, errText, fmtTime, withToken, type HomeData } from './api';
-import { EmptyState, ErrorState, SectionHead, SkeletonList } from './components';
+import { EmptyState, ErrorState, IconRoute, PageHeader, SectionHead, SkeletonList } from './components';
+import { ArrowRightOutlined } from '@ant-design/icons';
 
 interface Props {
   onOpenLesson: (lessonId: number) => void;
@@ -62,7 +63,8 @@ export default function LearnPage({ onOpenLesson, onOpenCourse, onGoDiscover }: 
   ];
 
   return (
-    <div className="ef-page">
+    <div className="ef-page ef-learn-page">
+      <PageHeader title="学习空间" eyebrow="A LITTLE, EVERY DAY" symbol={<IconRoute />} detail={`今日 ${home.stats.minutes_today} 分钟 · 已完成 ${home.stats.completed} 课时`} />
       <section className="ef-section">
         <SectionHead title="我的学习" />
         {inProgress.length === 0 ? (
@@ -103,30 +105,15 @@ export default function LearnPage({ onOpenLesson, onOpenCourse, onGoDiscover }: 
 
       <section className="ef-section">
         <SectionHead title="学习阶段" />
-        <div className="ef-list">
+        <div className="ef-stage-path">
           {stages.map((stage) => {
             const done = levels[stage.level] || 0;
             return (
-              <div key={stage.level} className="ef-card" style={{ cursor: 'default' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span className="ef-tag">{stage.level}</span>
-                  <strong style={{ fontSize: 15 }}>{stage.title}</strong>
-                  <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ef-ink-sub)' }}>
-                    已完成 {done} 课
-                  </span>
-                </div>
-                <p className="ef-sub" style={{ marginTop: 6 }}>
-                  {stage.hint}
-                </p>
-                <button
-                  type="button"
-                  className="ef-btn"
-                  style={{ marginTop: 10, width: '100%' }}
-                  onClick={onGoDiscover}
-                >
-                  找 {stage.level} 的课
-                </button>
-              </div>
+              <button key={stage.level} className="ef-path-step" type="button" onClick={onGoDiscover}>
+                <span className="ef-path-level">{stage.level}</span>
+                <span className="ef-path-body"><strong>{stage.title}</strong><span>{stage.hint}</span><small>已完成 {done} 课</small></span>
+                <ArrowRightOutlined />
+              </button>
             );
           })}
         </div>

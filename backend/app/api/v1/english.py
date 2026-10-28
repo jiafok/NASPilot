@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import CurrentUser
+from app.core.deps import CurrentUser, AdminUser, require_learning_access
 from app.core.security import decode_access_token
 from app.models import EnglishCourse, EnglishLesson, EnglishTranscript, User
 from app.services import ai_service
@@ -32,7 +32,7 @@ from app.services.english import dictionary, query, scanner, stream
 
 logger = logging.getLogger("naspilot.english.api")
 
-router = APIRouter(prefix="/english", tags=["english"])
+router = APIRouter(prefix="/english", tags=["english"], dependencies=[Depends(require_learning_access)])
 
 
 async def _stream_user(
@@ -61,6 +61,7 @@ async def _stream_user(
     user = await db.get(User, int(payload["sub"]))
     if user is None or not user.is_active:
         raise HTTPException(status_code=401, detail="用户不存在或已禁用")
+    await require_learning_access(user, db)
     return user
 
 
@@ -607,7 +608,7 @@ async def english_ai_status(
 
 @router.get("/directories", summary="媒体库根目录与状态")
 async def english_directories(
-    user: CurrentUser,
+    user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     stats = await scanner.stats(db)
@@ -616,7 +617,7 @@ async def english_directories(
 
 @router.post("/admin/scan", summary="扫描媒体库（幂等）")
 async def english_scan(
-    user: CurrentUser,
+    user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     with_vocabulary: bool = Query(True, description="是否重建生词表"),
 ):
@@ -626,7 +627,7 @@ async def english_scan(
 
 @router.get("/admin/stats", summary="媒体库统计")
 async def english_stats(
-    user: CurrentUser,
+    user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     return await scanner.stats(db)
@@ -635,7 +636,7 @@ async def english_stats(
 @router.post("/admin/vocabulary/{course_id}", summary="重新提取课程生词")
 async def english_rebuild_vocabulary(
     course_id: int,
-    user: CurrentUser,
+    user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     course = await db.get(EnglishCourse, course_id)
@@ -651,7 +652,7 @@ async def english_rebuild_vocabulary(
 
 @router.get("/admin/lessons", summary="课时列表（管理/排查用）")
 async def english_admin_lessons(
-    user: CurrentUser,
+    user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     course_id: int | None = None,
     include_missing: bool = False,

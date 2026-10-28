@@ -135,6 +135,9 @@ export interface WordEntry {
   example: string;
   source: string;
   cached?: boolean;
+  context_meaning?: string;
+  context_status?: 'complete' | 'unavailable';
+  phrases?: Array<{ phrase: string; meaning: string; explanation: string }>;
 }
 
 /** Normalise the two possible filter shapes into `{value, count}` pairs. */
@@ -180,7 +183,7 @@ export const apiPost = {
   favorite: (course_id: number, favorite: boolean) =>
     api.post('/english/favorite', { course_id, favorite }),
   word: (word: string, sentence?: string, lesson_id?: number) =>
-    api.post<WordEntry>('/english/word', { word, sentence, lesson_id }).then((r) => r.data),
+    api.post<WordEntry>('/english/word', { word, sentence, lesson_id }, { timeout: 90000 }).then((r) => r.data),
 };
 
 /** Format seconds as `m:ss` (or `h:mm:ss` past an hour). */

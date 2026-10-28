@@ -247,6 +247,7 @@ async def list_settings(
     category: str | None = None,
 ):
     q = select(Setting)
+    q = q.where(Setting.key != "LEARNING_ACCESS_CONFIG")
     if category:
         q = q.where(Setting.category == category)
     result = await db.execute(q.order_by(Setting.key))
@@ -267,6 +268,8 @@ async def batch_update_settings(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Update multiple settings at once — creates new keys when missing."""
+    if any(entry.key == "LEARNING_ACCESS_CONFIG" for entry in body):
+        raise HTTPException(status_code=400, detail="请在系统设置的注册与套餐页保存该配置")
     for entry in body:
         result = await db.execute(select(Setting).where(Setting.key == entry.key))
         setting = result.scalar_one_or_none()
@@ -306,6 +309,8 @@ async def update_setting(
     user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    if key == "LEARNING_ACCESS_CONFIG":
+        raise HTTPException(status_code=400, detail="请在系统设置的注册与套餐页保存该配置")
     result = await db.execute(select(Setting).where(Setting.key == key))
     setting = result.scalar_one_or_none()
     if not setting:

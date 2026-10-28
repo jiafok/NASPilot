@@ -4,15 +4,19 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.schemas.auth import UserOut
+from app.schemas.auth import AccountRequest, UserOut
 
 
-class UserCreate(BaseModel):
-    username: str = Field(..., min_length=3, max_length=64)
-    password: str = Field(..., min_length=6, max_length=128)
-    email: str | None = None
-    display_name: str | None = None
+class UserCreate(AccountRequest):
+    email: str | None = Field(None, max_length=255)
     is_admin: bool = False
+
+
+class UserPage(BaseModel):
+    items: list[UserOut]
+    total: int
+    page: int
+    page_size: int
 
 
 class UserUpdate(BaseModel):
@@ -29,4 +33,4 @@ class PasswordChange(BaseModel):
     new_password: str = Field(..., min_length=6, max_length=128)
 
 
-__all__ = ["UserOut", "UserCreate", "UserUpdate", "PasswordChange"]
+__all__ = ["UserOut", "UserCreate", "UserPage", "UserUpdate", "PasswordChange"]

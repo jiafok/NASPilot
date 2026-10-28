@@ -18,6 +18,7 @@ import {
   FolderOpenOutlined,
   VideoCameraOutlined,
   ReadOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../hooks/useAuth';
@@ -76,6 +77,7 @@ export default function MainLayout() {
     { key: '/files', icon: <FolderOpenOutlined />, label: 'File Manager' },
     { key: '/logs', icon: <FileTextOutlined />, label: t('nav.logs') },
     { key: '/settings', icon: <SettingOutlined />, label: t('nav.settings') },
+    { key: '/users', icon: <TeamOutlined />, label: '用户管理' },
     { key: '/ai', icon: <RobotOutlined />, label: t('nav.aiAssistant') },
   ];
 

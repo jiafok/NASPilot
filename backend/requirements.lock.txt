@@ -3,6 +3,24 @@
 # NASPilot — Locked production dependencies
 # Update with: pip freeze | grep -E "^(fastapi|uvicorn|sqlalchemy|aiosqlite|alembic|apscheduler|pydantic|passlib|python-jose|python-multipart|feedparser|requests|httpx|pyyaml|psutil|docker|python-dateutil|websockets|pydantic-settings|bcrypt|cryptography|ecdsa|pyasn1|rsa|email-validator|dnspython|starlette|anyio|h11|httpcore|idna|certifi|charset-normalizer|urllib3|typing|annotated|Jinja2|MarkupSafe|click|watchfiles|httptools|Mako|greenlet|soupsieve|beautifulsoup4|sgmllib3k|six|lxml|python-dotenv|typer|rich|shellingham|markdown|Pygments|mdurl|sentry|fastapi-cli|tzlocal|tzdata|)" > requirements.lock.txt
 aiosqlite==0.22.1
+aiofiles==24.1.0
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.5
+aiosignal==1.4.0
+alibabacloud-credentials==1.0.12
+alibabacloud-credentials-api==1.0.1
+alibabacloud-gateway-spi==0.0.4
+alibabacloud-tea==0.4.3
+alibabacloud-tea-openapi==0.4.6
+alibabacloud-tea-util==0.3.15
+alibabacloud_dysmsapi20170525==4.6.0
+attrs==26.1.0
+darabonba-core==1.0.9
+frozenlist==1.8.0
+multidict==7.2.1
+propcache==0.5.4
+websocket-client==1.9.2
+yarl==1.25.1
 alembic==1.18.5
 annotated-doc==0.0.4
 annotated-types==0.7.0

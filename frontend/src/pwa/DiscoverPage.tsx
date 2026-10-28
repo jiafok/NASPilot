@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiGet, errText, filterOptions, type Course, type Filters } from './api';
-import { EmptyState, ErrorState, IconClose, IconSearch, SkeletonList } from './components';
-import { CourseRow } from './HomePage';
+import { EmptyState, ErrorState, IconClose, IconCompass, IconSearch, PageHeader, SkeletonList } from './components';
+import { CourseTile } from './HomePage';
+import { FilterOutlined } from '@ant-design/icons';
 
 interface Props {
   onOpenCourse: (courseId: number) => void;
@@ -71,7 +72,8 @@ export default function DiscoverPage({ onOpenCourse }: Props) {
   const activeFilters = [level, topic, skill, format].filter(Boolean) as string[];
 
   return (
-    <div className="ef-page">
+    <div className="ef-page ef-discover-page">
+      <PageHeader title="发现课程" eyebrow="THE LEARNING LIBRARY" symbol={<IconCompass />} />
       <div className="ef-search">
         <IconSearch />
         <input
@@ -88,12 +90,14 @@ export default function DiscoverPage({ onOpenCourse }: Props) {
         )}
       </div>
 
-      <FilterChips
+      <div className="ef-discovery-levels"><FilterChips
         label="难度"
         options={filterOptions(filters.levels)}
         value={level}
         onChange={setLevel}
-      />
+      /></div>
+      <details className="ef-filter-disclosure">
+        <summary><FilterOutlined /> 更多筛选 <span>{activeFilters.length ? `${activeFilters.length} 项已选` : '话题 · 技能 · 形式'}</span></summary>
       <FilterChips
         label="话题"
         options={filterOptions(filters.topics)}
@@ -113,6 +117,7 @@ export default function DiscoverPage({ onOpenCourse }: Props) {
         value={format}
         onChange={setFormat}
       />
+      </details>
 
       {activeFilters.length > 0 && (
         <div className="ef-chip-row">
@@ -132,6 +137,7 @@ export default function DiscoverPage({ onOpenCourse }: Props) {
       )}
 
       <section className="ef-section" style={{ marginTop: 12 }}>
+        <div className="ef-section-head"><h2 className="ef-section-title">课程书架</h2><span className="ef-result-count">{courses.length} 门课程</span></div>
         {loading && courses.length === 0 ? (
           <SkeletonList rows={5} />
         ) : error ? (
@@ -151,9 +157,9 @@ export default function DiscoverPage({ onOpenCourse }: Props) {
           />
         ) : (
           <>
-            <div className="ef-list">
+            <div className="ef-course-grid">
               {courses.map((course) => (
-                <CourseRow
+                <CourseTile
                   key={course.id}
                   course={course}
                   onOpen={() => onOpenCourse(course.id)}

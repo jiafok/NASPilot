@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Form, Input, Button, Switch, message, Typography, Card, Spin, Tabs, Modal, Space, Row, Col, Statistic, Alert } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
+import AccessSettings from './AccessSettings';
 import { SaveOutlined, ReloadOutlined, LockOutlined, SettingOutlined, RobotOutlined, FolderOpenOutlined, AppstoreOutlined, BellOutlined, VideoCameraOutlined } from '@ant-design/icons';
 
 const { Title, Paragraph } = Typography;
@@ -23,6 +24,7 @@ export default function SystemSettings() {
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState('general');
 
   // Password change
   const [pwdModal, setPwdModal] = useState(false);
@@ -116,6 +118,7 @@ export default function SystemSettings() {
   const generalSettings = () => catSettings('general').filter(s => !MEDIA_KEYS.includes(s.key));
 
   const tabItems = [
+    { key: 'access', label: <span><LockOutlined /> 注册与套餐</span>, children: <AccessSettings /> },
     {
       key: 'general',
       label: <span><SettingOutlined /> {t('system.general')}</span>,
@@ -265,13 +268,15 @@ export default function SystemSettings() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>⚙️ 系统设置</Title>
         <Space>
+          {activeTab !== 'access' && <>
           <Button icon={<ReloadOutlined />} onClick={fetchSettings}>刷新</Button>
           <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={saving}>保存</Button>
+          </>}
         </Space>
       </div>
 
       <Form form={form} layout="vertical">
-        <Tabs items={tabItems} />
+        <Tabs items={tabItems} activeKey={activeTab} onChange={setActiveTab} />
       </Form>
 
       <Modal title="修改密码" open={pwdModal} onOk={handleChangePassword} onCancel={() => { setPwdModal(false); pwdForm.resetFields(); }}

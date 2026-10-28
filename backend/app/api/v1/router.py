@@ -1,6 +1,7 @@
 """API v1 router — aggregates all endpoint routers."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.core.deps import require_admin
 
 from app.api.v1.ai import router as ai_router
 from app.api.v1.english import router as english_router
@@ -13,16 +14,20 @@ from app.api.v1.plugins import router as plugins_router
 from app.api.v1.system import router as system_router
 from app.api.v1.tasks import router as tasks_router
 from app.api.v1.websocket import router as ws_router
+from app.api.v1.users import router as users_router
+from app.api.v1.membership import router as membership_router
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth_router)
-api_router.include_router(tasks_router)
-api_router.include_router(plugins_router)
-api_router.include_router(notif_router)
-api_router.include_router(system_router)
+api_router.include_router(membership_router)
+api_router.include_router(users_router, dependencies=[Depends(require_admin)])
+api_router.include_router(tasks_router, dependencies=[Depends(require_admin)])
+api_router.include_router(plugins_router, dependencies=[Depends(require_admin)])
+api_router.include_router(notif_router, dependencies=[Depends(require_admin)])
+api_router.include_router(system_router, dependencies=[Depends(require_admin)])
 api_router.include_router(ws_router)
-api_router.include_router(ai_router)
-api_router.include_router(files_router)
-api_router.include_router(observability_router)
-api_router.include_router(media_router)
+api_router.include_router(ai_router, dependencies=[Depends(require_admin)])
+api_router.include_router(files_router, dependencies=[Depends(require_admin)])
+api_router.include_router(observability_router, dependencies=[Depends(require_admin)])
+api_router.include_router(media_router, dependencies=[Depends(require_admin)])
 api_router.include_router(english_router)

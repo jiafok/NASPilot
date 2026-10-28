@@ -3,7 +3,8 @@
 import logging
 import os
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
+from app.core.deps import require_admin
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -65,7 +66,7 @@ async def health():
     return {"status": "ok", "app": settings.APP_NAME, "version": settings.APP_VERSION}
 
 
-@app.get("/health/ytdlp", tags=["health"])
+@app.get("/health/ytdlp", tags=["health"], dependencies=[Depends(require_admin)])
 async def health_ytdlp():
     """Media dependency probe — reports yt-dlp / ffmpeg availability."""
     from app.services.media_center.ytdlp_core import dependency_health
@@ -73,7 +74,7 @@ async def health_ytdlp():
     return await dependency_health()
 
 
-@app.get("/health/media", tags=["health"])
+@app.get("/health/media", tags=["health"], dependencies=[Depends(require_admin)])
 async def health_media():
     """Media Download Center health — engines, providers, network, directories."""
     from app.api.v1.media import build_health
@@ -82,7 +83,7 @@ async def health_media():
 
 
 # Unversioned alias for the Media Download Center (/api/media/...)
-app.include_router(media_router, prefix="/api", include_in_schema=False)
+app.include_router(media_router, prefix="/api", include_in_schema=False, dependencies=[Depends(require_admin)])
 
 # English Learning Center — client contract aliases (/api/english/...)
 app.include_router(english_router, prefix="/api", include_in_schema=False)
@@ -114,6 +115,7 @@ if os.path.isfile(_index_html):
         "pwa-icon.svg": "image/svg+xml",
         "pwa-icon-maskable.svg": "image/svg+xml",
         "icons.svg": "image/svg+xml",
+        "learning-cover.jpg": "image/jpeg",
     }
 
     @app.get("/{full_path:path}", response_class=HTMLResponse)

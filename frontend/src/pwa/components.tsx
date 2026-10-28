@@ -244,6 +244,21 @@ export function SectionHead({
   );
 }
 
+export function PageHeader({ title, eyebrow, symbol, detail }: {
+  title: string; eyebrow: string; symbol?: ReactNode; detail?: string;
+}) {
+  return (
+    <header className="ef-page-heading">
+      <div>
+        <span className="ef-eyebrow">{eyebrow}</span>
+        <h1>{title}</h1>
+        {detail && <p>{detail}</p>}
+      </div>
+      {symbol && <span className="ef-heading-symbol" aria-hidden="true">{symbol}</span>}
+    </header>
+  );
+}
+
 /** Skeleton rows: a spinner for a whole page reads as a stall on mobile. */
 export function SkeletonList({ rows = 4 }: { rows?: number }) {
   return (

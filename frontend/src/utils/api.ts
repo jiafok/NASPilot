@@ -46,6 +46,10 @@ async function refreshAccessToken(): Promise<string | null> {
 api.interceptors.response.use(
   (res) => res,
   async (err: AxiosError) => {
+    if (err.response?.status === 402 && window.location.pathname !== '/membership') {
+      window.location.href = '/membership';
+      return Promise.reject(err);
+    }
     const original = err?.config as
       | (InternalAxiosRequestConfig & { __retriedWithoutV1?: boolean; __retriedAuth?: boolean })
       | undefined;

@@ -295,3 +295,11 @@ from app.models.english import (  # noqa: E402,F401
     EnglishVocabulary,
     EnglishWordLookup,
 )
+
+from app.models.membership import (  # noqa: E402,F401
+    LearningMembership,
+    MembershipGrant,
+    RegisteredPhone,
+    RegistrationInvite,
+    SmsChallenge,
+)

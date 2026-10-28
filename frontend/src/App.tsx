@@ -17,6 +17,7 @@ import NotificationCenter from './pages/notifications/NotificationCenter';
 import LogCenter from './pages/system/LogCenter';
 import LogFullPage from './pages/system/LogFullPage';
 import SystemSettings from './pages/system/SystemSettings';
+import UserManager from './pages/system/UserManager';
 import AIAssistant from './pages/AIAssistant';
 import LogCleanup from './pages/plugins/LogCleanup';
 import FileBrowser from './pages/system/FileBrowser';
@@ -25,6 +26,7 @@ import RcloneMount from './pages/plugins/RcloneMount';
 import MediaCenter from './pages/media/MediaCenter';
 import EnglishCenter from './pages/english/EnglishCenter';
 import MobileApp from './pwa/MobileApp';
+import MembershipPage from './pwa/MembershipPage';
 
 /**
  * Phones get the PWA shell, not the admin-width table view.
@@ -55,11 +57,13 @@ function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
-              <Route path="/logs/full" element={<LogFullPage />} />
+              <Route path="/register" element={<LoginPage registerMode />} />
+              <Route path="/membership" element={<AuthGuard allowExpired><MembershipPage /></AuthGuard>} />
+              <Route path="/logs/full" element={<AuthGuard adminOnly><LogFullPage /></AuthGuard>} />
               {/* Mobile PWA: its own shell (5 tabs) and its own full-screen player.
                   Standalone route so a phone never has to load the admin layout. */}
               <Route path="/m" element={<AuthGuard><MobileApp /></AuthGuard>} />
-              <Route path="/" element={<AuthGuard><MainLayout /></AuthGuard>}>
+              <Route path="/" element={<AuthGuard adminOnly><MainLayout /></AuthGuard>}>
                 <Route index element={<Dashboard />} />
                 <Route path="automation" element={<TaskList />} />
                 <Route path="applications" element={<Navigate to="/applications/pt-rss" replace />} />
@@ -67,6 +71,7 @@ function App() {
                 <Route path="files" element={<FileBrowser />} />
                 <Route path="logs" element={<LogCenter />} />
                 <Route path="settings" element={<SystemSettings />} />
+                <Route path="users" element={<UserManager />} />
                 <Route path="ai" element={<AIAssistant />} />
 
                 {/* Backward-compatible redirects for legacy /tools/* bookmarks */}

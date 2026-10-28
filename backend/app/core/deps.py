@@ -42,7 +42,24 @@ async def get_current_user_ws(
     if not payload or "sub" not in payload:
         return None
     result = await db.execute(select(User).where(User.id == int(payload["sub"])))
-    return result.scalar_one_or_none()
+    user = result.scalar_one_or_none()
+    return user if user and user.is_active and user.is_admin else None
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+async def require_admin(user: CurrentUser) -> User:
+    if not user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限")
+    return user
+
+
+AdminUser = Annotated[User, Depends(require_admin)]
+
+
+async def require_learning_access(user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]) -> User:
+    from app.services.membership_service import require_access
+
+    await require_access(db, user)
+    return user

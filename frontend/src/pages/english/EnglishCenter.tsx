@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { LESSON_SORTS, sortLessons, type LessonSort } from '../../utils/lessonSort';
 import {
   Alert,
   Badge,
@@ -267,6 +268,7 @@ export default function EnglishCenter() {
   const [onlyFavorite, setOnlyFavorite] = useState(false);
   /** Filter the lesson list by that lesson's own level. */
   const [lessonLevel, setLessonLevel] = useState<string | undefined>();
+  const [lessonSort, setLessonSort] = useState<LessonSort>('position');
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [lesson, setLesson] = useState<LessonDetail | null>(null);
@@ -819,6 +821,14 @@ export default function EnglishCenter() {
           title={<Space><BookOutlined />课时列表</Space>}
           extra={
             <Space size={6}>
+              <Select
+                aria-label="课时排序"
+                size="small"
+                value={lessonSort}
+                onChange={setLessonSort}
+                options={LESSON_SORTS.map((option) => ({ ...option }))}
+                style={{ width: 150 }}
+              />
               <Text type="secondary" style={{ fontSize: 12 }}>按本课时难度</Text>
               <Select
                 allowClear
@@ -838,7 +848,7 @@ export default function EnglishCenter() {
           {course.lessons.length === 0 ? (
             <Empty description="该课程还没有课时" />
           ) : (
-            course.lessons
+            sortLessons(course.lessons, lessonSort)
               .filter((ls) => !lessonLevel || ls.level === lessonLevel)
               .map((ls) => (
               <div

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiGet, apiPost, errText } from './api';
+import { IconSparkles, PageHeader } from './components';
+import { ArrowUpOutlined, ArrowRightOutlined } from '@ant-design/icons';
 
 interface Props {
   /** Lesson the user last opened; gives the tutor its context. */
@@ -150,13 +152,8 @@ export default function AiPage({ lessonId, onOpenLesson }: Props) {
   const prompts = lessonId ? CONTEXT_PROMPTS : GENERIC_PROMPTS;
 
   return (
-    <div className="ef-page" style={{ paddingBottom: 120 }}>
-      <div className="ef-greeting" style={{ paddingBottom: 8 }}>
-        <div>
-          <h1 style={{ fontSize: 24 }}>AI 老师</h1>
-          <p>结合字幕内容回答问题，可以一直追问。</p>
-        </div>
-      </div>
+    <div className="ef-page ef-ai-page" style={{ paddingBottom: 120 }}>
+      <PageHeader title="AI 老师" eyebrow="YOUR ENGLISH COMPANION" symbol={<IconSparkles />} />
 
       {configured === false && (
         <div className="ef-notice">
@@ -165,39 +162,40 @@ export default function AiPage({ lessonId, onOpenLesson }: Props) {
       )}
 
       {lessonId && lessonTitle && (
-        <div className="ef-card" style={{ marginBottom: 12, cursor: 'default' }}>
-          <p className="ef-sub">当前上下文</p>
+        <div className="ef-ai-context">
+          <span className="ef-eyebrow">当前课程</span>
           <p className="ef-title-2" style={{ margin: '4px 0 0' }}>
             {lessonTitle}
           </p>
           <button
             type="button"
-            className="ef-btn"
-            style={{ marginTop: 10 }}
+            className="ef-context-link"
             onClick={() => onOpenLesson(lessonId)}
           >
-            回到这一课
+            回到这一课 <ArrowRightOutlined />
           </button>
         </div>
       )}
 
       {messages.length === 0 && (
         <section className="ef-section">
+          <div className="ef-tutor-intro"><span className="ef-tutor-mark"><IconSparkles /></span><h2>把好奇，变成理解。</h2></div>
           <div className="ef-section-head">
             <h2 className="ef-section-title">可以这样问</h2>
           </div>
-          <div className="ef-list">
+          <div className="ef-prompt-list">
             {prompts.map((prompt) => (
               <button
                 key={prompt}
                 type="button"
-                className="ef-row"
+                className="ef-prompt"
                 disabled={configured === false}
                 onClick={() => void ask(prompt)}
               >
                 <span className="ef-row-body">
                   <span style={{ fontSize: 15, lineHeight: '22px' }}>{prompt}</span>
                 </span>
+                <ArrowRightOutlined />
               </button>
             ))}
           </div>
@@ -235,11 +233,13 @@ export default function AiPage({ lessonId, onOpenLesson }: Props) {
         />
         <button
           type="submit"
-          className="ef-btn"
+          className="ef-send-btn"
           data-kind="primary"
           disabled={configured === false || busy || !input.trim()}
+          aria-label="发送"
+          title="发送"
         >
-          {busy ? '…' : '发送'}
+          {busy ? '…' : <ArrowUpOutlined />}
         </button>
       </form>
     </div>

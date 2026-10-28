@@ -7,6 +7,7 @@ import {
   withToken,
   type LessonDetail,
   type Segment,
+  type WordEntry,
 } from './api';
 import {
   IconBack,
@@ -804,6 +805,7 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
 
       {wordSheet && (
         <WordSheet
+          key={`${wordSheet.word}:${wordSheet.sentence}`}
           word={wordSheet.word}
           sentence={wordSheet.sentence}
           lessonId={lesson.id}
@@ -826,11 +828,8 @@ export function WordSheet({
   lessonId?: number;
   onClose: () => void;
 }) {
-  const [entry, setEntry] = useState<{
-    phonetic: string;
-    senses: Array<{ pos: string; meaning: string }>;
-    example: string;
-  } | null>(null);
+  const [selectedWord, setSelectedWord] = useState(word);
+  const [entry, setEntry] = useState<WordEntry | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [added, setAdded] = useState(false);
@@ -839,8 +838,10 @@ export function WordSheet({
     let cancelled = false;
     setLoading(true);
     setError('');
+    setEntry(null);
+    setAdded(false);
     apiPost
-      .word(word, sentence, lessonId)
+      .word(selectedWord, sentence, lessonId)
       .then((data) => {
         if (!cancelled) setEntry(data);
       })
@@ -853,15 +854,25 @@ export function WordSheet({
     return () => {
       cancelled = true;
     };
-  }, [word, sentence, lessonId]);
+  }, [selectedWord, sentence, lessonId]);
 
   const highlighted = useMemo(() => {
-    const lower = word.toLowerCase();
-    const parts = sentence.split(/(\b[A-Za-z'-]+\b)/);
+    const lower = selectedWord.toLowerCase();
+    const parts = sentence.split(/([A-Za-z]+(?:['’\-][A-Za-z]+)*)/);
     return parts.map((part, index) =>
-      part.toLowerCase() === lower ? <em key={index}>{part}</em> : <span key={index}>{part}</span>,
+      /^[A-Za-z]/.test(part) ? (
+        <button
+          key={index}
+          type="button"
+          className="ef-sheet-word"
+          aria-pressed={part.toLowerCase() === lower}
+          onClick={() => setSelectedWord(part)}
+        >
+          {part}
+        </button>
+      ) : <span key={index}>{part}</span>,
     );
-  }, [sentence, word]);
+  }, [sentence, selectedWord]);
 
   return (
     <div className="ef-sheet-mask" onClick={onClose} role="presentation">
@@ -869,7 +880,7 @@ export function WordSheet({
         <div className="ef-sheet-grip" />
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <div>
-            <h3 className="ef-word">{word}</h3>
+            <h3 className="ef-word">{selectedWord}</h3>
             {entry?.phonetic && <p className="ef-phonetic">{entry.phonetic}</p>}
           </div>
           <button type="button" className="ef-icon-btn" onClick={onClose} aria-label="关闭">
@@ -892,6 +903,29 @@ export function WordSheet({
               <span>{sense.meaning}</span>
             </div>
           ))}
+
+        {!loading && entry?.context_meaning && (
+          <div className="ef-context-meaning">
+            <strong>本句含义</strong>
+            <p>{entry.context_meaning}</p>
+          </div>
+        )}
+
+        {!loading && entry?.phrases?.map((phrase) => (
+          <div className="ef-context-phrase" key={phrase.phrase}>
+            <strong>{phrase.phrase}</strong>
+            <p>{phrase.meaning}</p>
+            {phrase.explanation && <p>{phrase.explanation}</p>}
+          </div>
+        ))}
+
+        {!loading && entry?.context_status === 'unavailable' && (
+          <p className="ef-context-status">语境分析暂不可用，当前显示基础释义。</p>
+        )}
+
+        {!loading && entry?.context_status === 'complete' && entry.phrases?.length === 0 && (
+          <p className="ef-context-status">本句未识别到包含该词的固定短语或搭配。</p>
+        )}
 
         {!loading && entry?.example && (
           <p className="ef-quote" style={{ marginTop: 16 }}>
@@ -918,7 +952,7 @@ export function WordSheet({
               // Falls back to the device voice when no pronunciation audio
               // exists: zero backend cost and works offline.
               if ('speechSynthesis' in window) {
-                const utterance = new SpeechSynthesisUtterance(word);
+                const utterance = new SpeechSynthesisUtterance(selectedWord);
                 utterance.lang = 'en-US';
                 window.speechSynthesis.speak(utterance);
               }

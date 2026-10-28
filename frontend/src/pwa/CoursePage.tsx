@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiGet, apiPost, errText, fmtTime, withToken, type CourseDetail, type LessonBrief } from './api';
 import { EmptyState, ErrorState, IconBack, IconStar, SkeletonList } from './components';
+import { LESSON_SORTS, sortLessons, type LessonSort } from '../utils/lessonSort';
 
 interface Props {
   courseId: number;
@@ -12,6 +13,7 @@ export default function CoursePage({ courseId, onBack, onOpenLesson }: Props) {
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [sort, setSort] = useState<LessonSort>('position');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -37,11 +39,11 @@ export default function CoursePage({ courseId, onBack, onOpenLesson }: Props) {
   };
 
   const header = (
-    <div className="ef-player-top" style={{ marginBottom: 8 }}>
+    <div className="ef-subheader">
       <button type="button" className="ef-icon-btn" onClick={onBack} aria-label="返回" style={{ color: 'inherit' }}>
         <IconBack />
       </button>
-      <span />
+      <span className="ef-eyebrow">COURSE COLLECTION</span><span />
     </div>
   );
 
@@ -72,16 +74,18 @@ export default function CoursePage({ courseId, onBack, onOpenLesson }: Props) {
       {header}
 
       <section className="ef-section">
-        <div className="ef-continue" style={{ marginBottom: 12 }}>
-          <span className="ef-cover" style={{ width: 104, height: 64 }}>
-            {course.cover ? <img src={withToken(course.cover)} alt="" /> : null}
-          </span>
+        <div className="ef-course-banner">
+          <img src={withToken(course.cover) || '/learning-cover.jpg'} alt="" />
+          <span className="ef-course-banner-level">{course.level}</span>
+        </div>
+        <div className="ef-course-heading">
           <div style={{ minWidth: 0 }}>
-            <h1 className="ef-section-title" style={{ fontSize: 20 }}>
+            <span className="ef-eyebrow">{course.channel}</span>
+            <h1>
               {course.title}
             </h1>
-            <p className="ef-sub" style={{ marginTop: 4 }}>
-              {course.channel} · {course.lesson_count} 课 · {fmtTime(course.total_seconds)}
+            <p>
+              {course.lesson_count} 课时 · {fmtTime(course.total_seconds)} · 已完成 {finished} 课
             </p>
           </div>
         </div>
@@ -130,15 +134,15 @@ export default function CoursePage({ courseId, onBack, onOpenLesson }: Props) {
       <section className="ef-section">
         <div className="ef-section-head">
           <h2 className="ef-section-title">课时</h2>
-          <span style={{ fontSize: 13, color: 'var(--ef-ink-sub)' }}>
-            已完成 {finished}/{course.lesson_count}
-          </span>
+          <select aria-label="课时排序" className="ef-sort-select" value={sort} onChange={(event) => setSort(event.target.value as LessonSort)}>
+            {LESSON_SORTS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
         </div>
         {course.lessons.length === 0 ? (
           <EmptyState title="这门课还没有课时" description="扫描媒体库后会自动补齐。" />
         ) : (
           <div className="ef-list">
-            {course.lessons.map((lesson) => (
+            {sortLessons(course.lessons, sort).map((lesson) => (
               <LessonRow key={lesson.id} lesson={lesson} onOpen={() => onOpenLesson(lesson.id)} />
             ))}
           </div>

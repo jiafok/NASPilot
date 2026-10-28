@@ -2,19 +2,33 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import CurrentUser
-from app.models import User
-from app.schemas.auth import LoginRequest, LogoutRequest, RefreshRequest, TokenResponse, UserOut
+from app.schemas.auth import LoginRequest, LogoutRequest, RefreshRequest, RegisterRequest, SmsCodeRequest, TokenResponse, UserOut
 from app.schemas.user import PasswordChange
 from app.services import auth_service
 from app.services.auth_service import authenticate, refresh_session, revoke_refresh_token
 from app.core.security import hash_password, verify_password
+from app.services.user_service import create_user
+from app.services import membership_service, sms_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.post("/sms-code", summary="Send a registration SMS code")
+async def sms_code(body: SmsCodeRequest, request: Request, db: Annotated[AsyncSession, Depends(get_db)]):
+    return await sms_service.issue_code(db, body.phone, request.client.host if request.client else "unknown")
+
+
+@router.post("/register", response_model=UserOut, status_code=201, summary="Register a learner account")
+async def register(
+    body: RegisterRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await create_user(db, body)
 
 
 @router.post("/login", response_model=TokenResponse, summary="Login")
@@ -61,8 +75,8 @@ async def logout(
 
 
 @router.get("/me", response_model=UserOut, summary="Get current user")
-async def me(user: CurrentUser):
-    return user
+async def me(user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
+    return {**UserOut.model_validate(user).model_dump(), "membership": await membership_service.status_for(db, user)}
 
 
 @router.post("/change-password", summary="Change password")

@@ -3,6 +3,12 @@ export interface UserInfo {
   username: string;
   email: string | null;
   is_admin: boolean;
+  membership?: {
+    plan: string;
+    can_learn: boolean;
+    expires_at: string | null;
+    days_remaining: number | null;
+  } | null;
 }
 
 export function getToken(): string | null {

@@ -2,19 +2,20 @@ import { useCallback, useEffect, useState } from 'react';
 import { apiGet, errText, type Course, type StatsPayload } from './api';
 import { EmptyState, ErrorState, IconBack, SkeletonList } from './components';
 import { Heatmap } from './MePage';
-import { CourseRow } from './HomePage';
+import { CourseTile } from './HomePage';
 import { listWords, removeWord } from './wordStore';
+import { DeleteOutlined, SearchOutlined } from '@ant-design/icons';
 
 function SubHeader({ title, onBack }: { title: string; onBack: () => void }) {
   return (
-    <div className="ef-player-top" style={{ marginBottom: 4 }}>
+    <div className="ef-subheader">
       <button type="button" className="ef-icon-btn" onClick={onBack} aria-label="返回" style={{ color: 'inherit' }}>
         <IconBack />
       </button>
       <h1 className="ef-section-title" style={{ fontSize: 18 }}>
         {title}
       </h1>
-      <span />
+      <span className="ef-subheader-spacer" />
     </div>
   );
 }
@@ -96,7 +97,7 @@ export function StatsPage({ onBack }: { onBack: () => void }) {
         <div className="ef-section-head">
           <h2 className="ef-section-title">每日时长</h2>
         </div>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 96 }}>
+        <div className="ef-activity-chart">
           {stats.series.slice(-30).map((day) => (
             <span
               key={day.day}
@@ -184,9 +185,9 @@ export function FavoritesPage({
       ) : courses.length === 0 ? (
         <EmptyState title="还没有收藏" description="在课程详情页点「收藏」就会出现在这里。" />
       ) : (
-        <div className="ef-list">
+        <div className="ef-course-grid">
           {courses.map((course) => (
-            <CourseRow key={course.id} course={course} onOpen={() => onOpenCourse(course.id)} />
+            <CourseTile key={course.id} course={course} onOpen={() => onOpenCourse(course.id)} />
           ))}
         </div>
       )}
@@ -198,22 +199,26 @@ export function FavoritesPage({
 
 export function WordsPage({ onBack }: { onBack: () => void }) {
   const [words, setWords] = useState(listWords());
+  const [query, setQuery] = useState('');
+  const filtered = words.filter((item) => `${item.word} ${item.meaning}`.toLowerCase().includes(query.toLowerCase()));
 
   return (
     <div className="ef-page">
       <SubHeader title="我的生词" onBack={onBack} />
+      <div className="ef-vocabulary-count"><strong>{words.length}</strong><span>个表达，慢慢积累。</span></div>
+      <div className="ef-search"><SearchOutlined /><input aria-label="搜索生词" placeholder="搜索单词或释义" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
       <div className="ef-notice">
-        这些词保存在本机浏览器里。服务端生词本还在开发中，换设备不会同步。
+        仅本机保存 · 尚未同步
       </div>
 
       {words.length === 0 ? (
         <EmptyState
           title="还没有生词"
-          description="播放时点「查词」，把想记的词加入生词即可。"
+          description="把遇见的好词，留在这里。"
         />
       ) : (
-        <div className="ef-list">
-          {words.map((item) => (
+        <div className="ef-list ef-word-list">
+          {filtered.map((item) => (
             <div key={item.word} className="ef-row" style={{ cursor: 'default' }}>
               <span className="ef-row-body">
                 <span style={{ fontSize: 16, fontWeight: 600 }}>{item.word}</span>
@@ -226,13 +231,16 @@ export function WordsPage({ onBack }: { onBack: () => void }) {
               </span>
               <button
                 type="button"
-                className="ef-btn"
+                className="ef-icon-btn ef-word-delete"
+                aria-label={`删除 ${item.word}`}
+                title="删除生词"
                 onClick={() => setWords(removeWord(item.word))}
               >
-                删除
+                <DeleteOutlined />
               </button>
             </div>
           ))}
+          {filtered.length === 0 && <p className="ef-empty">没有匹配的生词</p>}
         </div>
       )}
     </div>
