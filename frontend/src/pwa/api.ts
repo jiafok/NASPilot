@@ -30,6 +30,7 @@ export interface LessonBrief {
   duration: number;
   media_type: string;
   has_subtitle: boolean;
+  cover?: string | null;
   progress: number;
   completed: boolean;
   level: string;

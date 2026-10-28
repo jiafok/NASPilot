@@ -299,6 +299,22 @@ body {
   cursor: pointer;
 }
 
+.ef-row-cover {
+  width: 56px;
+  height: 40px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #2563eb 0%, #0f172a 100%);
+}
+
+.ef-row-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .ef-row-idx {
   width: 26px;
   flex: none;

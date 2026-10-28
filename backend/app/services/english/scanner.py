@@ -937,10 +937,14 @@ async def _scan_impl(
                 if course is not None:
                     touched_courses[course.id] = course
 
-    root_real = str(Path(os.path.realpath(base)))
     for lesson in all_lessons:
-        in_root = lesson.file_path.startswith(root_real)
-        if not in_root or lesson.file_path in seen_files:
+        in_root = is_inside_root(Path(lesson.file_path), base)
+        # When the user changes MEDIA_ROOT, old ready rows point outside the new
+        # root. The previous condition skipped them entirely, so a rescan of the
+        # new library created a second row with the same title while the old
+        # zero-duration row remained visible forever. Keep the history/progress
+        # but retire anything outside this library or no longer present in it.
+        if in_root and lesson.file_path in seen_files:
             continue
         if lesson.status != "missing":
             lesson.status = "missing"

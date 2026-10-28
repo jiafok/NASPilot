@@ -152,6 +152,9 @@ function LessonRow({ lesson, onOpen }: { lesson: LessonBrief; onOpen: () => void
   return (
     <button type="button" className="ef-row" onClick={onOpen}>
       <span className="ef-row-idx">{String(lesson.position).padStart(2, '0')}</span>
+      <span className="ef-row-cover">
+        {lesson.cover ? <img src={withToken(lesson.cover)} alt="" loading="lazy" /> : null}
+      </span>
       <span className="ef-row-body">
         <span style={{ fontSize: 15, lineHeight: '21px', display: 'block' }}>{lesson.title}</span>
         <span className="ef-row-meta">

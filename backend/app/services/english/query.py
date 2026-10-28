@@ -34,6 +34,10 @@ def cover_url(course: EnglishCourse) -> str | None:
     return f"/api/stream/cover/{course.id}" if course.cover_path else None
 
 
+def lesson_cover_url(lesson: EnglishLesson) -> str | None:
+    return f"/api/stream/lesson-cover/{lesson.id}" if lesson.cover_path else None
+
+
 def media_url(lesson: EnglishLesson) -> str:
     return f"/api/media/{lesson.id}"
 
@@ -389,7 +393,7 @@ async def course_detail(
             "media_type": lesson.media_type,
             "media_ext": lesson.media_ext,
             "has_subtitle": lesson.id in transcript_ids,
-            "has_cover": bool(lesson.cover_path),
+            "cover": lesson_cover_url(lesson),
             # per-lesson classification (this file, not the course)
             "level": lesson.level or "B1",
             "topics": list(lesson.topics or []),
@@ -494,7 +498,7 @@ async def lesson_detail(
         "subtitle_url": subtitle_url(lesson),
         "has_subtitle": transcript is not None and bool(transcript.segment_count),
         "segment_count": transcript.segment_count if transcript else 0,
-        "cover": f"/api/stream/cover/{lesson.course_id}",
+        "cover": lesson_cover_url(lesson) or f"/api/stream/cover/{lesson.course_id}",
         "vocabulary": [
             {
                 "id": v.id,

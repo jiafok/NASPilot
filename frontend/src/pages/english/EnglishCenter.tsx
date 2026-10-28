@@ -68,6 +68,7 @@ interface LessonBrief {
   media_type: string;
   media_ext: string;
   has_subtitle: boolean;
+  cover?: string | null;
   progress: number;
   completed: boolean;
   /** Classification of this file (not the course). */
@@ -853,6 +854,14 @@ export default function EnglishCenter() {
                 }}
               >
                 <Text type="secondary" style={{ width: 32 }}>{ls.position}</Text>
+                {ls.cover && (
+                  <img
+                    src={withToken(ls.cover)}
+                    alt=""
+                    loading="lazy"
+                    style={{ width: 64, height: 44, objectFit: 'cover', borderRadius: 6, flex: 'none' }}
+                  />
+                )}
                 {ls.media_type === 'video' ? <VideoCameraOutlined /> : <CustomerServiceOutlined />}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   {/* No `ellipsis`: these titles are long by nature and the
