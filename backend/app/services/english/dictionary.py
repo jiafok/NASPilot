@@ -79,6 +79,34 @@ def normalize(word: str) -> str:
     return (word or "").strip().lower().replace("’", "'").strip(" .,!?;:\"()[]")
 
 
+#: Inflection suffixes, longest first so "studies" -> "study" wins over "studie".
+_INFLECTIONS = ("ies", "es", "s", "ied", "ed", "ing", "ly", "er", "est")
+
+
+def _stem_variants(word: str) -> list[str]:
+    """Base forms worth trying when the surface form has no entry.
+
+    The learner taps whatever the subtitle says ("habits", "started"), while
+    the dictionary stores lemmas. Without this every inflected word missed both
+    the builtin list and the course vocabulary and fell through to the AI.
+    """
+    out: list[str] = []
+    for suffix in _INFLECTIONS:
+        if not word.endswith(suffix) or len(word) - len(suffix) < 3:
+            continue
+        base = word[: -len(suffix)]
+        out.append(base)
+        if suffix == "ies":
+            out.append(base + "y")
+        # "running" -> "run" (the consonant was doubled)
+        if len(base) > 2 and base[-1] == base[-2]:
+            out.append(base[:-1])
+        # "making" -> "make" (silent e dropped before -ing)
+        if suffix in {"ing", "ed", "er", "est"} and not base.endswith("e"):
+            out.append(base + "e")
+    return [candidate for candidate in dict.fromkeys(out) if candidate != word]
+
+
 def is_lookupable(word: str) -> bool:
     return bool(_WORD_RE.match(normalize(word)))
 
@@ -191,6 +219,31 @@ async def lookup(
         await _store(db, key, from_vocab, source="vocabulary")
         from_vocab["cached"] = False
         return from_vocab
+
+    # Inflected forms: serve the lemma's cached/builtin/vocabulary entry so the
+    # card answers instantly and consistently. The AI path still gets the
+    # original surface form and the sentence as context.
+    for variant in _stem_variants(key):
+        if variant in BUILTIN:
+            entry = dict(BUILTIN[variant])
+            entry.update({"word": key, "example": "", "source": "builtin", "cached": False})
+            await _store(db, key, entry, source="builtin")
+            return entry
+        lemma_cached = (
+            await db.execute(select(EnglishWordLookup).where(EnglishWordLookup.word == variant))
+        ).scalar_one_or_none()
+        if lemma_cached is not None and isinstance(lemma_cached.payload, dict):
+            entry = dict(lemma_cached.payload)
+            entry.update({"word": key, "cached": False, "lemma": variant})
+            await _store(db, key, entry, source=str(entry.get("source") or "cache"))
+            return entry
+        lemma_vocab = await _from_course_vocabulary(db, variant)
+        if lemma_vocab is not None:
+            lemma_vocab["word"] = key
+            lemma_vocab["lemma"] = variant
+            await _store(db, key, lemma_vocab, source="vocabulary")
+            lemma_vocab["cached"] = False
+            return lemma_vocab
 
     if not use_ai:
         return None

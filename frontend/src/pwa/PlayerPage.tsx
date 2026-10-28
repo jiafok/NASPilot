@@ -44,6 +44,16 @@ class SubtitleSync {
     return this.stable;
   }
 
+  /** Jump straight to the cue at ``ms`` (used by seek, not by playback). */
+  seek(ms: number): number {
+    const index = this.indexAt(ms);
+    this.active = index;
+    this.stable = index;
+    this.candidate = index;
+    this.hits = 0;
+    return index;
+  }
+
   reset() {
     this.active = -1;
     this.stable = -1;
@@ -98,7 +108,7 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const subsRef = useRef<HTMLDivElement | null>(null);
   const syncRef = useRef<SubtitleSync | null>(null);
-  const cueRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const cueRefs = useRef<Array<HTMLElement | null>>([]);
   const reportedRef = useRef(0);
   const listenedRef = useRef(0);
   const lastTickRef = useRef(0);
@@ -210,6 +220,28 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
     };
   }, [playing]);
 
+  /**
+   * Scroll a cue to the middle of the list.
+   *
+   * `offsetTop` is relative to the nearest *positioned* ancestor, which here is
+   * `.ef-player-inner`, not the scroll container — so the old formula scrolled
+   * to the wrong place and the active line stayed off screen after a seek.
+   */
+  const centreCue = useCallback((index: number, behavior: ScrollBehavior) => {
+    const node = cueRefs.current[index];
+    const container = subsRef.current;
+    if (!node || !container) return;
+    const containerRect = container.getBoundingClientRect();
+    const nodeRect = node.getBoundingClientRect();
+    const top =
+      container.scrollTop +
+      (nodeRect.top - containerRect.top) -
+      container.clientHeight / 2 +
+      nodeRect.height / 2;
+    autoScrollAtRef.current = Date.now();
+    container.scrollTo({ top: Math.max(0, top), behavior });
+  }, []);
+
   const onTimeUpdate = useCallback(() => {
     const media = mediaRef.current;
     if (!media) return;
@@ -235,16 +267,11 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
   // scrolling the list themselves.
   useEffect(() => {
     if (!follow || active < 0) return;
-    const node = cueRefs.current[active];
-    const container = subsRef.current;
-    if (!node || !container) return;
-    const target = node.offsetTop - container.clientHeight / 2 + node.clientHeight / 2;
     // Mark the moment we scroll ourselves: the resulting `scroll` event would
     // otherwise be mistaken for the user taking over and would switch follow
     // off after the very first line.
-    autoScrollAtRef.current = Date.now();
-    container.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
-  }, [active, follow]);
+    centreCue(active, 'smooth');
+  }, [active, follow, centreCue]);
 
   const pauseFollow = useCallback(() => {
     // Ignore the scroll events our own animation produces.
@@ -254,13 +281,39 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
     followTimerRef.current = window.setTimeout(() => setFollow(true), 3000);
   }, []);
 
-  const seekTo = useCallback((cue: Segment) => {
-    const media = mediaRef.current;
-    if (!media) return;
-    media.currentTime = cue.start / 1000;
-    setFollow(true);
-    void media.play().catch(() => undefined);
-  }, []);
+  /**
+   * Seek and highlight in the same tick.
+   *
+   * Playback needs a two-hit debounce so the highlight does not flicker, but a
+   * seek is an explicit jump: waiting for a second `timeupdate` left the line
+   * being read unhighlighted (and unscrolled), which is exactly when the user
+   * is looking for it.
+   */
+  const jumpTo = useCallback(
+    (seconds: number, options: { play?: boolean } = {}) => {
+      const media = mediaRef.current;
+      if (!media) return;
+      const target = Math.max(0, Math.min(media.duration || duration || 0, seconds));
+      media.currentTime = target;
+      setPosition(target);
+      const sync = syncRef.current;
+      if (sync) {
+        const index = sync.seek(target * 1000);
+        setActive(index);
+        centreCue(index, 'auto');
+        setFollow(true);
+      }
+      if (options.play) void media.play().catch(() => undefined);
+    },
+    [duration],
+  );
+
+  const seekTo = useCallback(
+    (cue: Segment) => {
+      jumpTo(cue.start / 1000, { play: true });
+    },
+    [jumpTo],
+  );
 
   const togglePlay = useCallback(() => {
     const media = mediaRef.current;
@@ -269,11 +322,14 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
     else media.pause();
   }, []);
 
-  const skip = useCallback((seconds: number) => {
-    const media = mediaRef.current;
-    if (!media) return;
-    media.currentTime = Math.max(0, Math.min(media.duration || duration, media.currentTime + seconds));
-  }, [duration]);
+  const skip = useCallback(
+    (seconds: number) => {
+      const media = mediaRef.current;
+      if (!media) return;
+      jumpTo((media.currentTime || 0) + seconds);
+    },
+    [jumpTo],
+  );
 
   const cycleSpeed = useCallback(() => {
     const index = SPEEDS.indexOf(speed);
@@ -384,13 +440,30 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
         {/* Hidden media element: the video itself is not the point here — the
             learner listens and reads. Video still plays so lip movement helps. */}
         {lesson.media_type === 'video' ? (
-          <video
-            {...mediaProps}
-            playsInline
-            style={{ width: '100%', maxHeight: 180, borderRadius: 12, background: '#000' }}
-          />
+          <div className="ef-video-wrap">
+            <video
+              {...mediaProps}
+              playsInline
+              style={{ width: '100%', maxHeight: 180, borderRadius: 12, background: '#000' }}
+            />
+            {/* The video used to push the transcript off screen while it played,
+                and the line being read sits *below* it. Burning the current
+                line onto the video keeps it visible at all times. */}
+            {subMode === 'en' && currentCue && (
+              <div className="ef-caption" aria-live="polite">
+                {currentCue.text}
+              </div>
+            )}
+          </div>
         ) : (
-          <audio {...mediaProps} style={{ display: 'none' }} />
+          <>
+            <audio {...mediaProps} style={{ display: 'none' }} />
+            {subMode === 'en' && currentCue && (
+              <div className="ef-caption ef-caption--audio" aria-live="polite">
+                {currentCue.text}
+              </div>
+            )}
+          </>
         )}
 
         <div className="ef-player-controls">
@@ -402,11 +475,7 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
             step={0.5}
             value={position}
             aria-label="播放进度"
-            onChange={(event) => {
-              const next = Number(event.target.value);
-              setPosition(next);
-              if (mediaRef.current) mediaRef.current.currentTime = next;
-            }}
+            onChange={(event) => jumpTo(Number(event.target.value))}
           />
           <div className="ef-times">
             <span>{fmtTime(position)}</span>
@@ -489,17 +558,47 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
                       <span className="ef-spk-badge">{cue.spk}</span>
                     </div>
                   )}
-                  <button
-                    type="button"
+                  <div
+                    role="button"
+                    tabIndex={0}
                     ref={(node) => {
                       cueRefs.current[index] = node;
                     }}
                     className="ef-cue"
                     data-active={index === active}
                     onClick={() => seekTo(cue)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') seekTo(cue);
+                    }}
                   >
-                    {cue.text}
-                  </button>
+                    {/* Every word is tappable: "查词" used to guess one word
+                        for the sentence, so the learner could not look up the
+                        word they actually did not know. */}
+                    {cue.text.split(/(\s+)/).map((part, partIndex) =>
+                      /[A-Za-z]/.test(part) ? (
+                        <span
+                          key={`${cue.i}-w${partIndex}`}
+                          className="ef-word-tap"
+                          role="button"
+                          tabIndex={0}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setWordSheet({ word: part.replace(/[^A-Za-z'’\-]/g, ''), sentence: cue.text });
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.stopPropagation();
+                              setWordSheet({ word: part.replace(/[^A-Za-z'’\-]/g, ''), sentence: cue.text });
+                            }
+                          }}
+                        >
+                          {part}
+                        </span>
+                      ) : (
+                        <span key={`${cue.i}-s${partIndex}`}>{part}</span>
+                      ),
+                    )}
+                  </div>
                 </div>
               ))
             )}

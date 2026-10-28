@@ -34,13 +34,13 @@ from dataclasses import dataclass, field
 
 from app.services.english import vocabulary as vocab
 
-LEVELS: tuple[str, ...] = ("A1", "A2", "B1", "B2", "C1")
+LEVELS: tuple[str, ...] = ("A1", "A2", "B1", "B2", "C1", "C2")
 
 #: Bumped whenever the scoring changes. The value is stored inside
 #: ``lessons.features`` so an incremental scan can tell a row produced by an
 #: older algorithm from a current one and re-measure it — otherwise tuning the
 #: thresholds would silently leave the whole library on the old scale.
-TAXONOMY_VERSION = 2
+TAXONOMY_VERSION = 3
 
 #: CEFR → the coarse label the old UI used.
 LEVEL_TO_DIFFICULTY = {
@@ -49,6 +49,7 @@ LEVEL_TO_DIFFICULTY = {
     "B1": "intermediate",
     "B2": "advanced",
     "C1": "advanced",
+    "C2": "advanced",
 }
 
 #: Band edges — a value below an edge maps to that band index.
@@ -60,9 +61,9 @@ LEVEL_TO_DIFFICULTY = {
 #: (~8/11/15/20 words per sentence) 74% of the library collapsed into A2, which
 #: made the filter useless. These edges spread it 43% / 48% / 6% across
 #: A2 / B1 / B2, which matches what the material actually is.
-_SENT_LEN_BANDS = (6.0, 8.0, 10.5, 13.0)
-_RARE_BANDS = (0.05, 0.08, 0.11, 0.15)
-_WPS_BANDS = (1.70, 2.05, 2.40, 2.75)
+_SENT_LEN_BANDS = (6.0, 8.0, 10.5, 13.0, 16.5)
+_RARE_BANDS = (0.05, 0.08, 0.11, 0.15, 0.20)
+_WPS_BANDS = (1.70, 2.05, 2.40, 2.75, 3.10)
 #: Not every signal is equally telling; rarity tracks vocabulary load best,
 #: and speech rate is the strongest cue for listening difficulty.
 _WEIGHTS = (0.35, 0.40, 0.25)
@@ -161,7 +162,14 @@ def level_index(features: Features) -> int:
     rate = _band(features.wps or 0.0, _WPS_BANDS) if features.wps else sent
     weights = _WEIGHTS_DIALOGUE if features.is_dialogue else _WEIGHTS
     score = weights[0] * sent + weights[1] * rare + weights[2] * rate
-    return max(0, min(len(LEVELS) - 1, round(score)))
+    index = max(0, min(len(LEVELS) - 1, round(score)))
+    # The weighted average can never reach C2: that needs a near-maximum on
+    # every signal, and a slow speaker caps the rate term. C2 is defined by
+    # vocabulary plus sentence complexity, so decide it directly instead of
+    # making the top band unreachable.
+    if index < len(LEVELS) - 1 and rare >= len(_RARE_BANDS) and sent >= len(_SENT_LEN_BANDS) - 1:
+        index = len(LEVELS) - 1
+    return index
 
 
 def level_for(features: Features) -> str:
@@ -395,16 +403,21 @@ def format_for(
     duration: int = 0,
     sentence_count: int = 0,
 ) -> str:
-    """Media form, from the title first and the transcript second."""
-    titled = format_from_title(titles)
-    if titled:
-        return titled
-    # Two speakers keep swapping → it is a conversation, whatever the title says.
-    # Four turns is enough: a short interview only carries a handful of them.
+    """Media form: the transcript wins, the title is only a fallback.
+
+    Order matters. Titles are marketing ("... Conversation Practice",
+    "... Listening Practice"), so trusting them first labelled real two-person
+    dialogues as lectures while calling single-narrator stories "dialogue".
+    Turn structure is measured, so it decides; a title only fills the gap when
+    the transcript carries no speaker information at all.
+    """
     if turns >= 4 and sentence_count:
         density = turns / max(1, sentence_count)
         if density >= 0.20:
             return "dialogue"
+    titled = format_from_title(titles)
+    if titled:
+        return titled
     return "monologue"
 
 
@@ -458,14 +471,11 @@ def classify_lesson(
             titles=[title] + list(course_titles), content_words=content_words
         )
 
-    media_format = (
-        format_from_title([title])
-        or format_for(
-            titles=[title],
-            turns=turns,
-            duration=duration,
-            sentence_count=features.sentences,
-        )
+    media_format = format_for(
+        titles=[title],
+        turns=turns,
+        duration=duration,
+        sentence_count=features.sentences,
     )
 
     return Taxonomy(

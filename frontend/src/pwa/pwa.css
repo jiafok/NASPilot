@@ -436,12 +436,16 @@ body {
 }
 
 .ef-player-head h2 {
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 600;
-  line-height: 28px;
+  line-height: 23px;
   margin: 0;
+  /* Full lesson name: these titles carry the real subject
+     ("… ｜ Listening Practice ｜ Podcast") and truncating them hid the part
+     that tells two lessons apart. */
+  overflow-wrap: anywhere;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -450,6 +454,38 @@ body {
   margin: 4px 0 0;
   font-size: 13px;
   color: rgba(248, 250, 252, 0.64);
+}
+
+/* ── Current line burned onto the video ───────────────────────────── */
+
+.ef-video-wrap {
+  position: relative;
+  flex: none;
+}
+
+.ef-caption {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #f8fafc;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: center;
+  pointer-events: none;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ef-caption--audio {
+  position: static;
+  margin-top: 12px;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .ef-player-controls {
@@ -541,12 +577,24 @@ body {
   overflow-y: auto;
   /* Room for the floating 查词 button and the prev/next bar. */
   padding: var(--ef-s4) 0 calc(40% + 48px);
-  scroll-behavior: smooth;
+  /* No `scroll-behavior: smooth` here: it also governs programmatic jumps, so
+     a seek asked for `behavior: 'auto'` and still animated (the line being
+     read never arrived). The code passes the behaviour it wants per call. */
   scrollbar-width: none;
 }
 
 .ef-subs::-webkit-scrollbar {
   display: none;
+}
+
+/* Each word is its own tap target for the dictionary card. */
+.ef-word-tap {
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ef-word-tap:active {
+  background: rgba(99, 102, 241, 0.28);
 }
 
 .ef-cue {

@@ -64,6 +64,10 @@ _SCAN_LOCK = asyncio.Lock()
 #: lesson title, so they are not used as a title prefix.
 GENERIC_SEGMENTS = {"videos", "streams", "shorts", "playlist", "playlists"}
 
+#: Conventional sidecar image names, in priority order.
+_COVER_NAMES = ("cover.jpg", "folder.jpg", "poster.jpg", "thumbnail.jpg",
+                "cover.png", "folder.png", "poster.png", "cover.webp")
+
 
 @dataclass
 class Asset:
@@ -178,6 +182,11 @@ def collect_assets(root: Path) -> dict[Path, dict[str, Asset]]:
     """Walk ``root`` and group media/subtitle/cover files by directory+basename."""
     by_dir: dict[Path, dict[str, Asset]] = {}
 
+    #: Images seen per directory, used as a last-resort lesson cover. A
+    #: downloader usually drops one thumbnail per file, but thumbnails that do
+    #: not share the media stem (``folder.jpg``, ``<title>-thumb.jpg``) were
+    #: previously ignored, leaving every lesson without a cover.
+    dir_images: dict[Path, list[Path]] = {}
     for current, dirnames, filenames in os.walk(root):
         # Skip hidden and temporary directories
         dirnames[:] = sorted(
@@ -210,6 +219,7 @@ def collect_assets(root: Path) -> dict[Path, dict[str, Asset]]:
                     asset.subtitle = path
                     asset.subtitle_lang = lang
             elif ext in IMAGE_EXTS:
+                dir_images.setdefault(directory, []).append(path)
                 asset = bucket.setdefault(stem, Asset(directory=directory, stem=stem))
                 if asset.cover is None or ext == ".jpg":
                     asset.cover = path
@@ -221,6 +231,27 @@ def collect_assets(root: Path) -> dict[Path, dict[str, Asset]]:
             by_dir[directory] = cleaned
         else:
             del by_dir[directory]
+
+    # Anything still without a cover falls back to the directory's own image:
+    # a conventional name first, then the only image when there is exactly one.
+    for directory, assets in by_dir.items():
+        if all(asset.cover is not None for asset in assets.values()):
+            continue
+        fallback: Path | None = None
+        for name in _COVER_NAMES:
+            candidate = directory / name
+            if candidate.is_file():
+                fallback = candidate
+                break
+        if fallback is None:
+            images = dir_images.get(directory, [])
+            if len(images) == 1:
+                fallback = images[0]
+        if fallback is None:
+            continue
+        for asset in assets.values():
+            if asset.cover is None:
+                asset.cover = fallback
     return by_dir
 
 
@@ -302,6 +333,10 @@ def _is_unchanged(
         return False
     # A subtitle added (or replaced) later must be picked up.
     if (existing.subtitle_path or "") != (str(asset.subtitle) if asset.subtitle else ""):
+        return False
+    # Same for an image: thumbnails are often grabbed after the video, and
+    # without this comparison those lessons kept `cover_path = NULL` forever.
+    if (existing.cover_path or "") != (str(asset.cover) if asset.cover else ""):
         return False
     features = existing.features if isinstance(existing.features, dict) else {}
     if features.get("v") != taxonomy.TAXONOMY_VERSION:
@@ -887,6 +922,21 @@ async def _scan_impl(
     # Anything on disk no longer present → missing (rows are kept)
     await begin_write(db)
     all_lessons = (await db.execute(select(EnglishLesson))).scalars().all()
+
+    # A subtitle is a sidecar, never a lesson. Earlier builds could register one
+    # when its name did not match any media stem, and those bogus rows showed up
+    # in the lesson list as if the .srt were an episode.
+    for lesson in all_lessons:
+        suffix = Path(lesson.file_path).suffix.lower()
+        if suffix in subtitles.SUBTITLE_EXTS and lesson.status != "missing":
+            lesson.status = "missing"
+            report.lessons_missing += 1
+            logger.info("课时 指向字幕文件，已标记为无效: %s", lesson.file_path)
+            if lesson.course_id not in touched_courses:
+                course = await db.get(EnglishCourse, lesson.course_id)
+                if course is not None:
+                    touched_courses[course.id] = course
+
     root_real = str(Path(os.path.realpath(base)))
     for lesson in all_lessons:
         in_root = lesson.file_path.startswith(root_real)

@@ -855,7 +855,11 @@ export default function EnglishCenter() {
                 <Text type="secondary" style={{ width: 32 }}>{ls.position}</Text>
                 {ls.media_type === 'video' ? <VideoCameraOutlined /> : <CustomerServiceOutlined />}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <Text strong ellipsis style={{ display: 'block' }}>{ls.title}</Text>
+                  {/* No `ellipsis`: these titles are long by nature and the
+                      distinguishing words sit at the end. */}
+                  <Text strong style={{ display: 'block', whiteSpace: 'normal' }}>
+                    {ls.title}
+                  </Text>
                   <Space size={6} wrap>
                     <Text type="secondary" style={{ fontSize: 12 }}>{fmtDuration(ls.duration)}</Text>
                     <Tooltip title={`本课时实测难度（句长/生词比/语速）`}>

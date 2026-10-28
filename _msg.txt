@@ -1,0 +1,33 @@
+fix(english): readable player, honest levels, covers, and any-word lookup
+
+Player (PWA):
+- Burn the current line onto the video. The video used to push the transcript
+  out of view, so the line being read was hidden behind it; audio lessons get
+  the same caption block.
+- Seeking now highlights and scrolls immediately. Two real bugs: the cue
+  debounce meant a jump waited for a second timeupdate, and the centring math
+  used offsetTop, which is relative to a positioned ancestor rather than the
+  scroll container. Also drop CSS scroll-behavior:smooth from the list, which
+  silently turned every programmatic jump into an animation.
+- Every word in a line is tappable. The 查词 button guessed one word for the
+  whole sentence, so the learner could not look up the word they missed.
+
+Levels / format:
+- Add C2 to the scale and make it reachable; a weighted average can never hit
+  the top band, so decide C2 from rarity plus sentence length directly.
+- Dialogue/monologue now come from the measured turn structure first; titles
+  are marketing and were labelling real two-person dialogues as lectures.
+  After a rescan: dialogue 167 -> 248, lecture 115 -> 39. Levels now span
+  A1..C2; TAXONOMY_VERSION 3 re-measures existing rows once.
+
+Lessons:
+- A subtitle is a sidecar, never a lesson: skip such assets on insert and mark
+  rows an older build created as missing.
+- Use a directory image as the lesson cover when no stem-matched thumbnail
+  exists, and include the cover in the incremental comparison so thumbnails
+  added later are actually attached.
+- Show the full lesson title, without ellipsis or a two-line clamp.
+
+Dictionary:
+- Try inflections against the cache, builtin list and course vocabulary, so
+  common inflected words answer without the AI.
