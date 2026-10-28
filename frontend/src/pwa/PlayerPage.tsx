@@ -8,7 +8,22 @@ import {
   type LessonDetail,
   type Segment,
 } from './api';
-import { IconBack, IconClose, IconPause, IconPlay, IconStar } from './components';
+import {
+  IconBack,
+  IconBack15,
+  IconCaptions,
+  IconClose,
+  IconExpand,
+  IconFloat,
+  IconForward15,
+  IconHeadphones,
+  IconList,
+  IconPause,
+  IconPlay,
+  IconShrink,
+  IconSpeed,
+  IconStar,
+} from './components';
 
 /**
  * Cue index for a playback position.
@@ -88,7 +103,33 @@ interface Props {
 }
 
 const SPEEDS = [0.75, 1, 1.25, 1.5];
-type SubMode = 'en' | 'hidden';
+
+/** How much screen the video takes. */
+type DisplayMode = 'normal' | 'max' | 'float' | 'audio';
+
+/** Controls hide themselves again after this long while playing. */
+const CONTROLS_HIDE_MS = 3500;
+
+/** A horizontal flick shorter than this is a tap, not a swipe. */
+const SWIPE_MIN_PX = 70;
+
+/**
+ * Which way a gesture points, or ``null`` for "not a navigation".
+ *
+ * Pulled out of the handlers so touch and pointer input share one rule, and so
+ * the rule can be exercised without a browser: a vertical drag (the
+ * transcript scrolling) must never change lesson.
+ *
+ * Deliberately no time limit. A duration check looked sensible but rejected
+ * real swipes: with 400 subtitle cues and a video on screen the main thread can
+ * be busy for most of a second, so the measured gap between pointerdown and
+ * pointerup was ~1s for a gesture the user performed in 200ms.
+ */
+export function swipeDirection(dx: number, dy: number): 'next' | 'prev' | null {
+  if (Math.abs(dx) < SWIPE_MIN_PX) return null;
+  if (Math.abs(dx) < Math.abs(dy) * 1.5) return null;
+  return dx < 0 ? 'next' : 'prev';
+}
 
 export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
   const [lesson, setLesson] = useState<LessonDetail | null>(null);
@@ -100,7 +141,13 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
   const [duration, setDuration] = useState(0);
   const [active, setActive] = useState(-1);
   const [speed, setSpeed] = useState(1);
-  const [subMode, setSubMode] = useState<SubMode>('en');
+  // The caption in the picture and the transcript list are separate switches:
+  // "burned-in line without the list" and "list with a clean picture" are both
+  // normal ways to study, and one switch for both was the complaint.
+  const [captionOn, setCaptionOn] = useState(true);
+  const [listOn, setListOn] = useState(true);
+  const [controlsOn, setControlsOn] = useState(true);
+  const [displayMode, setDisplayMode] = useState<DisplayMode>('normal');
   const [wordSheet, setWordSheet] = useState<{ word: string; sentence: string } | null>(null);
   const [follow, setFollow] = useState(true);
   const [stalled, setStalled] = useState(false);
@@ -114,6 +161,8 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
   const lastTickRef = useRef(0);
   const followTimerRef = useRef<number | null>(null);
   const autoScrollAtRef = useRef(0);
+  const hideTimerRef = useRef<number | null>(null);
+  const touchRef = useRef<{ x: number; y: number } | null>(null);
 
   // ── load ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -338,6 +387,122 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
     if (mediaRef.current) mediaRef.current.playbackRate = next;
   }, [speed]);
 
+  // ── controls overlay ───────────────────────────────────────────────────
+  // A fixed control panel under the video ate a third of the screen and
+  // pushed the transcript away. The controls now sit on the picture, appear on
+  // tap, and get out of the way again.
+  const scheduleHide = useCallback(() => {
+    if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
+    const media = mediaRef.current;
+    // A paused player keeps its controls: hiding them would strand the user.
+    if (media && media.paused) return;
+    hideTimerRef.current = window.setTimeout(() => setControlsOn(false), CONTROLS_HIDE_MS);
+  }, []);
+
+  const onStageTap = useCallback(() => {
+    if (controlsOn) {
+      if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
+      setControlsOn(false);
+      return;
+    }
+    setControlsOn(true);
+    scheduleHide();
+  }, [controlsOn, scheduleHide]);
+
+  useEffect(() => {
+    if (!playing) {
+      if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
+      setControlsOn(true);
+      return;
+    }
+    scheduleHide();
+  }, [playing, scheduleHide]);
+
+  useEffect(
+    () => () => {
+      if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
+    },
+    [],
+  );
+
+  // ── swipe left / right to change lesson ────────────────────────────────
+  // The prev/next buttons sat on top of the 查词 button and could not be
+  // hidden, so navigation became a gesture instead. Pointer events cover a
+  // mouse (desktop PWA) with the same rule as touch.
+  const gestureStart = useCallback((x: number, y: number) => {
+    touchRef.current = { x, y };
+  }, []);
+
+  const gestureEnd = useCallback(
+    (x: number, y: number) => {
+      const start = touchRef.current;
+      touchRef.current = null;
+      if (!start) return;
+      const direction = swipeDirection(x - start.x, y - start.y);
+      if (!direction) return;
+      const target = direction === 'next' ? lesson?.next_lesson_id : lesson?.prev_lesson_id;
+      if (target) onOpenLesson(target);
+    },
+    [lesson, onOpenLesson],
+  );
+
+  // One document-level listener rather than a React prop or an element ref:
+  // `touchstart` can stay passive (smooth scrolling), and there is no timing
+  // dependency on when the player element appears.
+  useEffect(() => {
+    const ignored = (target: EventTarget | null) => {
+      // A sheet (word card) or a dialog owns its own gestures.
+      const element = target as HTMLElement | null;
+      return Boolean(element?.closest?.('.ef-sheet, .ef-sheet-mask, .ant-modal'));
+    };
+
+    const onTouchStart = (event: globalThis.TouchEvent) => {
+      if (ignored(event.target)) return;
+      const touch = event.touches[0];
+      if (touch) gestureStart(touch.clientX, touch.clientY);
+    };
+    const onTouchEnd = (event: globalThis.TouchEvent) => {
+      if (ignored(event.target)) return;
+      const touch = event.changedTouches[0];
+      if (touch) gestureEnd(touch.clientX, touch.clientY);
+    };
+    const onPointerDown = (event: globalThis.PointerEvent) => {
+      // A touch supplies both; only a mouse needs this path.
+      if (event.pointerType === 'touch') return;
+      if (ignored(event.target)) return;
+      gestureStart(event.clientX, event.clientY);
+    };
+    const onPointerUp = (event: globalThis.PointerEvent) => {
+      if (event.pointerType === 'touch') return;
+      if (ignored(event.target)) return;
+      gestureEnd(event.clientX, event.clientY);
+    };
+
+    document.addEventListener('touchstart', onTouchStart, { passive: true });
+    document.addEventListener('touchend', onTouchEnd);
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('pointerup', onPointerUp);
+    return () => {
+      document.removeEventListener('touchstart', onTouchStart);
+      document.removeEventListener('touchend', onTouchEnd);
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [gestureStart, gestureEnd]);
+
+  // Arrow keys do the same thing for a keyboard: the gesture is the only way
+  // to change lesson now that the buttons are gone, and a desktop PWA has no
+  // touch screen to swipe on.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      const target = event.key === 'ArrowRight' ? lesson?.next_lesson_id : lesson?.prev_lesson_id;
+      if (target) onOpenLesson(target);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [lesson, onOpenLesson]);
+
   const currentCue = active >= 0 ? cues[active] : null;
 
   const groupedCues = useMemo(() => {
@@ -437,105 +602,132 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
           </button>
         </div>
 
-        {/* Hidden media element: the video itself is not the point here — the
-            learner listens and reads. Video still plays so lip movement helps. */}
-        {lesson.media_type === 'video' ? (
-          <div className="ef-video-wrap">
-            <video
-              {...mediaProps}
-              playsInline
-              style={{ width: '100%', maxHeight: 180, borderRadius: 12, background: '#000' }}
-            />
-            {/* The video used to push the transcript off screen while it played,
-                and the line being read sits *below* it. Burning the current
-                line onto the video keeps it visible at all times. */}
-            {subMode === 'en' && currentCue && (
-              <div className="ef-caption" aria-live="polite">
-                {currentCue.text}
+        {/* Media stage. The video, the burned-in caption and the tap-to-show
+            controls all live here, so the transcript keeps the rest of the
+            screen instead of being pushed away by a fixed panel. */}
+        <div
+          className={`ef-stage ef-stage--${displayMode}`}
+          data-controls={controlsOn}
+          onClick={onStageTap}
+          role="presentation"
+        >
+          {lesson.media_type === 'video' ? (
+            <video {...mediaProps} playsInline className="ef-media" />
+          ) : (
+            <audio {...mediaProps} className="ef-media" />
+          )}
+
+          {(displayMode === 'audio' || lesson.media_type !== 'video') && (
+            <div className="ef-stage-art" aria-hidden>
+              <IconHeadphones />
+            </div>
+          )}
+
+          {captionOn && currentCue && (
+            <div className="ef-caption" aria-live="polite" data-mode={displayMode}>
+              {currentCue.text}
+            </div>
+          )}
+
+          {stalled && (
+            <div className="ef-stage-note">当前设备无法解码（AV1 / Opus），可换其它课时</div>
+          )}
+
+          {controlsOn && (
+            <div className="ef-ovl" onClick={(event) => event.stopPropagation()}>
+              <input
+                className="ef-seek"
+                type="range"
+                min={0}
+                max={Math.max(1, duration)}
+                step={0.5}
+                value={position}
+                aria-label="播放进度"
+                onChange={(event) => jumpTo(Number(event.target.value))}
+              />
+              <div className="ef-times">
+                <span>{fmtTime(position)}</span>
+                <span>-{fmtTime(Math.max(0, duration - position))}</span>
               </div>
-            )}
-          </div>
-        ) : (
-          <>
-            <audio {...mediaProps} style={{ display: 'none' }} />
-            {subMode === 'en' && currentCue && (
-              <div className="ef-caption ef-caption--audio" aria-live="polite">
-                {currentCue.text}
+
+              <div className="ef-ovl-row">
+                <button type="button" className="ef-ctl" onClick={() => skip(-15)} aria-label="后退 15 秒">
+                  <IconBack15 />
+                </button>
+                <button
+                  type="button"
+                  className="ef-ctl ef-ctl--play"
+                  onClick={togglePlay}
+                  aria-label={playing ? '暂停' : '播放'}
+                >
+                  {playing ? <IconPause /> : <IconPlay />}
+                </button>
+                <button type="button" className="ef-ctl" onClick={() => skip(15)} aria-label="前进 15 秒">
+                  <IconForward15 />
+                </button>
               </div>
-            )}
-          </>
-        )}
 
-        <div className="ef-player-controls">
-          <input
-            className="ef-seek"
-            type="range"
-            min={0}
-            max={Math.max(1, duration)}
-            step={0.5}
-            value={position}
-            aria-label="播放进度"
-            onChange={(event) => jumpTo(Number(event.target.value))}
-          />
-          <div className="ef-times">
-            <span>{fmtTime(position)}</span>
-            <span>-{fmtTime(Math.max(0, duration - position))}</span>
-          </div>
-
-          <div className="ef-control-row">
-            <button
-              type="button"
-              className="ef-skip"
-              onClick={() => skip(-15)}
-              aria-label="后退 15 秒"
-            >
-              ↺15
-            </button>
-            <button
-              type="button"
-              className="ef-play-btn"
-              onClick={togglePlay}
-              aria-label={playing ? '暂停' : '播放'}
-            >
-              {playing ? <IconPause /> : <IconPlay />}
-            </button>
-            <button
-              type="button"
-              className="ef-skip"
-              onClick={() => skip(15)}
-              aria-label="前进 15 秒"
-            >
-              15↻
-            </button>
-          </div>
-
-          <div className="ef-sub-controls">
-            <button type="button" className="ef-sub-btn" onClick={cycleSpeed}>
-              <span style={{ fontSize: 14, fontWeight: 600 }}>{speed}x</span>
-              <span>倍速</span>
-            </button>
-            <button
-              type="button"
-              className="ef-sub-btn"
-              data-on={subMode === 'en'}
-              onClick={() => setSubMode(subMode === 'en' ? 'hidden' : 'en')}
-            >
-              <span style={{ fontSize: 14, fontWeight: 600 }}>CC</span>
-              <span>{subMode === 'en' ? '字幕开' : '字幕关'}</span>
-            </button>
-            <button
-              type="button"
-              className="ef-sub-btn"
-              data-on={follow}
-              onClick={() => setFollow((value) => !value)}
-            >
-              <span style={{ fontSize: 14, fontWeight: 600 }}>{follow ? '跟随' : '自由'}</span>
-              <span>滚动</span>
-            </button>
-          </div>
+              <div className="ef-ovl-row ef-ovl-row--tools">
+                <button
+                  type="button"
+                  className="ef-ctl"
+                  data-on={captionOn}
+                  onClick={() => setCaptionOn((value) => !value)}
+                  aria-label="画面字幕"
+                  title="画面字幕"
+                >
+                  <IconCaptions />
+                </button>
+                <button
+                  type="button"
+                  className="ef-ctl"
+                  data-on={listOn}
+                  onClick={() => setListOn((value) => !value)}
+                  aria-label="字幕列表"
+                  title="字幕列表"
+                >
+                  <IconList />
+                </button>
+                <button type="button" className="ef-ctl" onClick={cycleSpeed} aria-label="倍速" title="倍速">
+                  <IconSpeed />
+                  <span className="ef-ctl-badge">{speed}x</span>
+                </button>
+                <button
+                  type="button"
+                  className="ef-ctl"
+                  data-on={displayMode === 'float'}
+                  onClick={() => setDisplayMode(displayMode === 'float' ? 'normal' : 'float')}
+                  aria-label="悬浮窗口"
+                  title="悬浮窗口"
+                >
+                  <IconFloat />
+                </button>
+                <button
+                  type="button"
+                  className="ef-ctl"
+                  data-on={displayMode === 'audio'}
+                  onClick={() => setDisplayMode(displayMode === 'audio' ? 'normal' : 'audio')}
+                  aria-label="音频模式"
+                  title="音频模式"
+                >
+                  <IconHeadphones />
+                </button>
+                <button
+                  type="button"
+                  className="ef-ctl"
+                  data-on={displayMode === 'max'}
+                  onClick={() => setDisplayMode(displayMode === 'max' ? 'normal' : 'max')}
+                  aria-label="全屏"
+                  title="全屏"
+                >
+                  {displayMode === 'max' ? <IconShrink /> : <IconExpand />}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {subMode === 'en' ? (
+        {listOn && displayMode !== 'max' ? (
           <div
             className="ef-subs"
             ref={subsRef}
@@ -607,43 +799,6 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
           <div style={{ flex: 1 }} />
         )}
 
-        {stalled && (
-          <div
-            className="ef-notice"
-            style={{ background: 'rgba(245,158,11,0.18)', color: '#fbbf24', marginTop: 8 }}
-          >
-            这一课在当前设备上无法解码（部分下载源的视频为 AV1、音频为 Opus，iPhone 不支持）。
-            可以试试其它课时，或让管理员把它转成 H.264/AAC。
-          </div>
-        )}
-
-        {subMode === 'en' && currentCue && (
-          <div
-            style={{
-              position: 'absolute',
-              right: 20,
-              // Sits above the prev/next bar, which would otherwise swallow taps.
-              bottom: 68,
-              display: 'flex',
-              gap: 8,
-            }}
-          >
-            <button
-              type="button"
-              className="ef-btn"
-              style={{ background: 'rgba(255,255,255,0.12)', color: '#f8fafc', border: 0 }}
-              onClick={() => {
-                const text = currentCue.text;
-                // Tapped sentence → offer the words that are worth looking up.
-                const word = pickWord(text);
-                if (word) setWordSheet({ word, sentence: text });
-              }}
-            >
-              查词
-            </button>
-          </div>
-        )}
-
         <div style={{ height: 8 }} />
       </div>
 
@@ -656,48 +811,8 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
         />
       )}
 
-      {/* Next/previous keep the session going without a trip through the list. */}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 'auto 0 0 0',
-          display: 'flex',
-          gap: 8,
-          padding: '10px 20px calc(12px + env(safe-area-inset-bottom, 0px))',
-          background: 'linear-gradient(to top, rgba(15,23,42,0.96), rgba(15,23,42,0))',
-          pointerEvents: 'none',
-        }}
-      >
-        {lesson.prev_lesson_id && (
-          <button
-            type="button"
-            className="ef-btn"
-            style={{ pointerEvents: 'auto', background: 'rgba(255,255,255,0.1)', color: '#f8fafc', border: 0 }}
-            onClick={() => lesson.prev_lesson_id && onOpenLesson(lesson.prev_lesson_id)}
-          >
-            上一课
-          </button>
-        )}
-        {lesson.next_lesson_id && (
-          <button
-            type="button"
-            className="ef-btn"
-            style={{ pointerEvents: 'auto', marginLeft: 'auto', background: 'rgba(255,255,255,0.1)', color: '#f8fafc', border: 0 }}
-            onClick={() => lesson.next_lesson_id && onOpenLesson(lesson.next_lesson_id)}
-          >
-            下一课
-          </button>
-        )}
-      </div>
     </div>
   );
-}
-
-/** Longest alphabetic token: usually the most informative word in a sentence. */
-function pickWord(text: string): string | null {
-  const words = text.match(/[A-Za-z][A-Za-z'-]{2,}/g);
-  if (!words || words.length === 0) return null;
-  return words.reduce((best, word) => (word.length > best.length ? word : best), words[0]);
 }
 
 export function WordSheet({

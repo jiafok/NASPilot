@@ -450,47 +450,14 @@ body {
   overflow: hidden;
 }
 
+.ef-player:has(.ef-stage--max) .ef-player-top {
+  display: none;
+}
+
 .ef-player-head p {
   margin: 4px 0 0;
   font-size: 13px;
   color: rgba(248, 250, 252, 0.64);
-}
-
-/* ── Current line burned onto the video ───────────────────────────── */
-
-.ef-video-wrap {
-  position: relative;
-  flex: none;
-}
-
-.ef-caption {
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: 8px;
-  padding: 6px 10px;
-  border-radius: 10px;
-  background: rgba(15, 23, 42, 0.78);
-  color: #f8fafc;
-  font-size: 14px;
-  line-height: 20px;
-  text-align: center;
-  pointer-events: none;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.ef-caption--audio {
-  position: static;
-  margin-top: 12px;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.ef-player-controls {
-  padding: var(--ef-s3) 0 0;
-  flex: none;
 }
 
 .ef-seek {
@@ -509,64 +476,215 @@ body {
   margin-top: -6px;
 }
 
-.ef-control-row {
+/* ── Media stage ──────────────────────────────────────────────────────
+ * The video, the burned-in caption and the tap-to-show controls share one
+ * box. The old layout stacked a fixed control panel under the video, which
+ * consumed a third of the screen and pushed the transcript away.
+ */
+
+.ef-stage {
+  position: relative;
+  flex: none;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.ef-media {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  background: #000;
+}
+
+/* Full screen: the transcript is hidden in this mode and the title bar steps
+   aside, so the picture gets the whole viewport. */
+.ef-stage--max {
+  flex: 1;
+  min-height: 0;
+  border-radius: 0;
+  margin: 0 calc(var(--ef-s5) * -1);
+}
+
+.ef-stage--max .ef-media {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+
+/* Floating window: leaves the flow so the transcript gets the whole column. */
+.ef-stage--float {
+  position: absolute;
+  right: var(--ef-s4);
+  bottom: calc(90px + var(--ef-safe-bottom));
+  width: 46%;
+  z-index: 20;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+
+.ef-stage--float .ef-media {
+  max-height: 108px;
+}
+
+/* The floating window is too small to read a line in; the list carries it. */
+.ef-stage--float .ef-caption {
+  display: none;
+}
+
+/* Audio mode: keep the element rendered but give it no footprint. A
+   `display: none` element can be throttled by mobile browsers and stop
+   producing sound, so it stays 1px and transparent instead. */
+.ef-stage--audio {
+  min-height: 168px;
+}
+
+.ef-stage--audio .ef-media {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ef-stage-art {
+  display: grid;
+  place-items: center;
+  height: 88px;
+  color: rgba(248, 250, 252, 0.42);
+}
+
+.ef-stage-note {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.9);
+  color: #1c1917;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+/* ── Caption burned onto the picture ─────────────────────────────────── */
+
+.ef-caption {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  /* The overlay publishes its own height, so the line being read always sits
+     just above it instead of being covered while the controls are up. */
+  bottom: calc(8px + var(--ef-ovl-h, 0px));
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.8);
+  color: #f8fafc;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: center;
+  pointer-events: none;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  transition: bottom 0.16s ease;
+}
+
+/* Height of the control overlay, used to keep the caption clear of it. */
+.ef-stage {
+  --ef-ovl-h: 0px;
+}
+
+.ef-stage[data-controls='true'] {
+  /* Measured, not guessed: the overlay is 135px tall at these sizes, and a
+     slightly larger value keeps the caption a few pixels clear of it. */
+  --ef-ovl-h: 142px;
+}
+
+.ef-stage--max[data-controls='true'] {
+  --ef-ovl-h: 150px;
+}
+
+.ef-stage--max .ef-caption {
+  font-size: 16px;
+  line-height: 23px;
+}
+
+/* ── Control overlay ─────────────────────────────────────────────────── */
+
+.ef-ovl {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 4px var(--ef-s3) 6px;
+  background: linear-gradient(
+    to top,
+    rgba(2, 6, 23, 0.92) 0%,
+    rgba(2, 6, 23, 0.78) 55%,
+    rgba(2, 6, 23, 0) 100%
+  );
+}
+
+.ef-ovl .ef-seek {
+  height: 22px;
+}
+
+.ef-ovl .ef-times {
+  margin-top: -4px;
+}
+
+.ef-ovl-row {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--ef-s8);
-  margin: var(--ef-s2) 0;
+  gap: var(--ef-s7);
+  margin-top: 0;
 }
 
-.ef-play-btn {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: #fff;
-  color: #0f172a;
-  border: 0;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
+.ef-ovl-row--tools {
+  gap: 0;
+  margin-top: 2px;
+  justify-content: space-between;
 }
 
-.ef-skip {
-  width: 48px;
-  height: 48px;
-  border: 0;
-  background: none;
-  color: #f8fafc;
-  cursor: pointer;
-  font-size: 11px;
+.ef-ctl {
   position: relative;
   display: grid;
   place-items: center;
-}
-
-.ef-sub-controls {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--ef-s6);
-  font-size: 11px;
-  color: rgba(248, 250, 252, 0.72);
-}
-
-.ef-sub-btn {
-  background: none;
+  min-width: 38px;
+  height: 34px;
+  padding: 0 5px;
   border: 0;
-  color: inherit;
-  font: inherit;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  min-height: var(--ef-tap);
-  justify-content: center;
+  border-radius: 10px;
+  background: none;
+  color: rgba(248, 250, 252, 0.82);
   cursor: pointer;
+  /* Icons only: the text labels cost horizontal space, read poorly at this
+     size, and the shapes are recognisable on their own. */
 }
 
-.ef-sub-btn[data-on='true'] {
+.ef-ctl[data-on='true'] {
   color: var(--ef-accent);
+  background: rgba(99, 102, 241, 0.18);
+}
+
+.ef-ctl--play {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: #fff;
+  color: #0f172a;
+}
+
+.ef-ctl-badge {
+  position: absolute;
+  right: -2px;
+  bottom: 0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
 }
 
 /* ── Subtitles (lyrics mode) ──────────────────────────────────────── */
@@ -576,7 +694,7 @@ body {
   min-height: 0;
   overflow-y: auto;
   /* Room for the floating 查词 button and the prev/next bar. */
-  padding: var(--ef-s4) 0 calc(40% + 48px);
+  padding: var(--ef-s4) 0 calc(34% + 40px);
   /* No `scroll-behavior: smooth` here: it also governs programmatic jumps, so
      a seek asked for `behavior: 'auto'` and still animated (the line being
      read never arrived). The code passes the behaviour it wants per call. */

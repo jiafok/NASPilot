@@ -105,6 +105,94 @@ export function IconStar({ filled }: { filled?: boolean }) {
   );
 }
 
+/** Captions burned onto the video (a subtitle frame). */
+export function IconCaptions() {
+  return (
+    <svg viewBox="0 0 24 24" {...stroke} width="22" height="22">
+      <rect x="3" y="5" width="18" height="14" rx="3" />
+      <path d="M8.5 12.5h3M14 12.5h2.5" />
+    </svg>
+  );
+}
+
+/** The transcript list under the media. */
+export function IconList() {
+  return (
+    <svg viewBox="0 0 24 24" {...stroke} width="22" height="22">
+      <path d="M4 7h16M4 12h16M4 17h10" />
+    </svg>
+  );
+}
+
+/** Playback speed. */
+export function IconSpeed() {
+  return (
+    <svg viewBox="0 0 24 24" {...stroke} width="22" height="22">
+      <path d="M4 18a8 8 0 1 1 16 0" />
+      <path d="m12 18 4.5-5" />
+    </svg>
+  );
+}
+
+/** Expand the video to the whole screen. */
+export function IconExpand() {
+  return (
+    <svg viewBox="0 0 24 24" {...stroke} width="22" height="22">
+      <path d="M9 4H5v4M15 4h4v4M15 20h4v-4M9 20H5v-4" />
+    </svg>
+  );
+}
+
+/** Shrink back to the inline player. */
+export function IconShrink() {
+  return (
+    <svg viewBox="0 0 24 24" {...stroke} width="22" height="22">
+      <path d="M5 9h4V5M19 9h-4V5M19 15h-4v4M5 15h4v4" />
+    </svg>
+  );
+}
+
+/** Floating (corner) window. */
+export function IconFloat() {
+  return (
+    <svg viewBox="0 0 24 24" {...stroke} width="22" height="22">
+      <rect x="3" y="5" width="18" height="14" rx="3" />
+      <rect x="11" y="11" width="8" height="6" rx="1.5" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** Audio-only mode. */
+export function IconHeadphones() {
+  return (
+    <svg viewBox="0 0 24 24" {...stroke} width="22" height="22">
+      <path d="M4 14v-2a8 8 0 0 1 16 0v2" />
+      <rect x="3" y="13.5" width="4" height="6" rx="2" />
+      <rect x="17" y="13.5" width="4" height="6" rx="2" />
+    </svg>
+  );
+}
+
+/** Back 15 seconds. */
+export function IconBack15() {
+  return (
+    <svg viewBox="0 0 24 24" {...stroke} width="24" height="24">
+      <path d="M4 10a8 8 0 1 1 2 7" />
+      <path d="M4 4v6h6" />
+    </svg>
+  );
+}
+
+/** Forward 15 seconds. */
+export function IconForward15() {
+  return (
+    <svg viewBox="0 0 24 24" {...stroke} width="24" height="24">
+      <path d="M20 10a8 8 0 1 0-2 7" />
+      <path d="M20 4v6h-6" />
+    </svg>
+  );
+}
+
 export type TabKey = 'home' | 'discover' | 'learn' | 'ai' | 'me';
 
 export const TABS: Array<{ key: TabKey; label: string; icon: ReactNode }> = [

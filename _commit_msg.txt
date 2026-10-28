@@ -1,0 +1,30 @@
+feat(pwa): on-video controls, split subtitles, swipe lessons, display modes
+
+Controls
+- The control panel no longer sits under the video taking permanent layout
+  space. Controls overlay the picture, appear on tap, and hide themselves
+  3.5s after playback starts (a paused player keeps them).
+- Every control is an icon: skip, play/pause, captions, list, speed, floating
+  window, audio mode, full screen. The only text left is the numeric speed
+  badge. Measured 135px tall, 68% of a 197px frame while visible and 0 while
+  playing.
+
+Subtitles are two switches
+- "captions in the picture" and "transcript list" are independent, so a clean
+  picture with the list, or the burned-in line alone, both work.
+- While the controls are up the caption steps above them instead of being
+  covered; verified clear in normal (160 < 175) and full screen (272 < 287).
+
+Lesson navigation
+- The prev/next buttons (which overlapped the floating 查词 button) are gone.
+  Swipe left/right changes lesson, and Left/Right arrow keys do the same for a
+  keyboard. The floating 查词 button is gone too: every word is tappable.
+- The swipe rule has no duration limit on purpose. With 400 cues and a video on
+  screen the main thread can stall for ~1s, which made a 200ms gesture measure
+  as ~1s and get rejected.
+
+Display modes
+- normal / float / audio / max. Float leaves the flow so the transcript gets
+  the full column (723px vs 102px window); audio keeps the element mounted at
+  1px/opacity 0 so playback is not throttled; max hides the list and the title
+  bar and letterboxes the video.
