@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiGet, apiPost, errText } from './api';
 import { IconSparkles, PageHeader } from './components';
 import { ArrowUpOutlined, ArrowRightOutlined } from '@ant-design/icons';
+import { resolveServerPath } from '../utils/serverAddress';
 
 interface Props {
   /** Lesson the user last opened; gives the tutor its context. */
@@ -78,7 +79,7 @@ export default function AiPage({ lessonId, onOpenLesson }: Props) {
 
       try {
         const token = localStorage.getItem('token') || '';
-        const response = await fetch('/api/english/ai/chat/stream', {
+        const response = await fetch(resolveServerPath('/api/english/ai/chat/stream'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

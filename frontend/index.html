@@ -19,14 +19,5 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      // Registered here rather than in React so the shell is cached even on the
-      // very first paint (module code runs after the bundle downloads).
-      if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-        window.addEventListener('load', function () {
-          navigator.serviceWorker.register('/sw.js').catch(function () {});
-        });
-      }
-    </script>
   </body>
 </html>

@@ -106,6 +106,12 @@ NASPilot 内置的英语学习服务端模块（EnglishFlow 客户端专用）�
 - 客户端接口：`/api/english/*`，媒体 `/api/media/{lessonId}`
 - 设计与接口：`docs/english-learning-center/`
 
+### Android 学习 App
+
+Android 端用 Capacitor 封装现有 React PWA，直接复用 `/m` 界面，不维护第二套 UI。在 `frontend/` 执行 `npm run cap:sync:android` 同步资源，再用 `npm run cap:open:android` 在 Android Studio 打开，或 `npm run cap:run:android` 部署到连接的设备。构建需要 Android Studio、JDK 21 和 Android SDK。
+
+首次启动输入手机可访问的 NAS 地址，例如 `http://192.168.1.100:8082` 或 HTTPS 域名；App 会测试公开目录接口后保存，也可在「我的 → NAS 连接地址」修改。地址保存在 Capacitor Preferences。Android WebView 支持可信局域网 HTTP；互联网访问请使用 HTTPS 或 VPN。后端 CORS 默认允许 Capacitor Android/iOS origin。
+
 ### 学习账号
 
 - 在登录页选择「创建学习账号」，或访问 `http://<NAS-IP>:8082/register`。默认通过管理员发放的邀请码注册，无需购买短信服务。用户名为 3–64 位字母、数字、下划线、点或短横线，密码至少 8 位。

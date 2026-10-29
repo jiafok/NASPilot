@@ -1,8 +1,9 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { clearSession, getRefreshToken, getToken, setRefreshToken, setToken } from './auth';
+import { getApiBaseUrl } from './serverAddress';
 
 const api = axios.create({
-  baseURL: '/api/v1',
+  baseURL: getApiBaseUrl(),
   timeout: 15000,
   headers: { 'Content-Type': 'application/json' },
 });
@@ -31,7 +32,7 @@ async function refreshAccessToken(): Promise<string | null> {
   if (!refreshToken) return null;
   try {
     // Bare axios: going through `api` would recurse into this same interceptor.
-    const res = await axios.post('/api/v1/auth/refresh', { refresh_token: refreshToken });
+    const res = await axios.post(`${api.defaults.baseURL}/auth/refresh`, { refresh_token: refreshToken });
     const nextAccess = res.data?.access_token as string | undefined;
     if (!nextAccess) return null;
     setToken(nextAccess);

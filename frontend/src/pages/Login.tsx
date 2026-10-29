@@ -6,6 +6,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { getUser } from '../utils/auth';
+import { isNativeApp } from '../utils/serverAddress';
 
 const { Title } = Typography;
 
@@ -55,7 +56,7 @@ export default function LoginPage({ registerMode = false }: { registerMode?: boo
       });
       await login(values.username, values.password);
       message.success(t('auth.loginSuccess'));
-      navigate(getUser()?.is_admin ? '/' : '/m', { replace: true });
+      navigate(!isNativeApp() && getUser()?.is_admin ? '/' : '/m', { replace: true });
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
       if (typeof detail === 'string') message.error(detail);

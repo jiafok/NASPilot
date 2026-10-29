@@ -6,6 +6,7 @@
  */
 
 import api from '../utils/api';
+import { resolveServerPath } from '../utils/serverAddress';
 
 export interface Course {
   id: number;
@@ -218,8 +219,9 @@ export function fmtTime(seconds: number | null | undefined): string {
 export function withToken(path: string | null | undefined): string | undefined {
   if (!path) return undefined;
   const token = localStorage.getItem('token') || '';
-  if (!token) return path;
-  return `${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+  const resolved = resolveServerPath(path);
+  if (!token) return resolved;
+  return `${resolved}${resolved.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
 }
 
 export const LEVEL_LABEL: Record<string, string> = {

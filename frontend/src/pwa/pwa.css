@@ -1596,6 +1596,22 @@ body {
 .ef-word-delete { color: var(--ef-ink-sub); flex: none; }
 .ef-word-delete:hover { color: var(--ef-danger); background: #fcf0ed; }
 .ef-word-list .ef-row-meta { line-height: 21px; }
+.ef-server-wait { min-height: 100dvh; display: grid; place-items: center; padding: 24px; color: var(--ef-ink-sub); background: #f2f7f3; font-family: 'Avenir Next', 'Trebuchet MS', 'Microsoft YaHei', sans-serif; }
+.ef-server-address-value { max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ef-server-setup { min-height: 100dvh; padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); display: grid; place-items: center; background: linear-gradient(180deg, #f2f7f3 0, #fff 420px); color: var(--ef-ink); font-family: 'Avenir Next', 'Trebuchet MS', 'Microsoft YaHei', sans-serif; }
+.ef-server-setup-panel { width: min(100%, 480px); }
+.ef-server-setup-mark { color: var(--ef-primary); font-size: 11px; font-weight: 700; }
+.ef-server-setup-panel h1 { margin: 14px 0 8px; font-size: 28px; line-height: 36px; }
+.ef-server-setup-panel > p { margin: 0 0 28px; color: var(--ef-ink-sub); line-height: 22px; }
+.ef-server-setup-panel form { display: flex; flex-direction: column; gap: 10px; }
+.ef-server-setup-panel label { font-size: 13px; font-weight: 600; }
+.ef-server-setup-panel input { width: 100%; min-height: 48px; padding: 0 14px; border: 1px solid var(--ef-line); border-radius: 8px; color: var(--ef-ink); background: #fff; font: inherit; }
+.ef-server-setup-panel small { color: var(--ef-ink-sub); font-size: 12px; line-height: 18px; }
+.ef-server-setup-error { margin: 4px 0; color: var(--ef-danger); font-size: 13px; }
+.ef-server-setup-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+.ef-server-setup-actions button { min-height: 46px; padding: 0 18px; border: 0; border-radius: 8px; background: var(--ef-primary); color: #fff; font: inherit; font-weight: 600; }
+.ef-server-setup-actions button:disabled { opacity: 0.55; }
+.ef-server-setup-actions .ef-server-setup-secondary { border: 1px solid var(--ef-line); background: transparent; color: var(--ef-ink); }
 .ef-word-examples,
 .ef-word-original { margin-top: 16px; font-size: 13px; line-height: 21px; }
 .ef-word-examples > strong,

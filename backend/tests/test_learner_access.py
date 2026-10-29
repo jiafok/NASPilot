@@ -82,6 +82,19 @@ class LearnerAccessTests(unittest.IsolatedAsyncioTestCase):
         admin = await self.client.get("/api/v1/system/settings", headers={"Authorization": f"Bearer {self.admin_token}"})
         self.assertEqual(admin.status_code, 200)
 
+    async def test_capacitor_origins_can_preflight_api_requests(self):
+        for origin in ("http://localhost", "https://localhost", "capacitor://localhost"):
+            response = await self.client.options(
+                "/api/v1/auth/login",
+                headers={
+                    "Origin": origin,
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": "content-type,authorization",
+                },
+            )
+            self.assertEqual(response.status_code, 200, (origin, response.text))
+            self.assertEqual(response.headers.get("access-control-allow-origin"), origin)
+
     async def test_websocket_auth_rejects_learners(self):
         from starlette.websockets import WebSocket
 

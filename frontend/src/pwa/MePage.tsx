@@ -4,7 +4,8 @@ import { ErrorState, SectionHead, SkeletonList } from './components';
 import { useAuth } from '../hooks/useAuth';
 import { CourseRow } from './HomePage';
 import { useNavigate } from 'react-router-dom';
-import { BookOutlined, BarChartOutlined, LogoutOutlined, RightOutlined } from '@ant-design/icons';
+import { BookOutlined, BarChartOutlined, LinkOutlined, LogoutOutlined, RightOutlined } from '@ant-design/icons';
+import { getServerAddress, isNativeApp } from '../utils/serverAddress';
 
 interface Props {
   onOpenCourse: (courseId: number) => void;
@@ -125,6 +126,11 @@ export default function MePage({ onOpenCourse, onOpenStats, onOpenWords, onOpenF
 
       <section className="ef-section">
         <div className="ef-list">
+          {isNativeApp() && <button type="button" className="ef-row ef-account-action" onClick={() => navigate('/connection')}>
+            <span className="ef-action-symbol"><LinkOutlined /></span>
+            <span className="ef-row-body"><span>NAS 连接地址</span><span className="ef-row-meta ef-server-address-value">{getServerAddress()}</span></span>
+            <RightOutlined />
+          </button>}
           {!user?.is_admin && <button type="button" className="ef-row ef-account-action" onClick={() => navigate('/membership')}>
             <span className="ef-action-symbol"><BarChartOutlined /></span>
             <span className="ef-row-body"><span>学习权益与套餐</span><span className="ef-row-meta">{user?.membership?.expires_at ? `有效期至 ${new Date(user.membership.expires_at).toLocaleDateString()}` : '长期有效'}</span></span>

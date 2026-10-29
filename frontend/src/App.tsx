@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { useEffect, useState, type ReactNode } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { ConfigProvider, App as AntApp, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { AuthProvider } from './hooks/useAuth';
@@ -27,6 +28,10 @@ import MediaCenter from './pages/media/MediaCenter';
 import EnglishCenter from './pages/english/EnglishCenter';
 import MobileApp from './pwa/MobileApp';
 import MembershipPage from './pwa/MembershipPage';
+import ServerAddressForm from './pages/ServerAddressForm';
+import api from './utils/api';
+import { clearSession } from './utils/auth';
+import { getApiBaseUrl, getServerAddress, isNativeApp, loadServerAddress } from './utils/serverAddress';
 
 /**
  * Phones get the PWA shell, not the admin-width table view.
@@ -43,7 +48,7 @@ function MobileGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function App() {
+function AppRoutes() {
   return (
     <ConfigProvider
       locale={zhCN}
@@ -58,6 +63,7 @@ function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<LoginPage registerMode />} />
+              <Route path="/connection" element={<AuthGuard allowExpired><ServerAddressSettings /></AuthGuard>} />
               <Route path="/membership" element={<AuthGuard allowExpired><MembershipPage /></AuthGuard>} />
               <Route path="/logs/full" element={<AuthGuard adminOnly><LogFullPage /></AuthGuard>} />
               {/* Mobile PWA: its own shell (5 tabs) and its own full-screen player.
@@ -112,6 +118,66 @@ function App() {
       </AntApp>
     </ConfigProvider>
   );
+}
+
+function NativeAddressGate({ children }: { children: ReactNode }) {
+  const native = isNativeApp();
+  const [state, setState] = useState<'checking' | 'configure' | 'connected'>(native ? 'checking' : 'connected');
+
+  useEffect(() => {
+    if (!native) return;
+    let active = true;
+    loadServerAddress().then((address) => {
+      if (!active) return;
+      if (address) {
+        api.defaults.baseURL = getApiBaseUrl();
+        if (window.location.pathname === '/') window.history.replaceState(null, '', '/m');
+        setState('connected');
+      } else {
+        setState('configure');
+      }
+    }).catch(() => {
+      if (active) setState('configure');
+    });
+    return () => { active = false; };
+  }, [native]);
+
+  if (!native || state === 'connected') return children;
+  if (state === 'checking') return <main className="ef-server-wait">正在检查 NAS 连接设置…</main>;
+  return (
+    <ServerAddressForm
+      onConnected={() => {
+        api.defaults.baseURL = getApiBaseUrl();
+        clearSession();
+        if (window.location.pathname === '/') window.history.replaceState(null, '', '/m');
+        setState('connected');
+      }}
+    />
+  );
+}
+
+function ServerAddressSettings() {
+  const navigate = useNavigate();
+  const currentAddress = getServerAddress() || '';
+  return (
+    <ServerAddressForm
+      initialAddress={currentAddress}
+      onCancel={() => navigate('/m')}
+      onConnected={(address) => {
+        api.defaults.baseURL = getApiBaseUrl();
+        if (address !== currentAddress) {
+          clearSession();
+          window.location.replace('/login');
+          return;
+        }
+        navigate('/m', { replace: true });
+      }}
+    />
+  );
+}
+
+function App() {
+  return <NativeAddressGate><AppRoutes /></NativeAddressGate>;
 }
 
 export default App;
