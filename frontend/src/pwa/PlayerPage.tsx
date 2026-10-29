@@ -38,6 +38,7 @@ import {
 } from '../utils/backgroundAudio';
 import { ArrowUpOutlined } from '@ant-design/icons';
 import { App as CapacitorApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 
 /**
  * Cue index for a playback position.
@@ -175,6 +176,11 @@ export default function PlayerPage({ lessonId, minimized, onClose, onExpand, onS
   // replaces `lesson.stream_url` once the H.264/AAC version exists.
   const [compat, setCompat] = useState<CompatInfo | null>(null);
   const [compatSrc, setCompatSrc] = useState<string | null>(null);
+  // Android WebView cannot decode the library's AV1 video: it renders garbage
+  // frames while the clock keeps running, so a stall/error trigger never fires.
+  // The source therefore stays undecided until the server says what the file
+  // is. On the web this is true from the start (AV1 plays fine there).
+  const [sourceReady, setSourceReady] = useState(() => !Capacitor.isNativePlatform());
 
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const subsRef = useRef<HTMLDivElement | null>(null);
@@ -416,6 +422,7 @@ export default function PlayerPage({ lessonId, minimized, onClose, onExpand, onS
     const at = mediaRef.current?.currentTime ?? 0;
     pendingSeekRef.current = at > 0 ? at : null;
     setCompatSrc(withToken(`/api/media/${lesson.id}/compat`) ?? null);
+    setSourceReady(true);
     setStalled(false);
   };
 
@@ -464,6 +471,93 @@ export default function PlayerPage({ lessonId, minimized, onClose, onExpand, onS
     }
   };
 
+  /**
+   * Decide the source before a single frame is decoded (Android only).
+   *
+   * `ensureCompat` above is a rescue: it runs after the picture has already
+   * gone wrong. On the phone that is too late — AV1 decodes into coloured
+   * blocks ("花屏") at full speed, which looks like a rendering bug rather than
+   * a codec mismatch, and neither the stall timer nor `onError` ever fires.
+   * Asking the server first means the learner never sees the broken stream.
+   *
+   * Anything unexpected falls through to `sourceReady`, i.e. play the original.
+   * An unsupported file is still better than a player that never starts.
+   */
+  useEffect(() => {
+    if (!lesson) return;
+    if (!Capacitor.isNativePlatform()) {
+      setSourceReady(true);
+      return;
+    }
+    let cancelled = false;
+    setSourceReady(false);
+
+    const settle = () => {
+      if (!cancelled) setSourceReady(true);
+    };
+
+    const poll = () => {
+      compatPollRef.current = window.setInterval(() => {
+        compatStatus(lesson.id)
+          .then((next) => {
+            if (cancelled) return;
+            setCompat(next);
+            if (next.state === 'ready') {
+              if (compatPollRef.current) window.clearInterval(compatPollRef.current);
+              compatPollRef.current = null;
+              applyCompat();
+            } else if (next.state === 'failed' || next.state === 'unavailable') {
+              if (compatPollRef.current) window.clearInterval(compatPollRef.current);
+              compatPollRef.current = null;
+              // Nothing better to try: hand the original to the decoder anyway.
+              settle();
+            }
+          })
+          .catch(() => undefined);
+      }, 3000);
+    };
+
+    void (async () => {
+      try {
+        let info = await compatStatus(lesson.id);
+        if (cancelled) return;
+        setCompat(info);
+        // A file the device can already play: no reason to transcode.
+        if (!info.needs_transcode) {
+          settle();
+          return;
+        }
+        if (info.state === 'ready') {
+          applyCompat();
+          return;
+        }
+        if (info.state === 'idle' || info.state === 'failed') {
+          info = await compatStart(lesson.id);
+          if (cancelled) return;
+          setCompat(info);
+        }
+        if (info.state === 'ready') {
+          applyCompat();
+          return;
+        }
+        if (info.state === 'unavailable') {
+          settle();
+          return;
+        }
+        poll();
+      } catch {
+        settle();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (compatPollRef.current) window.clearInterval(compatPollRef.current);
+      compatPollRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lesson?.id]);
+
   // A different lesson must not inherit the previous one's fallback stream.
   useEffect(() => {
     // Hydrate the saved-word index (and upload anything the old build left in
@@ -478,6 +572,8 @@ export default function PlayerPage({ lessonId, minimized, onClose, onExpand, onS
     setStalled(false);
     if (compatPollRef.current) window.clearInterval(compatPollRef.current);
     compatPollRef.current = null;
+    // Web starts ready; the Android check settles it a moment later.
+    setSourceReady(!Capacitor.isNativePlatform());
   }, [lessonId]);
 
   useEffect(
@@ -836,7 +932,9 @@ export default function PlayerPage({ lessonId, minimized, onClose, onExpand, onS
 
   const mediaProps = {
     ref: mediaRef as never,
-    src: compatSrc ?? withToken(lesson.stream_url),
+    // `undefined` while the codec is still being checked: loading the original
+    // would paint the broken AV1 frames this whole mechanism exists to avoid.
+    src: sourceReady ? (compatSrc ?? withToken(lesson.stream_url)) : undefined,
     onTimeUpdate,
     onLoadedMetadata: () => {
       setDuration(mediaRef.current?.duration || lesson.duration || 0);
@@ -932,13 +1030,15 @@ export default function PlayerPage({ lessonId, minimized, onClose, onExpand, onS
             </div>
           )}
 
-          {(stalled || compat) && (
+          {(stalled || !sourceReady || compat?.needs_transcode) && (
             <div className="ef-stage-note">
               {compat?.state === 'running'
-                ? `正在转换为本机可播放的格式… ${compat.progress}%`
+                ? `正在转换为手机可播放的格式… ${compat.progress}%（首次需要等待，之后秒开）`
                 : compat?.state === 'failed' || compat?.state === 'unavailable'
                   ? compat?.error || '当前设备无法解码该视频，可切换到「音频」模式继续听'
-                  : '当前设备无法直接播放该编码，正在准备兼容版本…'}
+                  : !sourceReady
+                    ? '正在检查播放格式…'
+                    : '当前设备无法直接播放该编码，正在准备兼容版本…'}
             </div>
           )}
 

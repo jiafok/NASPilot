@@ -257,6 +257,11 @@ async def _transcode(lesson_id: int, src: Path, dest: Path) -> None:
         "0:v:0",
         "-map",
         "0:a:0?",
+        # 540p cap: the phone cannot show more, and every dropped row of
+        # pixels is encode time the learner waits for. `min()` keeps a small
+        # source from being upscaled.
+        "-vf",
+        "scale=-2:'min(540,ih)'",
         # Baseline-compatible H.264 + AAC: decodable by every Android WebView.
         "-c:v",
         "libx264",
