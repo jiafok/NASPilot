@@ -332,6 +332,69 @@ async def _transcode(lesson_id: int, src: Path, dest: Path) -> None:
         job.update(state="failed", error=str(exc))
 
 
+#: The single batch job, if one is running.
+_batch: dict[str, Any] = {"running": False, "total": 0, "done": 0, "failed": 0,
+                          "skipped": 0, "current": 0, "error": ""}
+
+
+def batch_status() -> dict[str, Any]:
+    return dict(_batch)
+
+
+async def batch_convert(pairs: list[tuple[int, Path]], *, limit: int = 0) -> dict[str, Any]:
+    """Convert every AV1/Opus lesson in ``pairs`` to the cached H.264 version.
+
+    Sequential on purpose: libx264 already uses every core, so running several
+    at once only makes all of them slower and starves the web UI. Resumable
+    because `start()` skips anything already cached, so an interrupted run
+    simply continues where it stopped next time.
+    """
+    if _batch["running"]:
+        return batch_status()
+
+    work = pairs[:limit] if limit > 0 else list(pairs)
+    _batch.update(running=True, total=len(work), done=0, failed=0, skipped=0,
+                  current=0, error="")
+
+    async def run() -> None:
+        try:
+            for lesson_id, src in work:
+                _batch["current"] = lesson_id
+                try:
+                    info = await probe(src)
+                    if not needs_compat(info):
+                        _batch["skipped"] += 1
+                        continue
+                    if _cache_is_current(cache_path(lesson_id), src):
+                        _batch["skipped"] += 1
+                        continue
+                    await start(lesson_id, src)
+                    # `start()` returns as soon as the job is scheduled; wait for
+                    # it so the batch keeps one encode in flight at a time.
+                    dest = cache_path(lesson_id)
+                    while True:
+                        await asyncio.sleep(2)
+                        job = _jobs.get(str(dest))
+                        if job is None:
+                            break
+                        if job["state"] == "ready":
+                            _batch["done"] += 1
+                            break
+                        if job["state"] == "failed":
+                            _batch["failed"] += 1
+                            break
+                except Exception as exc:  # noqa: BLE001 - the batch must go on
+                    logger.warning("batch convert failed for lesson %s", lesson_id, exc_info=True)
+                    _batch["failed"] += 1
+                    _batch["error"] = str(exc)
+        finally:
+            _batch.update(running=False, current=0)
+
+    asyncio.create_task(run())
+    await asyncio.sleep(0)
+    return batch_status()
+
+
 def forget(lesson_id: int) -> None:
     """Drop the cache entry and any job for a lesson (used by admin rescan)."""
     dest = cache_path(lesson_id)
@@ -343,6 +406,8 @@ def forget(lesson_id: int) -> None:
 
 __all__ = [
     "SAFE_AUDIO",
+    "batch_convert",
+    "batch_status",
     "SAFE_VIDEO",
     "cache_dir",
     "cache_path",

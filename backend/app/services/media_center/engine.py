@@ -61,8 +61,34 @@ async def dependency_versions() -> tuple[str | None, str | None]:
 # ══════════════════════════════════════════════════════════════════════
 
 
+def _compatible_format_selector(height: int) -> str:
+    """H.264 + AAC first, best-quality as the fallback.
+
+    Why: `bestvideo` is AV1 on YouTube. Android WebView cannot decode AV1, so
+    the phone painted garbage frames and the learner had to wait for an on-demand
+    H.264 transcode before watching anything. avc1/mp4a downloads play directly
+    on every device.
+
+    Every step falls back, so a video with no H.264 rendition still downloads
+    instead of failing: progressive avc1 → any avc1 → any video → any format.
+    """
+    limit = f"[height<={height}]" if height > 0 else ""
+    return "/".join(
+        [
+            f"bv*{limit}[vcodec^=avc1]+ba[acodec^=mp4a]",
+            f"bv*{limit}[vcodec^=avc1]+ba",
+            f"b{limit}[vcodec^=avc1]",
+            f"bv*{limit}+ba",
+            f"b{limit}",
+            "b",
+        ]
+    )
+
+
 def _format_selector(opts) -> str:
     height = int(opts.video_height or 0)
+    if settings.MEDIA_PREFER_COMPATIBLE_CODECS:
+        return _compatible_format_selector(height)
     if height > 0:
         return (
             f"bestvideo[height<={height}]+bestaudio/"

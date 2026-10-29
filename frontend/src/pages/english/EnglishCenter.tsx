@@ -259,6 +259,15 @@ export default function EnglishCenter() {
   });
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
+  // Converting the pre-existing AV1 library so a phone never has to wait.
+  const [converting, setConverting] = useState(false);
+  const [convertProgress, setConvertProgress] = useState<{
+    running: boolean;
+    total: number;
+    done: number;
+    failed: number;
+    skipped: number;
+  } | null>(null);
   const [q, setQ] = useState('');
   const [channel, setChannel] = useState<string | undefined>();
   const [level, setLevel] = useState<string | undefined>();
@@ -340,6 +349,42 @@ export default function EnglishCenter() {
       message.error(errText(err, '扫描失败'));
     } finally {
       setScanning(false);
+    }
+  };
+
+  const runCompatRebuild = async () => {
+    setConverting(true);
+    try {
+      const res = await api.post<{ running: boolean; total: number }>('/english/admin/compat/rebuild');
+      message.success(
+        res.data.total > 0
+          ? `已开始后台转换 ${res.data.total} 个课时，完成后手机端可直接播放。`
+          : '没有需要转换的课时：现有视频手机都能直接播放。',
+      );
+      setConvertProgress({ running: true, total: res.data.total, done: 0, failed: 0, skipped: 0 });
+      // Poll until the job leaves `running`. The work itself continues on the
+      // server whether or not this page stays open.
+      const timer = window.setInterval(() => {
+        void api
+          .get<{ running: boolean; total: number; done: number; failed: number; skipped: number }>(
+            '/english/admin/compat/rebuild',
+          )
+          .then(({ data }) => {
+            setConvertProgress(data);
+            if (!data.running) {
+              window.clearInterval(timer);
+              setConverting(false);
+              message.success(`转换结束：完成 ${data.done} 个，跳过 ${data.skipped} 个，失败 ${data.failed} 个`);
+            }
+          })
+          .catch(() => {
+            window.clearInterval(timer);
+            setConverting(false);
+          });
+      }, 5000);
+    } catch (err) {
+      message.error(errText(err, '无法开始转换'));
+      setConverting(false);
     }
   };
 
@@ -921,6 +966,14 @@ export default function EnglishCenter() {
           <Button type="primary" icon={<ReloadOutlined />} loading={scanning} onClick={() => void runScan()}>
             扫描媒体库
           </Button>
+          <Tooltip title="把旧视频转成手机上能直接播放的 H.264（后台运行，可重复点击）">
+            <Button loading={converting} onClick={() => void runCompatRebuild()}>
+              转换旧视频
+              {convertProgress && convertProgress.total > 0
+                ? `（${convertProgress.done + convertProgress.skipped}/${convertProgress.total}）`
+                : ''}
+            </Button>
+          </Tooltip>
         </Space>
       </div>
 

@@ -692,6 +692,35 @@ async def english_scan(
     return report
 
 
+@router.post("/admin/compat/rebuild", summary="批量转换旧视频为手机可播放格式")
+async def english_compat_rebuild(
+    user: AdminUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(0, ge=0, description="最多转换多少个课时，0 = 全部"),
+):
+    """Convert the AV1/Opus lessons already on disk, in the background.
+
+    Downloads now ask for H.264/AAC, but everything stored before that change
+    is still AV1 — and playing it on a phone means waiting for a conversion at
+    that exact moment. This runs the same conversion unattended, one lesson at a
+    time, and skips anything already converted, so it can be re-run safely.
+    """
+    rows = (
+        await db.execute(
+            select(EnglishLesson.id, EnglishLesson.file_path).where(
+                EnglishLesson.status == "ready", EnglishLesson.file_path.isnot(None)
+            )
+        )
+    ).all()
+    pairs = [(lesson_id, Path(path)) for lesson_id, path in rows if path]
+    return await compat.batch_convert(pairs, limit=limit)
+
+
+@router.get("/admin/compat/rebuild", summary="批量转换进度")
+async def english_compat_rebuild_status(user: AdminUser):
+    return compat.batch_status()
+
+
 @router.get("/admin/stats", summary="媒体库统计")
 async def english_stats(
     user: AdminUser,

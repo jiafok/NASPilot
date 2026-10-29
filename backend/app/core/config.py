@@ -76,6 +76,15 @@ class Settings(BaseSettings):
     MEDIA_VIDEO_DIR: str = ""
     MEDIA_AUDIO_DIR: str = ""
     MEDIA_DEFAULT_VIDEO_HEIGHT: int = 480
+    #: Prefer H.264 video + AAC audio when downloading.
+    #:
+    #: YouTube's "bestvideo" is AV1 (or VP9), which Android WebView cannot
+    #: decode — the phone showed a garbled picture and every lesson needed a
+    #: transcode before it could be watched. Asking for avc1/mp4a costs nothing
+    #: at 480p and the file plays on every device. Set to false to store the
+    #: highest-quality stream instead (smaller, but phone playback then needs
+    #: the on-demand H.264 fallback).
+    MEDIA_PREFER_COMPATIBLE_CODECS: bool = True
     MEDIA_AUDIO_QUALITY: str = "0"
     MEDIA_SUB_LANGS: str = "en.*"
     MEDIA_SCAN_LIMIT: int = 100
