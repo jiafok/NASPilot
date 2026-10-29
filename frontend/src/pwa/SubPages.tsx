@@ -3,7 +3,7 @@ import { apiGet, errText, type Course, type StatsPayload } from './api';
 import { EmptyState, ErrorState, IconBack, SkeletonList } from './components';
 import { Heatmap } from './MePage';
 import { CourseTile } from './HomePage';
-import { listWords, removeWord } from './wordStore';
+import { cachedWords, listWords, removeWord, type SavedWord } from './wordStore';
 import { DeleteOutlined, SearchOutlined } from '@ant-design/icons';
 
 function SubHeader({ title, onBack }: { title: string; onBack: () => void }) {
@@ -198,8 +198,36 @@ export function FavoritesPage({
 // ── Words ────────────────────────────────────────────────────────────────
 
 export function WordsPage({ onBack }: { onBack: () => void }) {
-  const [words, setWords] = useState(listWords());
+  // The cache renders instantly (and offline); the server list replaces it.
+  const [words, setWords] = useState<SavedWord[]>(cachedWords);
   const [query, setQuery] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    listWords()
+      .then((items) => {
+        if (!cancelled) {
+          setWords(items);
+          setError('');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setError('同步失败，当前显示本机缓存。下拉或重新进入可再试。');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const remove = (word: string) => {
+    removeWord(word)
+      .then((next) => {
+        setWords(next);
+        setError('');
+      })
+      .catch(() => setError('删除失败，请检查网络后重试。'));
+  };
   const filtered = words.filter((item) => `${item.word} ${item.meaning} ${item.sentence || ''} ${(item.examples || []).join(' ')}`.toLowerCase().includes(query.toLowerCase()));
 
   return (
@@ -208,8 +236,9 @@ export function WordsPage({ onBack }: { onBack: () => void }) {
       <div className="ef-vocabulary-count"><strong>{words.length}</strong><span>个表达，慢慢积累。</span></div>
       <div className="ef-search"><SearchOutlined /><input aria-label="搜索生词" placeholder="搜索单词或释义" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
       <div className="ef-notice">
-        仅本机保存 · 尚未同步
+        已同步到账号 · 换设备登录也能看到
       </div>
+      {error && <div className="ef-notice ef-notice-error">{error}</div>}
 
       {words.length === 0 ? (
         <EmptyState
@@ -243,7 +272,7 @@ export function WordsPage({ onBack }: { onBack: () => void }) {
                 className="ef-icon-btn ef-word-delete"
                 aria-label={`删除 ${item.word}`}
                 title="删除生词"
-                onClick={() => setWords(removeWord(item.word))}
+                onClick={() => remove(item.word)}
               >
                 <DeleteOutlined />
               </button>

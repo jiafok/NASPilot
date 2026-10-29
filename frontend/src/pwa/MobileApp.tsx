@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import './pwa.css';
 import { TabBar, type TabKey } from './components';
 import HomePage from './HomePage';
@@ -9,6 +9,8 @@ import MePage from './MePage';
 import CoursePage from './CoursePage';
 import PlayerPage from './PlayerPage';
 import { FavoritesPage, StatsPage, WordsPage } from './SubPages';
+import { App as CapacitorApp } from '@capacitor/app';
+import { isNativeApp } from '../utils/serverAddress';
 
 /**
  * Mobile shell for the English Learning Center.
@@ -54,26 +56,67 @@ export default function MobileApp() {
     setCourseId(id);
   }, []);
 
-  // Android hardware back / browser back should close the topmost layer.
+  // ── back navigation ──────────────────────────────────────────────────
+  // One level per press: collapse the player, then close it, then leave the
+  // course / sub-page, then return to the home tab. Only at the top level does
+  // a press leave the app.
+  //
+  // The previous version listened for `popstate` only, but this shell keeps
+  // navigation in React state and writes the tab with `history.replaceState` —
+  // so no history entry ever existed and the Android hardware back fell through
+  // to Capacitor's default, finishing the activity ("返回桌面") from any page.
+  const goBack = useCallback((): boolean => {
+    if (lessonId !== null) {
+      if (playerMinimized) setLessonId(null);
+      else setPlayerMinimized(true);
+      return true;
+    }
+    if (courseId !== null) {
+      setCourseId(null);
+      return true;
+    }
+    if (subPage) {
+      setSubPage(null);
+      return true;
+    }
+    if (tab !== 'home') {
+      changeTab('home');
+      return true;
+    }
+    return false;
+  }, [lessonId, playerMinimized, courseId, subPage, tab, changeTab]);
+
+  // Read through a ref so the native listener registered once always calls the
+  // current closure instead of the state it captured on mount.
+  const goBackRef = useRef(goBack);
+  useEffect(() => {
+    goBackRef.current = goBack;
+  }, [goBack]);
+
   useEffect(() => {
     const onPop = () => {
-      if (lessonId) {
-        if (playerMinimized) {
-          setLessonId(null);
-          return;
-        }
-        setPlayerMinimized(true);
-        return;
-      }
-      if (courseId) {
-        setCourseId(null);
-        return;
-      }
-      if (subPage) setSubPage(null);
+      goBackRef.current();
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [lessonId, playerMinimized, courseId, subPage]);
+  }, []);
+
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    let remove: (() => void) | null = null;
+    let cancelled = false;
+    void CapacitorApp.addListener('backButton', () => {
+      // Nothing left to unwind: this is the one place where leaving is right.
+      if (!goBackRef.current()) void CapacitorApp.exitApp();
+    }).then((handle) => {
+      if (cancelled) handle.remove();
+      else remove = () => handle.remove();
+    });
+    return () => {
+      cancelled = true;
+      remove?.();
+    };
+  }, []);
 
   let page: ReactNode;
   if (subPage === 'stats') page = <StatsPage onBack={() => setSubPage(null)} />;

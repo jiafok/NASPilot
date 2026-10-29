@@ -294,6 +294,32 @@ async def _lookup_word(
     return entry
 
 
+async def _translate_sentence(db: AsyncSession, sentence: str) -> str:
+    """Translate one subtitle line, without repeating the word analysis.
+
+    Used only when the contextual lookup could not be parsed: the learner asked
+    a question about a word in a line, so the line's translation matters even
+    when the dictionary answer came from the cache.
+    """
+    text = (sentence or "").strip()
+    if not text:
+        return ""
+    try:
+        answer = await ai_service.ask(
+            "把下面的英文句子翻译成自然通顺的中文。只输出译文本身，"
+            "不要引号、不要英文、不要任何解释：\n" + text[:1000],
+            db=db,
+        )
+    except Exception:
+        logger.warning("Sentence translation failed", exc_info=True)
+        return ""
+    cleaned = (answer or "").strip().strip('"').strip("“”").strip()
+    # A model that answers with English did not translate anything.
+    if not cleaned or not re.search(r"[\u4e00-\u9fff]", cleaned):
+        return ""
+    return cleaned[:800]
+
+
 async def lookup(
     db: AsyncSession,
     word: str,
@@ -310,7 +336,7 @@ async def lookup(
         return _with_examples(entry) if entry is not None else None
 
     cache_key = "ctx:" + hashlib.sha256(
-        json.dumps([2, key, context], ensure_ascii=False).encode("utf-8")
+        json.dumps([3, key, context], ensure_ascii=False).encode("utf-8")
     ).hexdigest()[:60]
     cached = (
         await db.execute(select(EnglishWordLookup).where(EnglishWordLookup.word == cache_key))
@@ -325,10 +351,12 @@ async def lookup(
             + '\n只输出 JSON：{"phonetic":"/音标/","senses":[{"pos":"词性","meaning":"中文释义"}],'
             '"examples":["第一条例句及中文翻译","第二条例句及中文翻译"],'
             '"context_meaning":"目标词在本句中的中文含义",'
+            '"sentence_translation":"整句的通顺中文翻译",'
             '"phrases":[{"phrase":"原句中的短语","meaning":"中文含义","explanation":"搭配用法说明"}]}。'
             "优先解释本句词义。phrases 最多三项，只能引用原句中包含目标词的连续片段，"
             "识别短语动词、固定表达或有意义的搭配，不列任意相邻词。"
             "没有搭配就返回空数组，不要编造。"
+            "sentence_translation 必须翻译整句、保留原意，不要逐词直译，不要添加解释或引号。"
         )
         await db.commit()
         try:
@@ -337,6 +365,7 @@ async def lookup(
             entry = _sanitize(parsed, key, "ai") if parsed else None
             if entry is not None:
                 entry["context_meaning"] = str(parsed.get("context_meaning") or "").strip()[:600]
+                entry["sentence_translation"] = str(parsed.get("sentence_translation") or "").strip()[:800]
                 phrases = []
                 sentence_tokens = re.findall(r"[a-z]+(?:'[a-z]+)?", context.lower().replace("’", "'"))
                 normalized_sentence = " " + " ".join(sentence_tokens) + " "
@@ -365,7 +394,16 @@ async def lookup(
 
     entry = await _lookup_word(db, key, use_ai=use_ai)
     if entry is not None:
-        return _with_examples({**entry, "phrases": [], "context_meaning": "", "context_status": "unavailable"})
+        translation = await _translate_sentence(db, context) if use_ai else ""
+        return _with_examples(
+            {
+                **entry,
+                "phrases": [],
+                "context_meaning": "",
+                "sentence_translation": translation,
+                "context_status": "unavailable",
+            }
+        )
     return None
 
 

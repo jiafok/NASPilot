@@ -615,9 +615,40 @@ body {
 }
 
 .ef-tab { position: relative; }
-.ef-app button:focus-visible, .ef-player button:focus-visible {
-  outline: 2px solid var(--ef-primary);
-  outline-offset: 3px;
+/* Keyboard ring only — never on a tap.
+ *
+ * Blink on Android paints its UA focus ring on *any* focused button, a plain
+ * tap included, and `LayoutThemeAndroid` sets that ring colour to orange. That
+ * is the orange box that appeared around every control tapped inside the app.
+ * `-webkit-focus-ring-color` is inherited, so neutralising it once on the app
+ * shells covers antd inputs as well as plain buttons. Hover-capable pointers
+ * keep a visible ring so keyboard users are not left without one. */
+.ef-app,
+.ef-player,
+.ef-sheet,
+.ef-auth {
+  -webkit-focus-ring-color: transparent;
+}
+
+.ef-app button:focus,
+.ef-app a:focus,
+.ef-player button:focus,
+.ef-player a:focus,
+.ef-sheet button:focus,
+.ef-sheet a:focus {
+  outline: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ef-app button:focus-visible,
+  .ef-app a:focus-visible,
+  .ef-player button:focus-visible,
+  .ef-player a:focus-visible,
+  .ef-sheet button:focus-visible,
+  .ef-sheet a:focus-visible {
+    outline: 2px solid var(--ef-primary);
+    outline-offset: 3px;
+  }
 }
 .ef-app button { transition: background-color 160ms ease, color 160ms ease; }
 .ef-app button:active { opacity: 0.78; }
@@ -1191,17 +1222,29 @@ body {
   background: rgba(15, 23, 42, 0.55);
   z-index: 200;
   display: flex;
-  align-items: flex-end;
+  /* Centred on every viewport.
+   *
+   * The card used to be pinned to the bottom edge (`align-items: flex-end`)
+   * and stretched the full width, so on a phone it sat jammed against the
+   * gesture bar — horizontally edge-to-edge, vertically off-centre — and read
+   * as "not centred, not harmonious". A centred card with a capped width looks
+   * the same on a phone, a tablet and a landscape phone. */
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--ef-s4) + var(--ef-safe-top)) var(--ef-s4) calc(var(--ef-s4) + var(--ef-safe-bottom));
 }
 
 .ef-sheet {
   width: 100%;
-  max-height: 86dvh;
+  max-width: 520px;
+  max-height: 82dvh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--ef-bg);
   color: var(--ef-ink);
-  border-radius: var(--ef-radius-sheet) var(--ef-radius-sheet) 0 0;
-  padding: var(--ef-s2) var(--ef-s5) calc(var(--ef-s5) + var(--ef-safe-bottom));
+  border-radius: var(--ef-radius-sheet);
+  padding: var(--ef-s2) var(--ef-s5) var(--ef-s5);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
   animation: ef-rise 200ms ease-out;
 }
 
@@ -1339,12 +1382,17 @@ body {
 
 .ef-btn-row {
   display: flex;
+  /* Wraps once the card carries three actions (加入生词 / 朗读 / 读整句):
+   * three equal columns on a 390px phone squeezed the labels. */
+  flex-wrap: wrap;
   gap: var(--ef-s2);
   margin-top: var(--ef-s4);
 }
 
 .ef-btn-row > .ef-btn {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 96px;
+  white-space: nowrap;
 }
 
 /* ── States ───────────────────────────────────────────────────────── */
@@ -1522,6 +1570,12 @@ body {
   margin-bottom: var(--ef-s3);
 }
 
+.ef-notice-error {
+  background: #fdecea;
+  color: #a1261c;
+  border-left: 3px solid var(--ef-danger);
+}
+
 /* ── Search ───────────────────────────────────────────────────────── */
 
 .ef-search {
@@ -1614,6 +1668,18 @@ body {
 .ef-server-setup-actions .ef-server-setup-secondary { border: 1px solid var(--ef-line); background: transparent; color: var(--ef-ink); }
 .ef-word-examples,
 .ef-word-original { margin-top: 16px; font-size: 13px; line-height: 21px; }
+/* The line's own translation. Deliberately quieter than the English quote so
+ * the learner reads the original first, but on its own tint so it does not look
+ * like part of the same paragraph. */
+.ef-quote-translation {
+  margin-top: 8px;
+  padding-left: 10px;
+  border-left: 3px solid var(--ef-tint);
+  color: var(--ef-ink);
+  font-size: 14px;
+  line-height: 22px;
+}
+.ef-quote-translation--empty { color: var(--ef-ink-sub); font-size: 13px; border-left-color: var(--ef-line); }
 .ef-word-examples > strong,
 .ef-word-original > strong { color: var(--ef-ink-sub); font-size: 12px; }
 .ef-word-examples p,

@@ -28,7 +28,7 @@ from app.core.deps import CurrentUser, AdminUser, require_learning_access
 from app.core.security import decode_access_token
 from app.models import EnglishCourse, EnglishLesson, EnglishTranscript, User
 from app.services import ai_service
-from app.services.english import dictionary, query, scanner, stream
+from app.services.english import compat, dictionary, query, scanner, stream, words
 
 logger = logging.getLogger("naspilot.english.api")
 
@@ -107,6 +107,19 @@ class WordIn(BaseModel):
     #: The sentence the word was tapped in — improves the definition picked.
     sentence: str | None = Field(None, max_length=400)
     lesson_id: int | None = None
+
+
+class SavedWordIn(BaseModel):
+    """A word the learner wants to keep — mirrored across all their devices."""
+
+    word: str = Field(..., min_length=1, max_length=64)
+    phonetic: str | None = Field(None, max_length=128)
+    meaning: str | None = None
+    lesson_id: int | None = None
+    sentence: str | None = None
+    examples: list[str] | None = None
+    #: 毫秒时间戳。本机旧数据第一次上传时带上它，收藏时间不会被改成"现在"。
+    added_at: int | None = Field(None, ge=0)
 
 
 class ChatIn(BaseModel):
@@ -389,6 +402,58 @@ async def english_favorite(
     if payload is None:
         raise HTTPException(status_code=404, detail="课程不存在")
     return payload
+
+
+@router.get("/words", summary="生词本（跨设备同步）")
+async def english_saved_words(
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    limit: int = Query(500, ge=1, le=2000),
+):
+    """The learner's own word book.
+
+    Stage-0 kept this list in the browser's localStorage, so signing in on a
+    second device showed an empty book. It lives here now: one row per
+    user x word, newest first.
+    """
+    return await words.list_words(db, user.id, limit=limit)
+
+
+@router.post("/words", summary="保存生词（幂等）")
+async def english_save_word(
+    body: SavedWordIn,
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Add one word. Saving the same word twice returns the existing row.
+
+    Idempotent on purpose: the client retries when the phone was offline, and
+    re-uploading a local list must not create duplicates or move old words to
+    the top of the list.
+    """
+    payload = await words.save_word(
+        db,
+        user.id,
+        word=body.word,
+        phonetic=body.phonetic,
+        meaning=body.meaning,
+        lesson_id=body.lesson_id,
+        sentence=body.sentence,
+        examples=body.examples,
+        added_at=body.added_at,
+    )
+    if payload is None:
+        raise HTTPException(status_code=400, detail="生词不能为空，或生词本已达上限")
+    return payload
+
+
+@router.delete("/words/{word}", summary="删除生词")
+async def english_remove_word(
+    word: str,
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await words.remove_word(db, user.id, word)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -737,6 +802,67 @@ async def english_stream_media(
     # (logins failed after busy_timeout with "database is locked").
     await db.rollback()
     return stream.stream_file(path, request)
+
+
+# ── Compatible stream (AV1/Opus → H.264/AAC) ─────────────────────────────
+#
+# The library is AV1 + Opus. Desktop Chromium decodes AV1 in software, Android
+# WebView usually cannot — the phone showed a garbled picture ("花屏") or sound
+# with no video. These three routes let the client detect that, ask for a
+# one-off transcode, follow its progress, and then stream the cached result.
+
+
+@stream_router.get("/stream/media/{lesson_id}/compat/status", summary="兼容视频状态")
+@alias_router.get("/media/{lesson_id}/compat/status", summary="兼容视频状态（别名）")
+async def english_compat_status(
+    lesson_id: int,
+    user: StreamUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    lesson = await _load_lesson(db, lesson_id)
+    path = _guarded(lesson.file_path)
+    await db.rollback()
+    return await compat.status(lesson_id, path)
+
+
+@stream_router.post("/stream/media/{lesson_id}/compat", summary="开始生成兼容视频")
+@alias_router.post("/media/{lesson_id}/compat", summary="开始生成兼容视频（别名）")
+async def english_compat_start(
+    lesson_id: int,
+    user: StreamUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    lesson = await _load_lesson(db, lesson_id)
+    path = _guarded(lesson.file_path)
+    await db.rollback()
+    return await compat.start(lesson_id, path)
+
+
+@stream_router.get("/stream/media/{lesson_id}/compat", summary="兼容视频流（H.264/AAC）")
+@alias_router.get("/media/{lesson_id}/compat", summary="兼容视频流（别名）")
+async def english_compat_stream(
+    lesson_id: int,
+    request: Request,
+    user: StreamUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    lesson = await _load_lesson(db, lesson_id)
+    path = _guarded(lesson.file_path)
+    await db.rollback()
+
+    payload = await compat.status(lesson_id, path)
+    if payload["state"] != "ready":
+        # 409 (not 404): the source exists, the fallback simply is not built yet.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "compat_not_ready",
+                "state": payload["state"],
+                "progress": payload["progress"],
+                "error": payload["error"],
+            },
+        )
+    return stream.stream_file(compat.cache_path(lesson_id), request)
 
 
 @stream_router.get("/stream/subtitle/{lesson_id}", summary="字幕原文")

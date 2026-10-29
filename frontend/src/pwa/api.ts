@@ -151,6 +151,8 @@ export interface WordEntry {
   source: string;
   cached?: boolean;
   context_meaning?: string;
+  /** Chinese translation of the whole subtitle line the word was tapped in. */
+  sentence_translation?: string;
   context_status?: 'complete' | 'unavailable';
   phrases?: Array<{ phrase: string; meaning: string; explanation: string }>;
 }
@@ -201,6 +203,46 @@ export const apiPost = {
   word: (word: string, sentence?: string, lesson_id?: number) =>
     api.post<WordEntry>('/english/word', { word, sentence, lesson_id }, { timeout: 90000 }).then((r) => r.data),
 };
+
+export interface CompatInfo {
+  lesson_id: number;
+  video_codec: string;
+  audio_codec: string;
+  duration: number;
+  needs_transcode: boolean;
+  tools_available: boolean;
+  state: 'not-needed' | 'idle' | 'running' | 'ready' | 'failed' | 'unavailable';
+  progress: number;
+  error: string;
+}
+
+/**
+ * Ask the server for an H.264/AAC version of a lesson.
+ *
+ * These routes live under `/api/media/...`, i.e. outside the axios `baseURL`
+ * (`/api/v1`), and they authenticate with `?token=` — the same rule a
+ * `<video src>` already follows — so they are fetched directly.
+ *
+ * Why it exists: the library is AV1 video + Opus audio. Desktop Chromium decodes
+ * AV1 in software, Android WebView usually cannot, and the phone showed a
+ * garbled picture ("花屏") or sound with no video.
+ */
+export async function compatStatus(lessonId: number): Promise<CompatInfo> {
+  const url = withToken(`/api/media/${lessonId}/compat/status`);
+  if (!url) throw new Error('缺少登录令牌');
+  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!response.ok) throw new Error(`兼容视频状态查询失败（HTTP ${response.status}）`);
+  return (await response.json()) as CompatInfo;
+}
+
+/** Start (or join) the server-side transcode for one lesson. */
+export async function compatStart(lessonId: number): Promise<CompatInfo> {
+  const url = withToken(`/api/media/${lessonId}/compat`);
+  if (!url) throw new Error('缺少登录令牌');
+  const response = await fetch(url, { method: 'POST' });
+  if (!response.ok) throw new Error(`无法开始生成兼容视频（HTTP ${response.status}）`);
+  return (await response.json()) as CompatInfo;
+}
 
 /** Format seconds as `m:ss` (or `h:mm:ss` past an hour). */
 export function fmtTime(seconds: number | null | undefined): string {

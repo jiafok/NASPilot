@@ -65,31 +65,73 @@ export type ProbeResult =
  * the real status, so the UI can say *which* one is wrong instead of a generic
  * "连接失败" that sends the user hunting for the wrong problem.
  */
+/** Per-attempt ceiling. Was 10s, which a slow reverse proxy exceeds. */
+const PROBE_TIMEOUT_MS = 15000;
+/** One retry: a proxy hiccup (522, a dropped tunnel) is genuinely transient. */
+const PROBE_ATTEMPTS = 2;
+
+/** Statuses a reverse proxy returns when it cannot reach the origin at all. */
+const GATEWAY_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524]);
+
+/** True when the address answered, but the proxy could not reach the NAS. */
+export function isGatewayStatus(status: number): boolean {
+  return GATEWAY_STATUSES.has(status);
+}
+
 export async function probeServer(address: string): Promise<{ native: ProbeResult; browser: ProbeResult }> {
   const url = `${address}/api/v1/membership/catalog`;
   return { native: await probeNative(url), browser: await probeBrowser(url) };
 }
 
+/**
+ * Retry a probe before believing it.
+ *
+ * Measured on the user's HTTPS host, the same URL returned 200/0.7s, 200/4.7s,
+ * HTTP 522 (Cloudflare could not reach the origin) and one 30s timeout within
+ * six requests. Reporting failure from a single attempt made a working server
+ * look broken.
+ */
 async function probeNative(url: string): Promise<ProbeResult> {
   if (!isNativeApp()) return { state: 'unreachable', reason: 'web' };
-  try {
-    const response = await CapacitorHttp.request({ url, method: 'GET', connectTimeout: 10000, readTimeout: 10000 });
-    const status = response.status;
-    return status >= 200 && status < 300 ? { state: 'ok', status } : { state: 'http-error', status };
-  } catch (reason) {
-    return { state: 'unreachable', reason: reason instanceof Error ? reason.message : 'network' };
+  let last: ProbeResult = { state: 'unreachable', reason: 'network' };
+  for (let attempt = 0; attempt < PROBE_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await CapacitorHttp.request({
+        url,
+        method: 'GET',
+        connectTimeout: PROBE_TIMEOUT_MS,
+        readTimeout: PROBE_TIMEOUT_MS,
+      });
+      const status = response.status;
+      if (status >= 200 && status < 300) return { state: 'ok', status };
+      last = { state: 'http-error', status };
+      // A gateway error means "the tunnel dropped", not "wrong address": retry.
+      if (!isGatewayStatus(status)) return last;
+    } catch (reason) {
+      last = { state: 'unreachable', reason: reason instanceof Error ? reason.message : 'network' };
+    }
   }
+  return last;
 }
 
 async function probeBrowser(url: string): Promise<ProbeResult> {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 10000);
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    return response.ok ? { state: 'ok', status: response.status } : { state: 'http-error', status: response.status };
-  } catch (reason) {
-    return { state: 'unreachable', reason: reason instanceof Error && reason.name === 'AbortError' ? 'timeout' : 'blocked' };
-  } finally {
-    window.clearTimeout(timeout);
+  let last: ProbeResult = { state: 'unreachable', reason: 'blocked' };
+  for (let attempt = 0; attempt < PROBE_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (response.ok) return { state: 'ok', status: response.status };
+      last = { state: 'http-error', status: response.status };
+      if (!isGatewayStatus(response.status)) return last;
+    } catch (reason) {
+      last = {
+        state: 'unreachable',
+        reason: reason instanceof Error && reason.name === 'AbortError' ? 'timeout' : 'blocked',
+      };
+    } finally {
+      window.clearTimeout(timeout);
+    }
   }
+  return last;
 }

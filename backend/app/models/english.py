@@ -265,6 +265,41 @@ class EnglishWordLookup(TimestampMixin, Base):
     source: Mapped[str] = mapped_column(String(16), default="ai", server_default="ai")
     hits: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
+class EnglishSavedWord(TimestampMixin, Base):
+    """Per-user saved word book (生词本).
+
+    The client used to keep this list in ``localStorage``, so the same account
+    had a different word book on every device. One row per user x word; the
+    ``word`` column holds the normalised (lowercased) key while ``display``
+    keeps the spelling the learner actually tapped.
+    """
+
+    __tablename__ = "saved_words"
+    __table_args__ = (
+        UniqueConstraint("user_id", "word", name="uq_saved_words_user_word"),
+        Index("ix_saved_words_user_added", "user_id", "added_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    #: Normalised (collapsed whitespace + lowercase) dedupe key.
+    word: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: Original surface form, so the list shows the learner's capitalisation.
+    display: Mapped[str | None] = mapped_column(String(64))
+    phonetic: Mapped[str | None] = mapped_column(String(128))
+    meaning: Mapped[str | None] = mapped_column(Text)
+    lesson_id: Mapped[int | None] = mapped_column(
+        ForeignKey("lessons.id", ondelete="SET NULL"), index=True
+    )
+    #: The subtitle line the word was tapped in.
+    sentence: Mapped[str | None] = mapped_column(Text)
+    #: Extra example sentences (JSON array of strings).
+    examples: Mapped[list[str] | None] = mapped_column(JSON, default=list)
+    #: Epoch milliseconds - an integer avoids every SQLite timezone ambiguity.
+    added_at: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+
 
 __all__ = [
     "EnglishBookmark",
@@ -273,6 +308,7 @@ __all__ = [
     "EnglishFavorite",
     "EnglishLesson",
     "EnglishProgress",
+    "EnglishSavedWord",
     "EnglishTranscript",
     "EnglishVocabulary",
     "EnglishWordLookup",

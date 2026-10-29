@@ -291,6 +291,7 @@ from app.models.english import (  # noqa: E402,F401
     EnglishFavorite,
     EnglishLesson,
     EnglishProgress,
+    EnglishSavedWord,
     EnglishTranscript,
     EnglishVocabulary,
     EnglishWordLookup,

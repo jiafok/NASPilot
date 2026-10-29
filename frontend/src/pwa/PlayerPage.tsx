@@ -5,6 +5,9 @@ import {
   errText,
   fmtTime,
   withToken,
+  compatStart,
+  compatStatus,
+  type CompatInfo,
   type LessonDetail,
   type Segment,
   type WordEntry,
@@ -25,8 +28,16 @@ import {
   IconSpeed,
   IconStar,
 } from './components';
-import { hasWord, saveWord } from './wordStore';
+import { hasWord, listWords, saveWord } from './wordStore';
+import { speak } from '../utils/speech';
+import {
+  backgroundPlaybackState,
+  hasBackgroundPlayback,
+  startBackgroundPlayback,
+  stopBackgroundPlayback,
+} from '../utils/backgroundAudio';
 import { ArrowUpOutlined } from '@ant-design/icons';
+import { App as CapacitorApp } from '@capacitor/app';
 
 /**
  * Cue index for a playback position.
@@ -160,6 +171,10 @@ export default function PlayerPage({ lessonId, minimized, onClose, onExpand, onS
   const [follow, setFollow] = useState(true);
   const [showReturnTop, setShowReturnTop] = useState(false);
   const [stalled, setStalled] = useState(false);
+  // AV1/Opus fallback: `compat` is the server's transcode progress, `compatSrc`
+  // replaces `lesson.stream_url` once the H.264/AAC version exists.
+  const [compat, setCompat] = useState<CompatInfo | null>(null);
+  const [compatSrc, setCompatSrc] = useState<string | null>(null);
 
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const subsRef = useRef<HTMLDivElement | null>(null);
@@ -173,6 +188,20 @@ export default function PlayerPage({ lessonId, minimized, onClose, onExpand, onS
   const lastScrollTopRef = useRef(0);
   const hideTimerRef = useRef<number | null>(null);
   const touchRef = useRef<{ x: number; y: number } | null>(null);
+  const pendingSeekRef = useRef<number | null>(null);
+  const compatPollRef = useRef<number | null>(null);
+  // Background playback handover: while the native service owns the audio the
+  // WebView engine is paused, and this remembers where to pick up.
+  const handoverRef = useRef<{ active: boolean; positionMs: number; wasPlaying: boolean }>({
+    active: false,
+    positionMs: 0,
+    wasPlaying: false,
+  });
+  const latestRef = useRef<{ lesson: LessonDetail | null; compatSrc: string | null; playing: boolean }>({
+    lesson: null,
+    compatSrc: null,
+    playing: false,
+  });
 
   // ── load ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -271,6 +300,200 @@ export default function PlayerPage({ lessonId, minimized, onClose, onExpand, onS
   // `error` event. Saying so is far better than an apparently frozen player the
   // user blames on the app.
   const stallTimerRef = useRef<number | null>(null);
+
+  // ── background playback ───────────────────────────────────────────────
+  // Android suspends a WebView (and its media) as soon as the app leaves the
+  // foreground, so pressing Home stopped the lesson. `MainActivity` fires
+  // `efAppPausing` from `onPause` — while the app still counts as visible, so
+  // the foreground service is allowed to start — and `efAppResumed` on return.
+  useEffect(() => {
+    latestRef.current = { lesson, compatSrc, playing };
+  }, [lesson, compatSrc, playing]);
+
+  useEffect(() => {
+    if (!hasBackgroundPlayback()) return;
+
+    const onPausing = () => {
+      const media = mediaRef.current;
+      const current = latestRef.current;
+      if (!media || media.paused || !current.lesson) return;
+      const url = current.compatSrc ?? withToken(current.lesson.stream_url);
+      if (!url) return;
+
+      const positionMs = Math.round(media.currentTime * 1000);
+      handoverRef.current = { active: true, positionMs, wasPlaying: true };
+      void startBackgroundPlayback({
+        url,
+        title: current.lesson.title,
+        positionMs,
+      }).then((started) => {
+        if (!started) {
+          // Service refused (battery saver / no permission): keep the WebView
+          // engine, which is exactly the old behaviour — not a regression.
+          handoverRef.current = { active: false, positionMs: 0, wasPlaying: false };
+          return;
+        }
+        // Pause the WebView engine so the two players are never audible at once.
+        media.pause();
+      });
+    };
+
+    const onResumed = () => {
+      const handover = handoverRef.current;
+      if (!handover.active) return;
+      void backgroundPlaybackState()
+        .then((state) => stopBackgroundPlayback().then(() => state))
+        .then((state) => {
+          handoverRef.current = { active: false, positionMs: 0, wasPlaying: false };
+          const media = mediaRef.current;
+          if (!media) return;
+
+          if (state.ended) {
+            media.currentTime = 0;
+            setPosition(0);
+            reportRef.current({ completed: true });
+            return;
+          }
+
+          // `active` is false when the user stopped playback from the
+          // notification (or the service was recycled): honour that, and come
+          // back paused where the handover left off instead of auto-resuming.
+          const atMs = state.active && state.position > 0 ? state.position : handover.positionMs;
+          const at = atMs / 1000;
+          // Credit the time listened while the screen was off, so a normal
+          // background session still counts towards the lesson statistics.
+          listenedRef.current += Math.max(0, (atMs - handover.positionMs) / 1000);
+          lastTickRef.current = at;
+          if (at > 0 && Math.abs(media.currentTime - at) > 0.5) media.currentTime = at;
+          setPosition(at);
+          if (state.error) setStalled(false);
+          const shouldResume = state.active ? state.playing : false;
+          if (shouldResume) void media.play().catch(() => undefined);
+        })
+        .catch(() => {
+          handoverRef.current = { active: false, positionMs: 0, wasPlaying: false };
+        });
+    };
+
+    // `onPause` can fire more than once around a permission dialog, and the
+    // appStateChange fallback lands in the same window: start the service once.
+    let pausing = false;
+    const guardedPausing = () => {
+      if (pausing) return;
+      pausing = true;
+      onPausing();
+      window.setTimeout(() => {
+        pausing = false;
+      }, 1500);
+    };
+
+    window.addEventListener('efAppPausing', guardedPausing);
+    window.addEventListener('efAppResumed', onResumed);
+
+    // Second trigger: Capacitor reports the same transition at `onStop`. It is
+    // later than `onPause`, so a foreground service may be refused there — the
+    // plugin then reports failure and the WebView engine simply keeps playing,
+    // which is the pre-existing behaviour rather than a regression.
+    let appStateHandle: { remove: () => Promise<void> } | null = null;
+    void CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) onResumed();
+      else guardedPausing();
+    }).then((handle) => {
+      appStateHandle = handle;
+    });
+
+    return () => {
+      window.removeEventListener('efAppPausing', guardedPausing);
+      window.removeEventListener('efAppResumed', onResumed);
+      void appStateHandle?.remove();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Swap in the server's H.264/AAC version, keeping the playhead. */
+  const applyCompat = () => {
+    if (!lesson) return;
+    const at = mediaRef.current?.currentTime ?? 0;
+    pendingSeekRef.current = at > 0 ? at : null;
+    setCompatSrc(withToken(`/api/media/${lesson.id}/compat`) ?? null);
+    setStalled(false);
+  };
+
+  /**
+   * Rescue an undecodable lesson.
+   *
+   * Android WebView cannot decode the library's AV1 video (and often not Opus
+   * in MP4 either) — that is the garbled picture. The server can transcode once
+   * and cache it, so ask, follow the progress, then swap the source.
+   *
+   * Failure is deliberately silent: this is a rescue path, and the existing
+   * stall notice already explains the situation when it does not work.
+   */
+  const ensureCompat = async () => {
+    if (!lesson || compatSrc || compatPollRef.current) return;
+    try {
+      let info = await compatStatus(lesson.id);
+      setCompat(info);
+      if (!info.needs_transcode) return;
+      if (info.state === 'idle' || info.state === 'failed') {
+        info = await compatStart(lesson.id);
+        setCompat(info);
+      }
+      if (info.state === 'ready') {
+        applyCompat();
+        return;
+      }
+      if (info.state === 'unavailable') return;
+      compatPollRef.current = window.setInterval(() => {
+        compatStatus(lesson.id)
+          .then((next) => {
+            setCompat(next);
+            if (next.state === 'ready') {
+              if (compatPollRef.current) window.clearInterval(compatPollRef.current);
+              compatPollRef.current = null;
+              applyCompat();
+            } else if (next.state === 'failed' || next.state === 'unavailable') {
+              if (compatPollRef.current) window.clearInterval(compatPollRef.current);
+              compatPollRef.current = null;
+            }
+          })
+          .catch(() => undefined);
+      }, 3000);
+    } catch {
+      // Keep the player as it is; the stall notice still explains the failure.
+    }
+  };
+
+  // A different lesson must not inherit the previous one's fallback stream.
+  useEffect(() => {
+    // Hydrate the saved-word index (and upload anything the old build left in
+    // localStorage) so the word card shows "已添加" for words already kept on
+    // another device. Fire-and-forget: the card works without it.
+    void listWords().catch(() => undefined);
+  }, [lessonId]);
+
+  useEffect(() => {
+    setCompat(null);
+    setCompatSrc(null);
+    setStalled(false);
+    if (compatPollRef.current) window.clearInterval(compatPollRef.current);
+    compatPollRef.current = null;
+  }, [lessonId]);
+
+  useEffect(
+    () => () => {
+      if (compatPollRef.current) window.clearInterval(compatPollRef.current);
+      compatPollRef.current = null;
+      // Closing the player must not leave a notification playing audio that has
+      // no UI to control it.
+      if (handoverRef.current.active) {
+        handoverRef.current = { active: false, positionMs: 0, wasPlaying: false };
+        void stopBackgroundPlayback();
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!playing) {
       setStalled(false);
@@ -281,12 +504,16 @@ export default function PlayerPage({ lessonId, minimized, onClose, onExpand, onS
     stallTimerRef.current = window.setTimeout(() => {
       const media = mediaRef.current;
       if (!media) return;
-      if (!media.paused && Math.abs(media.currentTime - startAt) < 0.3) setStalled(true);
+      if (!media.paused && Math.abs(media.currentTime - startAt) < 0.3) {
+        setStalled(true);
+        void ensureCompat();
+      }
     }, 6000);
     return () => {
       if (stallTimerRef.current) window.clearTimeout(stallTimerRef.current);
     };
-  }, [playing]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, lesson?.id]);
 
   /**
    * Scroll a cue to the middle of the list.
@@ -609,9 +836,22 @@ export default function PlayerPage({ lessonId, minimized, onClose, onExpand, onS
 
   const mediaProps = {
     ref: mediaRef as never,
-    src: withToken(lesson.stream_url),
+    src: compatSrc ?? withToken(lesson.stream_url),
     onTimeUpdate,
-    onLoadedMetadata: () => setDuration(mediaRef.current?.duration || lesson.duration || 0),
+    onLoadedMetadata: () => {
+      setDuration(mediaRef.current?.duration || lesson.duration || 0);
+      const resumeAt = pendingSeekRef.current;
+      if (resumeAt != null && mediaRef.current) {
+        pendingSeekRef.current = null;
+        mediaRef.current.currentTime = resumeAt;
+        void mediaRef.current.play().catch(() => undefined);
+      }
+    },
+    // A decoder that cannot handle AV1/Opus usually fails here; the stall timer
+    // above catches the silent case where playback simply never advances.
+    onError: () => {
+      void ensureCompat();
+    },
     onPlay: () => setPlaying(true),
     onPause: () => {
       setPlaying(false);
@@ -692,8 +932,14 @@ export default function PlayerPage({ lessonId, minimized, onClose, onExpand, onS
             </div>
           )}
 
-          {stalled && (
-            <div className="ef-stage-note">当前设备无法解码（AV1 / Opus），可换其它课时</div>
+          {(stalled || compat) && (
+            <div className="ef-stage-note">
+              {compat?.state === 'running'
+                ? `正在转换为本机可播放的格式… ${compat.progress}%`
+                : compat?.state === 'failed' || compat?.state === 'unavailable'
+                  ? compat?.error || '当前设备无法解码该视频，可切换到「音频」模式继续听'
+                  : '当前设备无法直接播放该编码，正在准备兼容版本…'}
+            </div>
           )}
 
           {controlsOn && (
@@ -917,6 +1163,9 @@ export function WordSheet({
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [added, setAdded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [speakError, setSpeakError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -1020,19 +1269,38 @@ export function WordSheet({
           </div>
         ) : null}
 
-        {sentence && <div className="ef-word-original"><strong>原文句子</strong><p className="ef-quote">{highlighted}</p></div>}
+        {sentence && (
+          <div className="ef-word-original">
+            <strong>原文句子</strong>
+            <p className="ef-quote">{highlighted}</p>
+            {/* The line's own translation: tapping one word should not leave
+                the learner decoding the rest of the sentence alone. */}
+            {entry?.sentence_translation ? (
+              <p className="ef-quote-translation">{entry.sentence_translation}</p>
+            ) : (
+              !loading && <p className="ef-quote-translation ef-quote-translation--empty">暂无整句翻译</p>
+            )}
+          </div>
+        )}
+
+        {saveError && <div className="ef-notice ef-notice-error">{saveError}</div>}
+        {speakError && <div className="ef-notice ef-notice-error">{speakError}</div>}
 
         <div className="ef-btn-row">
           <button
             type="button"
             className="ef-btn"
             data-kind={added ? 'ghost' : 'primary'}
-            disabled={loading || Boolean(error) || added}
+            disabled={loading || Boolean(error) || added || saving}
             onClick={() => {
               if (!entry || hasWord(selectedWord)) {
                 setAdded(true);
                 return;
               }
+              // The word book lives on the server, so this can fail: keep the
+              // button honest instead of claiming "已添加" on a dropped write.
+              setSaving(true);
+              setSaveError('');
               saveWord({
                 word: selectedWord,
                 phonetic: entry.phonetic,
@@ -1040,27 +1308,43 @@ export function WordSheet({
                 examples: (entry.examples?.length ? entry.examples : [entry.example]).filter(Boolean).slice(0, 2),
                 lessonId,
                 sentence,
-              });
-              setAdded(true);
+              })
+                .then(() => setAdded(true))
+                .catch((reason) => setSaveError(errText(reason, '加入生词失败，请检查网络后重试')))
+                .finally(() => setSaving(false));
             }}
           >
-            {added ? '已添加 ✓' : '加入生词'}
+            {saving ? '正在保存…' : added ? '已添加 ✓' : '加入生词'}
           </button>
           <button
             type="button"
             className="ef-btn"
             onClick={() => {
-              // Falls back to the device voice when no pronunciation audio
-              // exists: zero backend cost and works offline.
-              if ('speechSynthesis' in window) {
-                const utterance = new SpeechSynthesisUtterance(selectedWord);
-                utterance.lang = 'en-US';
-                window.speechSynthesis.speak(utterance);
-              }
+              // Goes through utils/speech.ts: Android WebView has no
+              // `speechSynthesis` at all, so the old call was a silent no-op on
+              // the phone. Failures are now reported instead of swallowed.
+              setSpeakError('');
+              void speak(selectedWord).then((result) => {
+                if (!result.ok) setSpeakError(result.message);
+              });
             }}
           >
             朗读
           </button>
+          {sentence && (
+            <button
+              type="button"
+              className="ef-btn"
+              onClick={() => {
+                setSpeakError('');
+                void speak(sentence).then((result) => {
+                  if (!result.ok) setSpeakError(result.message);
+                });
+              }}
+            >
+              读整句
+            </button>
+          )}
         </div>
       </div>
     </div>
