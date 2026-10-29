@@ -124,6 +124,16 @@ async def init_db() -> None:
             ("features", "JSON"),
         ):
             await _add_column_if_missing(table, column, ddl)
+    for column, ddl in (
+        ("repeat_target", "INTEGER NOT NULL DEFAULT 1"),
+        ("completed_plays", "INTEGER NOT NULL DEFAULT 0"),
+    ):
+        added = await _add_column_if_missing("user_progress", column, ddl)
+        if column == "completed_plays" and added:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text("UPDATE user_progress SET completed_plays=1 WHERE completed=1 AND completed_plays=0")
+                )
     # Media Download Center — task metadata snapshot columns
     for column, ddl in (
         ("channel_name", "VARCHAR(255)"),

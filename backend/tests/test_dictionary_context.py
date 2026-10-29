@@ -23,6 +23,7 @@ class DictionaryContextTests(unittest.IsolatedAsyncioTestCase):
     async def test_context_cache_and_phrase_validation(self):
         answer = json.dumps({
             "senses": [{"pos": "v.", "meaning": "期待"}],
+            "examples": ["I look forward to spring. 我期待春天。", "We look forward to seeing you. 我们期待见到你。"],
             "context_meaning": "这里表示期待，而不是朝前看。",
             "phrases": [
                 {"phrase": "look forward to", "meaning": "期待", "explanation": "to 后接名词或动名词。"},
@@ -33,8 +34,10 @@ class DictionaryContextTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(dictionary.ai_service, "ask", AsyncMock(return_value=answer)) as ask:
             first = await dictionary.lookup(self.db, "look", sentence="I look forward to meeting you.")
             self.assertEqual([item["phrase"] for item in first["phrases"]], ["look forward to"])
+            self.assertEqual(len(first["examples"]), 2)
             repeated = await dictionary.lookup(self.db, "look", sentence="I look forward to meeting you.")
             self.assertTrue(repeated["cached"])
+            self.assertEqual(repeated["examples"], first["examples"])
             self.assertEqual(ask.await_count, 1)
             other = await dictionary.lookup(self.db, "look", sentence="Look at the sky.")
             self.assertEqual(other["phrases"], [])
@@ -57,6 +60,16 @@ class DictionaryContextTests(unittest.IsolatedAsyncioTestCase):
             entry = await dictionary.lookup(self.db, "really", sentence="I really miss you.")
         self.assertEqual(entry["context_status"], "unavailable")
         self.assertTrue(entry["senses"])
+
+    async def test_legacy_single_example_is_exposed_as_examples_list(self):
+        self.db.add(EnglishWordLookup(
+            word="legacyword",
+            payload={"word": "legacyword", "senses": [{"pos": "n.", "meaning": "旧词"}], "example": "A legacy example. 旧例句。"},
+            source="ai",
+        ))
+        await self.db.commit()
+        entry = await dictionary.lookup(self.db, "legacyword", use_ai=False)
+        self.assertEqual(entry["examples"], ["A legacy example. 旧例句。"])
 
 
 if __name__ == "__main__":

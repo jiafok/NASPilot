@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import './pwa.css';
 import { TabBar, type TabKey } from './components';
 import HomePage from './HomePage';
@@ -24,6 +24,7 @@ export default function MobileApp() {
   const [tab, setTab] = useState<TabKey>(() => (location.hash.replace('#', '') as TabKey) || 'home');
   const [courseId, setCourseId] = useState<number | null>(null);
   const [lessonId, setLessonId] = useState<number | null>(null);
+  const [playerMinimized, setPlayerMinimized] = useState(false);
   const [subPage, setSubPage] = useState<SubPage>(null);
   const [lastLesson, setLastLesson] = useState<number | null>(() => recallLesson());
 
@@ -43,6 +44,7 @@ export default function MobileApp() {
 
   const openLesson = useCallback((id: number) => {
     setLessonId(id);
+    setPlayerMinimized(false);
     rememberLesson(id);
     setLastLesson(id);
   }, []);
@@ -56,7 +58,11 @@ export default function MobileApp() {
   useEffect(() => {
     const onPop = () => {
       if (lessonId) {
-        setLessonId(null);
+        if (playerMinimized) {
+          setLessonId(null);
+          return;
+        }
+        setPlayerMinimized(true);
         return;
       }
       if (courseId) {
@@ -67,88 +73,35 @@ export default function MobileApp() {
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [lessonId, courseId, subPage]);
+  }, [lessonId, playerMinimized, courseId, subPage]);
 
-  if (lessonId) {
-    return (
-      <PlayerPage
-        lessonId={lessonId}
-        onClose={() => {
-          setLessonId(null);
-          setLastLesson(lessonId);
-        }}
-        onOpenLesson={(id) => {
-          setLessonId(id);
-          rememberLesson(id);
-          setLastLesson(id);
-        }}
-      />
-    );
-  }
-
-  if (subPage === 'stats') {
-    return (
-      <div className="ef-app">
-        <StatsPage onBack={() => setSubPage(null)} />
-      </div>
-    );
-  }
-  if (subPage === 'words') {
-    return (
-      <div className="ef-app">
-        <WordsPage onBack={() => setSubPage(null)} />
-      </div>
-    );
-  }
-  if (subPage === 'favorites') {
-    return (
-      <div className="ef-app">
-        <FavoritesPage onBack={() => setSubPage(null)} onOpenCourse={openCourse} />
-      </div>
-    );
-  }
-
-  if (courseId) {
-    return (
-      <div className="ef-app">
-        <CoursePage
-          courseId={courseId}
-          onBack={() => setCourseId(null)}
-          onOpenLesson={openLesson}
-        />
-      </div>
-    );
-  }
+  let page: ReactNode;
+  if (subPage === 'stats') page = <StatsPage onBack={() => setSubPage(null)} />;
+  else if (subPage === 'words') page = <WordsPage onBack={() => setSubPage(null)} />;
+  else if (subPage === 'favorites') page = <FavoritesPage onBack={() => setSubPage(null)} onOpenCourse={openCourse} />;
+  else if (courseId) page = <CoursePage courseId={courseId} onBack={() => setCourseId(null)} onOpenLesson={openLesson} />;
+  else if (tab === 'home') page = <HomePage onOpenLesson={openLesson} onOpenCourse={openCourse} onGoDiscover={() => changeTab('discover')} onGoMe={() => changeTab('me')} />;
+  else if (tab === 'discover') page = <DiscoverPage onOpenCourse={openCourse} />;
+  else if (tab === 'learn') page = <LearnPage onOpenLesson={openLesson} onGoDiscover={() => changeTab('discover')} />;
+  else if (tab === 'ai') page = <AiPage lessonId={lastLesson} onOpenLesson={openLesson} />;
+  else page = <MePage onOpenCourse={openCourse} onOpenStats={() => setSubPage('stats')} onOpenWords={() => setSubPage('words')} onOpenFavorites={() => setSubPage('favorites')} />;
 
   return (
-    <div className="ef-app">
-      {tab === 'home' && (
-        <HomePage
-          onOpenLesson={openLesson}
-          onOpenCourse={openCourse}
-          onGoDiscover={() => changeTab('discover')}
-          onGoMe={() => changeTab('me')}
+    <>
+      <div className="ef-app" data-mini-player={Boolean(lessonId && playerMinimized)}>
+        {page}
+        <TabBar active={tab} onChange={changeTab} />
+      </div>
+      {lessonId !== null && (
+        <PlayerPage
+          lessonId={lessonId}
+          minimized={playerMinimized}
+          onClose={() => { setPlayerMinimized(true); window.dispatchEvent(new Event('english-progress-updated')); }}
+          onExpand={() => setPlayerMinimized(false)}
+          onStop={() => { setLessonId(null); setPlayerMinimized(false); }}
+          onOpenLesson={(id) => { setLessonId(id); setPlayerMinimized(false); rememberLesson(id); setLastLesson(id); }}
         />
       )}
-      {tab === 'discover' && <DiscoverPage onOpenCourse={openCourse} />}
-      {tab === 'learn' && (
-        <LearnPage
-          onOpenLesson={openLesson}
-          onOpenCourse={openCourse}
-          onGoDiscover={() => changeTab('discover')}
-        />
-      )}
-      {tab === 'ai' && <AiPage lessonId={lastLesson} onOpenLesson={openLesson} />}
-      {tab === 'me' && (
-        <MePage
-          onOpenCourse={openCourse}
-          onOpenStats={() => setSubPage('stats')}
-          onOpenWords={() => setSubPage('words')}
-          onOpenFavorites={() => setSubPage('favorites')}
-        />
-      )}
-
-      <TabBar active={tab} onChange={changeTab} />
-    </div>
+    </>
   );
 }

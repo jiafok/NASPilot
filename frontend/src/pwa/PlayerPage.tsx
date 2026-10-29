@@ -25,6 +25,8 @@ import {
   IconSpeed,
   IconStar,
 } from './components';
+import { hasWord, saveWord } from './wordStore';
+import { ArrowUpOutlined } from '@ant-design/icons';
 
 /**
  * Cue index for a playback position.
@@ -98,7 +100,10 @@ class SubtitleSync {
 
 interface Props {
   lessonId: number;
+  minimized: boolean;
   onClose: () => void;
+  onExpand: () => void;
+  onStop: () => void;
   /** Continue to another lesson without leaving the player. */
   onOpenLesson: (lessonId: number) => void;
 }
@@ -132,7 +137,7 @@ export function swipeDirection(dx: number, dy: number): 'next' | 'prev' | null {
   return dx < 0 ? 'next' : 'prev';
 }
 
-export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
+export default function PlayerPage({ lessonId, minimized, onClose, onExpand, onStop, onOpenLesson }: Props) {
   const [lesson, setLesson] = useState<LessonDetail | null>(null);
   const [cues, setCues] = useState<Segment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,6 +145,8 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [repeatTarget, setRepeatTarget] = useState(1);
+  const [completedPlays, setCompletedPlays] = useState(0);
   const [active, setActive] = useState(-1);
   const [speed, setSpeed] = useState(1);
   // The caption in the picture and the transcript list are separate switches:
@@ -151,6 +158,7 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('normal');
   const [wordSheet, setWordSheet] = useState<{ word: string; sentence: string } | null>(null);
   const [follow, setFollow] = useState(true);
+  const [showReturnTop, setShowReturnTop] = useState(false);
   const [stalled, setStalled] = useState(false);
 
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
@@ -162,6 +170,7 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
   const lastTickRef = useRef(0);
   const followTimerRef = useRef<number | null>(null);
   const autoScrollAtRef = useRef(0);
+  const lastScrollTopRef = useRef(0);
   const hideTimerRef = useRef<number | null>(null);
   const touchRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -179,6 +188,8 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
         if (cancelled) return;
         setLesson(detail);
         setDuration(detail.duration || 0);
+        setRepeatTarget(detail.progress.repeat_target || 1);
+        setCompletedPlays(detail.progress.completed_plays || 0);
         if (detail.has_subtitle) {
           const tr = await apiGet.transcript(lessonId);
           if (cancelled) return;
@@ -205,26 +216,33 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
   // Reported on a fixed cadence plus on pause/exit. The backend accumulates
   // `listen_seconds`, so each call sends the delta since the previous one.
   const report = useCallback(
-    (options: { completed?: boolean } = {}) => {
+    (options: { completed?: boolean; repeatTarget?: number } = {}) => {
       if (!lesson) return;
       const media = mediaRef.current;
       const current = media?.currentTime ?? position;
       const delta = Math.max(0, Math.round(listenedRef.current));
-      if (!delta && options.completed === undefined) return;
+      if (!delta && options.completed === undefined && options.repeatTarget === undefined) return;
       listenedRef.current = 0;
       void apiPost
         .progress({
           lesson_id: lesson.id,
           position: Math.round(current * 10) / 10,
           listen_seconds: delta,
+          repeat_target: options.repeatTarget ?? repeatTarget,
           ...(options.completed === undefined ? {} : { completed: options.completed }),
+        })
+        .then(({ data }) => {
+          if (data.completed_plays != null) setCompletedPlays(data.completed_plays);
+          if (options.completed !== undefined || options.repeatTarget !== undefined) {
+            window.dispatchEvent(new Event('english-progress-updated'));
+          }
         })
         .catch(() => {
           // Never interrupt playback for a failed heartbeat.
           listenedRef.current += delta;
         });
     },
-    [lesson, position],
+    [lesson, position, repeatTarget],
   );
 
   const reportRef = useRef(report);
@@ -328,8 +346,27 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
     if (Date.now() - autoScrollAtRef.current < 700) return;
     setFollow(false);
     if (followTimerRef.current) window.clearTimeout(followTimerRef.current);
-    followTimerRef.current = window.setTimeout(() => setFollow(true), 3000);
-  }, []);
+    if (playing) followTimerRef.current = window.setTimeout(() => setFollow(true), 3000);
+  }, [playing]);
+
+  const onSubtitleScroll = useCallback(() => {
+    const container = subsRef.current;
+    if (!container) return;
+    const nextTop = container.scrollTop;
+    if (Date.now() - autoScrollAtRef.current >= 700 && Math.abs(nextTop - lastScrollTopRef.current) > 2) {
+      setShowReturnTop(nextTop < lastScrollTopRef.current);
+      pauseFollow();
+    }
+    lastScrollTopRef.current = nextTop;
+  }, [pauseFollow]);
+
+  useEffect(() => {
+    if (playing) {
+      setFollow(true);
+      return;
+    }
+    if (followTimerRef.current) window.clearTimeout(followTimerRef.current);
+  }, [playing]);
 
   /**
    * Seek and highlight in the same tick.
@@ -358,12 +395,15 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
     [duration],
   );
 
-  const seekTo = useCallback(
-    (cue: Segment) => {
+  const selectCue = useCallback((cue: Segment, index: number) => {
+    if (playing) {
       jumpTo(cue.start / 1000, { play: true });
-    },
-    [jumpTo],
-  );
+      return;
+    }
+    setActive(index);
+    setFollow(false);
+    centreCue(index, 'smooth');
+  }, [centreCue, jumpTo, playing]);
 
   const togglePlay = useCallback(() => {
     const media = mediaRef.current;
@@ -371,6 +411,12 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
     if (media.paused) void media.play().catch(() => undefined);
     else media.pause();
   }, []);
+
+  const stopPlayback = useCallback(() => {
+    mediaRef.current?.pause();
+    report();
+    onStop();
+  }, [onStop, report]);
 
   const skip = useCallback(
     (seconds: number) => {
@@ -451,6 +497,7 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
   // `touchstart` can stay passive (smooth scrolling), and there is no timing
   // dependency on when the player element appears.
   useEffect(() => {
+    if (minimized) return;
     const ignored = (target: EventTarget | null) => {
       // A sheet (word card) or a dialog owns its own gestures.
       const element = target as HTMLElement | null;
@@ -489,12 +536,13 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
       document.removeEventListener('pointerdown', onPointerDown);
       document.removeEventListener('pointerup', onPointerUp);
     };
-  }, [gestureStart, gestureEnd]);
+  }, [gestureStart, gestureEnd, minimized]);
 
   // Arrow keys do the same thing for a keyboard: the gesture is the only way
   // to change lesson now that the buttons are gone, and a desktop PWA has no
   // touch screen to swipe on.
   useEffect(() => {
+    if (minimized) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
       const target = event.key === 'ArrowRight' ? lesson?.next_lesson_id : lesson?.prev_lesson_id;
@@ -502,7 +550,7 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [lesson, onOpenLesson]);
+  }, [lesson, minimized, onOpenLesson]);
 
   const currentCue = active >= 0 ? cues[active] : null;
 
@@ -516,12 +564,17 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
     });
   }, [cues]);
 
+  const minimizePlayer = useCallback(() => {
+    setWordSheet(null);
+    onClose();
+  }, [onClose]);
+
   if (loading) {
     return (
-      <div className="ef-player">
+      <div className="ef-player" data-minimized={minimized}>
         <div className="ef-player-inner">
           <div className="ef-player-top">
-            <button type="button" className="ef-icon-btn" onClick={onClose} aria-label="返回">
+            <button type="button" className="ef-icon-btn" onClick={minimizePlayer} aria-label="收起播放器">
               <IconBack />
             </button>
           </div>
@@ -535,10 +588,10 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
 
   if (error || !lesson) {
     return (
-      <div className="ef-player">
+      <div className="ef-player" data-minimized={minimized}>
         <div className="ef-player-inner">
           <div className="ef-player-top">
-            <button type="button" className="ef-icon-btn" onClick={onClose} aria-label="返回">
+            <button type="button" className="ef-icon-btn" onClick={minimizePlayer} aria-label="收起播放器">
               <IconBack />
             </button>
           </div>
@@ -571,7 +624,7 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
   };
 
   return (
-    <div className="ef-player">
+    <div className="ef-player" data-minimized={minimized}>
       <div
         className="ef-player-bg"
         style={{ backgroundImage: `url(${withToken(lesson.cover)})` }}
@@ -580,8 +633,17 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
       <div className="ef-player-veil" aria-hidden />
 
       <div className="ef-player-inner">
+        <div className="ef-player-mini-meta" onClick={onExpand} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onExpand(); }}>
+          <strong>{lesson.title}</strong>
+          <span>{playing ? '正在播放' : '已暂停'} · {fmtTime(position)}</span>
+        </div>
+        <div className="ef-player-mini-controls">
+          <button type="button" className="ef-mini-control" onClick={togglePlay} aria-label={playing ? '暂停' : '继续播放'}>{playing ? <IconPause /> : <IconPlay />}</button>
+          <button type="button" className="ef-mini-control" onClick={onExpand} aria-label="展开播放器"><IconExpand /></button>
+          <button type="button" className="ef-mini-control" onClick={stopPlayback} aria-label="停止并关闭播放器"><IconClose /></button>
+        </div>
         <div className="ef-player-top">
-          <button type="button" className="ef-icon-btn" onClick={onClose} aria-label="返回">
+            <button type="button" className="ef-icon-btn" onClick={minimizePlayer} aria-label="收起播放器">
             <IconBack />
           </button>
           <div className="ef-player-head">
@@ -609,7 +671,7 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
         <div
           className={`ef-stage ef-stage--${displayMode}`}
           data-controls={controlsOn}
-          onClick={onStageTap}
+          onClick={minimized ? onExpand : onStageTap}
           role="presentation"
         >
           {lesson.media_type === 'video' ? (
@@ -728,42 +790,50 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
           )}
         </div>
 
-        {listOn && displayMode !== 'max' ? (
-          <div
-            className="ef-subs"
-            ref={subsRef}
-            onScroll={pauseFollow}
-            onTouchStart={pauseFollow}
-            onWheel={pauseFollow}
+        <div className="ef-repeat-control">
+          <label htmlFor="ef-repeat-target">本课完整听完</label>
+          <select
+            id="ef-repeat-target"
+            value={repeatTarget}
+            onChange={(event) => {
+              const target = Number(event.target.value);
+              setRepeatTarget(target);
+              report({ repeatTarget: target });
+            }}
           >
-            {groupedCues.length === 0 ? (
-              <p style={{ color: 'rgba(248,250,252,0.6)', fontSize: 14 }}>
-                这一课没有字幕。仍然可以收听，但无法逐句跟读。
-              </p>
-            ) : (
-              groupedCues.map(({ cue, showSpeaker }, index) => (
-                <div key={cue.i}>
-                  {/* A podcast alternates speakers almost every line, so a
-                      full "说话人 A" label per turn is pure noise. A tinted
-                      monogram carries the same grouping in 16px. */}
-                  {showSpeaker && (
-                    <div className="ef-speaker" data-spk={cue.spk}>
-                      <span className="ef-spk-badge">{cue.spk}</span>
-                    </div>
-                  )}
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    ref={(node) => {
-                      cueRefs.current[index] = node;
-                    }}
-                    className="ef-cue"
-                    data-active={index === active}
-                    onClick={() => seekTo(cue)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') seekTo(cue);
-                    }}
-                  >
+            {[1, 2, 3, 5, 10].map((count) => <option key={count} value={count}>{count} 遍</option>)}
+          </select>
+          <span>{completedPlays}/{repeatTarget}</span>
+        </div>
+
+        {listOn && displayMode !== 'max' ? (
+          <div className="ef-subtitle-area">
+            <div className="ef-subs" ref={subsRef} onScroll={onSubtitleScroll}>
+              {groupedCues.length === 0 ? (
+                <p style={{ color: 'rgba(248,250,252,0.6)', fontSize: 14 }}>
+                  这一课没有字幕。仍然可以收听，但无法逐句跟读。
+                </p>
+              ) : (
+                groupedCues.map(({ cue, showSpeaker }, index) => (
+                  <div key={cue.i}>
+                    {showSpeaker && (
+                      <div className="ef-speaker" data-spk={cue.spk}>
+                        <span className="ef-spk-badge">{cue.spk}</span>
+                      </div>
+                    )}
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      ref={(node) => {
+                        cueRefs.current[index] = node;
+                      }}
+                      className="ef-cue"
+                      data-active={index === active}
+                      onClick={() => selectCue(cue, index)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') selectCue(cue, index);
+                      }}
+                    >
                     {/* Every word is tappable: "查词" used to guess one word
                         for the sentence, so the learner could not look up the
                         word they actually did not know. */}
@@ -791,9 +861,23 @@ export default function PlayerPage({ lessonId, onClose, onOpenLesson }: Props) {
                         <span key={`${cue.i}-s${partIndex}`}>{part}</span>
                       ),
                     )}
+                    </div>
                   </div>
-                </div>
-              ))
+                ))
+              )}
+            </div>
+            {showReturnTop && (
+              <button
+                type="button"
+                className="ef-return-top"
+                onClick={() => {
+                  subsRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                  setShowReturnTop(false);
+                  setFollow(false);
+                }}
+              >
+                <ArrowUpOutlined /> 返回顶部
+              </button>
             )}
           </div>
         ) : (
@@ -839,7 +923,7 @@ export function WordSheet({
     setLoading(true);
     setError('');
     setEntry(null);
-    setAdded(false);
+    setAdded(hasWord(selectedWord));
     apiPost
       .word(selectedWord, sentence, lessonId)
       .then((data) => {
@@ -927,23 +1011,40 @@ export function WordSheet({
           <p className="ef-context-status">本句未识别到包含该词的固定短语或搭配。</p>
         )}
 
-        {!loading && entry?.example && (
-          <p className="ef-quote" style={{ marginTop: 16 }}>
-            {entry.example}
-          </p>
-        )}
+        {!loading && (entry?.examples?.length || entry?.example) ? (
+          <div className="ef-word-examples">
+            <strong>例句</strong>
+            {(entry.examples?.length ? entry.examples : [entry.example]).filter(Boolean).slice(0, 2).map((example, index) => (
+              <p key={index}>{example}</p>
+            ))}
+          </div>
+        ) : null}
 
-        <p className="ef-quote">{highlighted}</p>
+        {sentence && <div className="ef-word-original"><strong>原文句子</strong><p className="ef-quote">{highlighted}</p></div>}
 
         <div className="ef-btn-row">
           <button
             type="button"
             className="ef-btn"
             data-kind={added ? 'ghost' : 'primary'}
-            disabled={loading || Boolean(error)}
-            onClick={() => setAdded(true)}
+            disabled={loading || Boolean(error) || added}
+            onClick={() => {
+              if (!entry || hasWord(selectedWord)) {
+                setAdded(true);
+                return;
+              }
+              saveWord({
+                word: selectedWord,
+                phonetic: entry.phonetic,
+                meaning: entry.context_meaning || entry.senses[0]?.meaning || '',
+                examples: (entry.examples?.length ? entry.examples : [entry.example]).filter(Boolean).slice(0, 2),
+                lessonId,
+                sentence,
+              });
+              setAdded(true);
+            }}
           >
-            {added ? '已加入生词 ✓' : '加入生词'}
+            {added ? '已添加 ✓' : '加入生词'}
           </button>
           <button
             type="button"

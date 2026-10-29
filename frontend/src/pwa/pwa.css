@@ -66,6 +66,10 @@ body {
   padding-bottom: calc(var(--ef-tabbar-h) + var(--ef-safe-bottom) + var(--ef-s4));
 }
 
+.ef-app[data-mini-player='true'] {
+  padding-bottom: calc(var(--ef-tabbar-h) + var(--ef-safe-bottom) + 88px);
+}
+
 .ef-app,
 .ef-player,
 .ef-auth {
@@ -646,6 +650,109 @@ body {
   font-family: 'Avenir Next', 'Trebuchet MS', 'Microsoft YaHei', sans-serif;
 }
 
+.ef-player-mini-meta,
+.ef-player-mini-controls {
+  display: none;
+}
+
+.ef-player[data-minimized='true'] {
+  inset: auto 12px calc(var(--ef-tabbar-h) + var(--ef-safe-bottom) + 8px);
+  height: 68px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: #172a25;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.32);
+  flex-direction: row;
+}
+
+.ef-player[data-minimized='true'] .ef-player-bg,
+.ef-player[data-minimized='true'] .ef-player-veil,
+.ef-player[data-minimized='true'] .ef-player-top,
+.ef-player[data-minimized='true'] .ef-stage,
+.ef-player[data-minimized='true'] .ef-subtitle-area,
+.ef-player[data-minimized='true'] .ef-repeat-control,
+.ef-player[data-minimized='true'] .ef-sheet-mask,
+.ef-player[data-minimized='true'] .ef-player-inner > div[style] {
+  display: none;
+}
+
+.ef-player[data-minimized='true'] .ef-player-inner {
+  width: 100%;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.ef-player[data-minimized='true'] .ef-player-mini-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.ef-player-mini-meta strong,
+.ef-player-mini-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ef-player-mini-meta strong { font-size: 13px; }
+.ef-player-mini-meta span { font-size: 11px; color: rgba(248, 250, 252, 0.66); }
+
+.ef-player[data-minimized='true'] .ef-player-mini-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ef-mini-control {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #f8fafc;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.ef-mini-control svg { width: 21px; height: 21px; }
+
+.ef-repeat-control {
+  flex: none;
+  min-height: 42px;
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: rgba(248, 250, 252, 0.78);
+  font-size: 12px;
+}
+
+.ef-repeat-control select {
+  min-height: 36px;
+  padding: 0 28px 0 10px;
+  border: 1px solid rgba(248, 250, 252, 0.18);
+  border-radius: 8px;
+  background: #172a25;
+  color: #fff;
+  font: inherit;
+}
+
+.ef-repeat-control > span {
+  min-width: 46px;
+  color: #b6e4cc;
+  font-variant-numeric: tabular-nums;
+}
+
 .ef-player-bg {
   position: absolute;
   inset: 0;
@@ -959,6 +1066,32 @@ body {
      a seek asked for `behavior: 'auto'` and still animated (the line being
      read never arrived). The code passes the behaviour it wants per call. */
   scrollbar-width: none;
+}
+
+.ef-subtitle-area {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.ef-subtitle-area .ef-subs { width: 100%; }
+
+.ef-return-top {
+  position: absolute;
+  right: 4px;
+  bottom: calc(18% + 28px);
+  z-index: 2;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgba(248, 250, 252, 0.18);
+  border-radius: 20px;
+  background: rgba(23, 42, 37, 0.94);
+  color: #f8fafc;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
 }
 
 .ef-subs::-webkit-scrollbar {
@@ -1463,6 +1596,16 @@ body {
 .ef-word-delete { color: var(--ef-ink-sub); flex: none; }
 .ef-word-delete:hover { color: var(--ef-danger); background: #fcf0ed; }
 .ef-word-list .ef-row-meta { line-height: 21px; }
+.ef-word-examples,
+.ef-word-original { margin-top: 16px; font-size: 13px; line-height: 21px; }
+.ef-word-examples > strong,
+.ef-word-original > strong { color: var(--ef-ink-sub); font-size: 12px; }
+.ef-word-examples p,
+.ef-word-original p { margin: 6px 0 0; }
+.ef-saved-examples { margin-top: 10px; color: var(--ef-ink-sub); font-size: 12px; }
+.ef-saved-examples summary { min-height: 36px; display: flex; align-items: center; cursor: pointer; }
+.ef-saved-examples p { margin: 4px 0 8px; line-height: 20px; overflow-wrap: anywhere; }
+.ef-saved-examples p strong { display: block; color: var(--ef-ink); font-size: 11px; }
 .ef-home-brand { font-size: 10px; }
 .ef-home-numbers { padding-top: 4px; }
 .ef-title-2 { overflow-wrap: anywhere; }

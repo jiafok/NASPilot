@@ -200,7 +200,7 @@ export function FavoritesPage({
 export function WordsPage({ onBack }: { onBack: () => void }) {
   const [words, setWords] = useState(listWords());
   const [query, setQuery] = useState('');
-  const filtered = words.filter((item) => `${item.word} ${item.meaning}`.toLowerCase().includes(query.toLowerCase()));
+  const filtered = words.filter((item) => `${item.word} ${item.meaning} ${item.sentence || ''} ${(item.examples || []).join(' ')}`.toLowerCase().includes(query.toLowerCase()));
 
   return (
     <div className="ef-page">
@@ -228,6 +228,15 @@ export function WordsPage({ onBack }: { onBack: () => void }) {
                   </span>
                 )}
                 <span className="ef-row-meta">{item.meaning}</span>
+                {(item.examples?.length || item.sentence) && (
+                  <details className="ef-saved-examples">
+                    <summary>查看例句和原文</summary>
+                    {item.examples?.slice(0, 2).map((example, index) => (
+                      <p key={index}><strong>例句 {index + 1}</strong>{example}</p>
+                    ))}
+                    {item.sentence && <p><strong>原文句子</strong>{item.sentence}</p>}
+                  </details>
+                )}
               </span>
               <button
                 type="button"

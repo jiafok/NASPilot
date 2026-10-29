@@ -11,6 +11,7 @@ export interface SavedWord {
   meaning: string;
   lessonId?: number;
   sentence?: string;
+  examples?: string[];
   addedAt: number;
 }
 

@@ -85,6 +85,7 @@ class ProgressIn(BaseModel):
     position: float = Field(0, ge=0)
     listen_seconds: int = Field(0, ge=0)
     completed: bool | None = None
+    repeat_target: int | None = Field(None, ge=1, le=20)
 
 
 class BookmarkIn(BaseModel):
@@ -348,6 +349,7 @@ async def english_progress(
         position=body.position,
         listen_seconds=body.listen_seconds,
         completed=body.completed,
+        repeat_target=body.repeat_target,
     )
     if payload is None:
         raise HTTPException(status_code=404, detail="课时不存在")

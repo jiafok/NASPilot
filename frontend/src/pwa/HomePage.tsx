@@ -32,6 +32,11 @@ export default function HomePage({ onOpenLesson, onOpenCourse, onGoDiscover, onG
 
   useEffect(load, [load]);
 
+  useEffect(() => {
+    window.addEventListener('english-progress-updated', load);
+    return () => window.removeEventListener('english-progress-updated', load);
+  }, [load]);
+
   if (loading) {
     return (
       <div className="ef-page">

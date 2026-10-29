@@ -185,6 +185,8 @@ class EnglishProgress(TimestampMixin, Base):
     position: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
     completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     listen_seconds: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    repeat_target: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    completed_plays: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_played_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

@@ -69,7 +69,7 @@ export interface LessonDetail {
   skills: string[];
   format: string;
   cover: string;
-  progress: { position: number; completed: boolean; listen_seconds: number };
+  progress: { position: number; completed: boolean; listen_seconds: number; repeat_target: number; completed_plays: number };
   prev_lesson_id?: number | null;
   next_lesson_id?: number | null;
 }
@@ -94,6 +94,19 @@ export interface HomeData {
     duration: number;
     position: number;
     progress: number;
+    completed_plays: number;
+    repeat_target: number;
+  }>;
+  recent_completed: Array<{
+    lesson_id: number;
+    lesson_title: string;
+    course_id: number;
+    course_title: string;
+    cover?: string | null;
+    duration: number;
+    completed_plays: number;
+    repeat_target: number;
+    last_played_at: string | null;
   }>;
   recent: Course[];
   recommended: Course[];
@@ -133,6 +146,7 @@ export interface WordEntry {
   phonetic: string;
   senses: Array<{ pos: string; meaning: string }>;
   example: string;
+  examples?: string[];
   source: string;
   cached?: boolean;
   context_meaning?: string;
@@ -179,6 +193,7 @@ export const apiPost = {
     position: number;
     listen_seconds?: number;
     completed?: boolean;
+    repeat_target?: number;
   }) => api.post('/english/progress', payload),
   favorite: (course_id: number, favorite: boolean) =>
     api.post('/english/favorite', { course_id, favorite }),

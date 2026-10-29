@@ -524,6 +524,8 @@ async def lesson_detail(
             "position": progress.position if progress else 0.0,
             "completed": bool(progress.completed) if progress else False,
             "listen_seconds": progress.listen_seconds if progress else 0,
+            "repeat_target": progress.repeat_target if progress else 1,
+            "completed_plays": progress.completed_plays if progress else 0,
         },
         "prev_lesson_id": previous.id if previous else None,
         "next_lesson_id": neighbours.id if neighbours else None,
@@ -590,6 +592,7 @@ async def upsert_progress(
     position: float,
     listen_seconds: int = 0,
     completed: bool | None = None,
+    repeat_target: int | None = None,
 ) -> dict[str, Any] | None:
     # Reported every 10s while a scan may be committing: take the write lock
     # first, otherwise the read-then-write snapshot upgrade fails instantly.
@@ -607,19 +610,36 @@ async def upsert_progress(
     ).scalar_one_or_none()
 
     if row is None:
-        row = EnglishProgress(user_id=user_id, lesson_id=lesson_id, position=0.0)
+        row = EnglishProgress(
+            user_id=user_id,
+            lesson_id=lesson_id,
+            position=0.0,
+            repeat_target=1,
+            completed_plays=0,
+        )
         db.add(row)
 
     was_completed = bool(row.completed)
+    target_changed = repeat_target is not None and repeat_target != row.repeat_target
+    if repeat_target is not None:
+        row.repeat_target = max(1, min(20, int(repeat_target)))
     row.position = max(0.0, float(position or 0))
     row.listen_seconds = (row.listen_seconds or 0) + max(0, int(listen_seconds or 0))
     row.last_played_at = _now()
-    if completed is None:
+    if completed is True:
+        if row.completed_plays < row.repeat_target:
+            row.completed_plays = (row.completed_plays or 0) + 1
+        row.completed = row.completed_plays >= row.repeat_target
+    elif completed is False:
+        row.completed = False
+    elif target_changed:
+        row.completed = row.completed_plays >= row.repeat_target
+    elif row.repeat_target <= 1:
         row.completed = was_completed or (
             lesson.duration > 0 and row.position >= lesson.duration * 0.95
         )
-    else:
-        row.completed = bool(completed)
+        if row.completed:
+            row.completed_plays = max(row.completed_plays or 0, 1)
 
     # Count a completion only on the transition, never on every heartbeat
     newly_completed = 1 if (row.completed and not was_completed) else 0
@@ -635,6 +655,8 @@ async def upsert_progress(
         "position": row.position,
         "completed": bool(row.completed),
         "listen_seconds": row.listen_seconds,
+        "repeat_target": row.repeat_target,
+        "completed_plays": row.completed_plays,
     }
 
 
@@ -805,6 +827,17 @@ async def home_payload(db: AsyncSession, user: User) -> dict[str, Any]:
         )
     ).all()
 
+    completed_rows = (
+        await db.execute(
+            select(EnglishProgress, EnglishLesson, EnglishCourse)
+            .join(EnglishLesson, EnglishLesson.id == EnglishProgress.lesson_id)
+            .join(EnglishCourse, EnglishCourse.id == EnglishLesson.course_id)
+            .where(EnglishProgress.user_id == user_id, EnglishProgress.completed.is_(True))
+            .order_by(EnglishProgress.last_played_at.desc().nulls_last())
+            .limit(8)
+        )
+    ).all()
+
     continue_learning = [
         {
             "lesson_id": lesson.id,
@@ -816,8 +849,25 @@ async def home_payload(db: AsyncSession, user: User) -> dict[str, Any]:
             "duration": lesson.duration,
             "position": round(float(progress.position or 0), 1),
             "progress": _progress_ratio(progress.position, lesson.duration),
+            "completed_plays": progress.completed_plays or 0,
+            "repeat_target": progress.repeat_target or 1,
         }
         for progress, lesson, course in rows
+    ]
+
+    recent_completed = [
+        {
+            "lesson_id": lesson.id,
+            "lesson_title": lesson.title,
+            "course_id": course.id,
+            "course_title": course.title,
+            "cover": cover_url(course),
+            "duration": lesson.duration,
+            "completed_plays": progress.completed_plays or 0,
+            "repeat_target": progress.repeat_target or 1,
+            "last_played_at": progress.last_played_at,
+        }
+        for progress, lesson, course in completed_rows
     ]
 
     recent = (
@@ -855,6 +905,7 @@ async def home_payload(db: AsyncSession, user: User) -> dict[str, Any]:
             ),
         },
         "continue_learning": continue_learning,
+        "recent_completed": recent_completed,
         "recent": [await serialize_course(c, favorite=c.id in favorites) for c in recent],
         "recommended": [
             await serialize_course(c, favorite=c.id in favorites) for c in recommended_pool

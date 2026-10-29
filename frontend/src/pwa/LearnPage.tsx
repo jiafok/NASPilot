@@ -5,19 +5,13 @@ import { ArrowRightOutlined } from '@ant-design/icons';
 
 interface Props {
   onOpenLesson: (lessonId: number) => void;
-  onOpenCourse: (courseId: number) => void;
   onGoDiscover: () => void;
 }
 
 /**
- * Learning path.
- *
- * The backend has no "path" concept, so this is built on the client from what
- * it does have: lessons in progress (continue) plus the level distribution.
- * It is presented as three honest stages rather than pretending to be a
- * curated curriculum.
+ * Personal learning dashboard: active listening queue and completed history.
  */
-export default function LearnPage({ onOpenLesson, onOpenCourse, onGoDiscover }: Props) {
+export default function LearnPage({ onOpenLesson, onGoDiscover }: Props) {
   const [home, setHome] = useState<HomeData | null>(null);
   const [levels, setLevels] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -36,6 +30,11 @@ export default function LearnPage({ onOpenLesson, onOpenCourse, onGoDiscover }: 
   }, []);
 
   useEffect(load, [load]);
+
+  useEffect(() => {
+    window.addEventListener('english-progress-updated', load);
+    return () => window.removeEventListener('english-progress-updated', load);
+  }, [load]);
 
   if (loading) {
     return (
@@ -66,7 +65,7 @@ export default function LearnPage({ onOpenLesson, onOpenCourse, onGoDiscover }: 
     <div className="ef-page ef-learn-page">
       <PageHeader title="学习空间" eyebrow="A LITTLE, EVERY DAY" symbol={<IconRoute />} detail={`今日 ${home.stats.minutes_today} 分钟 · 已完成 ${home.stats.completed} 课时`} />
       <section className="ef-section">
-        <SectionHead title="我的学习" />
+        <SectionHead title="正在学" />
         {inProgress.length === 0 ? (
           <EmptyState
             title="还没有开始"
@@ -91,11 +90,32 @@ export default function LearnPage({ onOpenLesson, onOpenCourse, onGoDiscover }: 
                     {item.lesson_title}
                   </span>
                   <span className="ef-row-meta">
-                    {item.course_title} · {fmtTime(item.position)} / {fmtTime(item.duration)}
+                    {item.course_title} · {fmtTime(item.position)} / {fmtTime(item.duration)} · 完整听完 {item.completed_plays}/{item.repeat_target} 遍
                   </span>
                   <span className="ef-bar">
                     <i style={{ width: `${Math.round((item.progress || 0) * 100)}%` }} />
                   </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="ef-section">
+        <SectionHead title="历史记录" />
+        {home.recent_completed.length === 0 ? (
+          <p className="ef-context-status">完整听完目标遍数的课时会收录在这里。</p>
+        ) : (
+          <div className="ef-list">
+            {home.recent_completed.map((item) => (
+              <button key={item.lesson_id} type="button" className="ef-row" onClick={() => onOpenLesson(item.lesson_id)}>
+                <span className="ef-cover" style={{ width: 64, height: 44, fontSize: 14 }}>
+                  {item.cover ? <img src={withToken(item.cover)} alt="" /> : null}
+                </span>
+                <span className="ef-row-body">
+                  <span className="ef-title-2" style={{ margin: 0 }}>{item.lesson_title}</span>
+                  <span className="ef-row-meta">{item.course_title} · 完整听完 {item.completed_plays}/{item.repeat_target} 遍</span>
                 </span>
               </button>
             ))}
@@ -119,33 +139,6 @@ export default function LearnPage({ onOpenLesson, onOpenCourse, onGoDiscover }: 
         </div>
       </section>
 
-      <section className="ef-section">
-        <SectionHead title="课程体系" action="全部" onAction={onGoDiscover} />
-        <div className="ef-list">
-          {home.recommended.slice(0, 6).map((course) => (
-            <button
-              key={course.id}
-              type="button"
-              className="ef-row"
-              onClick={() => onOpenCourse(course.id)}
-            >
-              <span className="ef-cover" style={{ width: 64, height: 44, fontSize: 14 }}>
-                {course.cover ? <img src={withToken(course.cover)} alt="" /> : null}
-              </span>
-              <span className="ef-row-body">
-                <span className="ef-title-2" style={{ margin: 0 }}>
-                  {course.title}
-                </span>
-                <span className="ef-row-meta">
-                  <span className="ef-tag">{course.level}</span>
-                  <span>{course.lesson_count} 课</span>
-                  <span>· {fmtTime(course.total_seconds)}</span>
-                </span>
-              </span>
-            </button>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }
