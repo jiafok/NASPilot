@@ -184,6 +184,31 @@ class YtDlpProvider(SubscriptionProvider):
             return True
         return bool(re.search(r"_p\d+$", item.media_id or ""))
 
+    async def _short_title(self, item: MediaItem) -> str | None:
+        """A few-character name for this item, or None to keep the raw title.
+
+        Never raises: a download must not fail because the AI was unreachable,
+        and an unhelpful summary is worse than the real title.
+        """
+        from app.core.config import settings
+        from app.services.media_center import titles
+
+        if not getattr(settings, "MEDIA_AI_TITLE", True):
+            return None
+        raw = (item.title or "").strip()
+        if not raw:
+            return None
+        try:
+            short = await titles.short_title(
+                raw,
+                index=item.index,
+                max_chars=int(getattr(settings, "MEDIA_TITLE_MAX_CHARS", 8) or 8),
+            )
+        except Exception:  # noqa: BLE001 - naming must never break a download
+            logger.warning("Could not shorten the title for %s", item.media_id, exc_info=True)
+            return None
+        return short or None
+
     def _item_url(self, media_id: str) -> str:
         return media_id
 
@@ -257,6 +282,7 @@ class YtDlpProvider(SubscriptionProvider):
         channel = self.channel_name(item)
         playlist = self.playlist_name(item)
 
+        short_name = await self._short_title(item)
         outtmpl = output_template(
             self.subscription,
             self.provider,
@@ -264,6 +290,7 @@ class YtDlpProvider(SubscriptionProvider):
             playlist,
             index=item.index,
             unique_name=self._needs_unique_name(item),
+            title_override=short_name,
         )
         # Extra safety: an absolute template must never escape the root.
         Path(outtmpl.replace("%(title)s", "x").replace("%(ext)s", "x")).parent.mkdir(

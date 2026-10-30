@@ -85,6 +85,18 @@ class Settings(BaseSettings):
     #: highest-quality stream instead (smaller, but phone playback then needs
     #: the on-demand H.264 fallback).
     MEDIA_PREFER_COMPATIBLE_CODECS: bool = True
+    #: Summarise each downloaded title with the AI before naming the file.
+    #:
+    #: Raw titles are unusable as names: a Bilibili collection's part is
+    #: `<the whole collection title> p03 <part>`, which is 186 bytes on disk
+    #: and becomes the lesson title in the English library. When the AI is
+    #: unconfigured or unreachable, a local heuristic shortens the title
+    #: instead, so downloads never depend on it.
+    MEDIA_AI_TITLE: bool = True
+    #: Characters kept in a summarised title (see
+    #: `services/media_center/titles.py`). The part marker (`p03 `) counts
+    #: against this budget so a collection's parts stay distinguishable.
+    MEDIA_TITLE_MAX_CHARS: int = 8
     MEDIA_AUDIO_QUALITY: str = "0"
     #: Subtitles to download, comma separated (yt-dlp `--sub-langs`).
     #:

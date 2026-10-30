@@ -79,17 +79,32 @@ def output_template(
     *,
     index: int | None = None,
     unique_name: bool = False,
+    title_override: str | None = None,
 ) -> str:
     """yt-dlp style output template for one item.
 
     ``unique_name`` appends the provider id and truncates the title. Without it
     two items whose titles collide silently overwrite each other — see
     ``providers.YtDlpProvider._needs_unique_name``.
+
+    ``title_override`` is a ready-made name (an AI summary). It is inserted
+    literally, so it must be sanitised here: a stray `%` would be read by yt-dlp
+    as a field, and `/` or `:` are not legal in a path segment.
     """
     directory = output_dir(subscription, provider, channel, playlist)
     prefix = ""
     if getattr(subscription, "number_prefix", False):
         prefix = f"{int(index or 1):03d}-"
+
+    if title_override:
+        literal = safe_segment(title_override.replace("%", ""), "video", max_len=80)
+        stem = f"{prefix}{literal}"
+        if unique_name:
+            # The id keeps a collection's parts apart now that their titles are
+            # only a few characters long and can genuinely coincide.
+            stem = f"{stem} [%(id)s]"
+        return str(directory / f"{stem}.%(ext)s")
+
     if unique_name:
         stem = f"{prefix}%(title).{UNIQUE_TITLE_CHARS}s [%(id)s]"
     else:
