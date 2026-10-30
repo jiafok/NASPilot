@@ -125,8 +125,15 @@ def build_download_args(
         "--fragment-retries", "3",
         # resume partial downloads (断点续传)
         "--continue",
-        # keep the original title; only trim absurdly long names
-        "--trim-filenames", "180",
+        # Last-resort cap only: the output template already truncates the
+        # title to a byte-safe length, and this trim used to cut the trailing
+        # `[id]` straight back off (82 rendered characters were reduced to 44
+        # at a value of 85 — its unit is not a plain character count).
+        #
+        # Keeping it well above the template's own budget means it never fires
+        # for a normal name, while a pathological one still cannot exceed the
+        # filesystem's 255-byte ceiling badly enough to fail outright.
+        "--trim-filenames", "250",
     ]
 
     if opts.rate_limit:

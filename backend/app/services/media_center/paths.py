@@ -53,6 +53,24 @@ def output_dir(subscription, provider: str, channel: str | None, playlist: str |
     return root.joinpath(*parts)
 
 
+#: Title characters kept when the name must be unique (collection / playlist).
+#:
+#: Budget in bytes, since 255 is a *byte* limit and a Chinese character costs 3:
+#:
+#:   60 chars = 180 B + " [BV1XWa36MEkP_p20]" 19 B + ".mp4" 4 B = 203 B
+#:
+#: `--trim-filenames` is deliberately set high (see `engine`) so it cannot cut
+#: the id off again — that is exactly how 20 parts once collapsed into one file.
+UNIQUE_TITLE_CHARS = 60
+
+#: Title characters kept for ordinary (non-colliding) downloads.
+#:
+#: 80 characters is 240 bytes of Chinese, which still fits in 255. Titles are
+#: longer than that only in pathological cases, and silently failing to write
+#: the file would be worse than a shorter name.
+PLAIN_TITLE_CHARS = 80
+
+
 def output_template(
     subscription,
     provider: str,
@@ -60,13 +78,23 @@ def output_template(
     playlist: str | None,
     *,
     index: int | None = None,
+    unique_name: bool = False,
 ) -> str:
-    """yt-dlp style output template for one item."""
+    """yt-dlp style output template for one item.
+
+    ``unique_name`` appends the provider id and truncates the title. Without it
+    two items whose titles collide silently overwrite each other — see
+    ``providers.YtDlpProvider._needs_unique_name``.
+    """
     directory = output_dir(subscription, provider, channel, playlist)
     prefix = ""
     if getattr(subscription, "number_prefix", False):
         prefix = f"{int(index or 1):03d}-"
-    return str(directory / f"{prefix}%(title)s.%(ext)s")
+    if unique_name:
+        stem = f"{prefix}%(title).{UNIQUE_TITLE_CHARS}s [%(id)s]"
+    else:
+        stem = f"{prefix}%(title).{PLAIN_TITLE_CHARS}s"
+    return str(directory / f"{stem}.%(ext)s")
 
 
 def suggest_library_paths() -> dict[str, list[str]]:

@@ -168,6 +168,22 @@ class YtDlpProvider(SubscriptionProvider):
             counter += 1
         return items
 
+    def _needs_unique_name(self, item: MediaItem) -> bool:
+        """True when another item in the same subscription could share the name.
+
+        A multi-part collection is the dangerous case. Bilibili titles every part
+        with the *whole* collection title plus ` pNN`, and because the filesystem
+        caps names at 255 bytes (3 bytes per Chinese character) the ` pNN` is
+        exactly what gets truncated — so 20 parts resolved to one file, each
+        download reported success, and the survivor was left corrupt by two
+        concurrent writers.
+        """
+        if getattr(self.subscription, "type", "") in ("playlist", "channel"):
+            return True
+        if re.search(r"[?&]p=\d+", item.url or ""):
+            return True
+        return bool(re.search(r"_p\d+$", item.media_id or ""))
+
     def _item_url(self, media_id: str) -> str:
         return media_id
 
@@ -242,7 +258,12 @@ class YtDlpProvider(SubscriptionProvider):
         playlist = self.playlist_name(item)
 
         outtmpl = output_template(
-            self.subscription, self.provider, channel, playlist, index=item.index
+            self.subscription,
+            self.provider,
+            channel,
+            playlist,
+            index=item.index,
+            unique_name=self._needs_unique_name(item),
         )
         # Extra safety: an absolute template must never escape the root.
         Path(outtmpl.replace("%(title)s", "x").replace("%(ext)s", "x")).parent.mkdir(
