@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,52 @@ from app.services.media_center.paths import output_template, safe_segment
 logger = logging.getLogger("naspilot.media.providers")
 
 _VIDEO_ID_RE = re.compile(r"^[\w-]{4,64}$")
+
+
+def _sanitise_media_id(value: str) -> str:
+    """Reduce anything to the shape ``_VIDEO_ID_RE`` accepts."""
+    return re.sub(r"[^\w-]", "_", value or "")[:64].strip("_")
+
+
+def _derive_media_id(url: str) -> str:
+    """Build a stable id for an entry yt-dlp described with only a URL.
+
+    ``--flat-playlist`` returns ``{"_type": "url", "url": ".../BV1XWa36MEkP?p=3"}``
+    for Bilibili multi-part collections — no ``id`` at all. Requiring one threw
+    every part away, so such a subscription discovered zero items and could
+    never download anything.
+
+    The reconstruction matches the id yt-dlp itself reports
+    (``BV1XWa36MEkP_p3``), so download history stays consistent.
+    """
+    if not url:
+        return ""
+    parsed = urllib.parse.urlsplit(url)
+    query = urllib.parse.parse_qs(parsed.query)
+
+    match = re.search(r"/video/([A-Za-z0-9]+)", parsed.path)
+    if match:
+        base = match.group(1)
+        page = (query.get("p") or [""])[0]
+        return _sanitise_media_id(f"{base}_p{page}" if page.isdigit() else base)
+
+    # Generic fallback: the last path segment, else a query parameter that
+    # usually carries the video identity.
+    # `/watch?v=ID` style: the identity is in the query, not the path.
+    for key in ("v", "id", "vid"):
+        value = (query.get(key) or [""])[0]
+        if value:
+            return _sanitise_media_id(value)
+    segment = parsed.path.rstrip("/").rsplit("/", 1)[-1]
+    return _sanitise_media_id(segment)
+
+
+def _entry_title(entry: dict[str, Any], media_id: str) -> str:
+    """Entry title, with yt-dlp's ``"NA"`` placeholder treated as missing."""
+    title = str(entry.get("title") or "").strip()
+    if title and title.upper() not in {"NA", "N/A", "NONE"}:
+        return title
+    return media_id
 
 
 def _parse_date(entry: dict[str, Any]) -> datetime | None:
@@ -94,18 +141,21 @@ class YtDlpProvider(SubscriptionProvider):
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
+            page_url = entry.get("webpage_url") or entry.get("url")
             media_id = str(entry.get("id") or entry.get("video_id") or "")
+            if not media_id:
+                # Multi-part collections (Bilibili) expose only a URL here.
+                media_id = _derive_media_id(str(page_url or ""))
             if not media_id or not _VIDEO_ID_RE.match(media_id):
                 continue
             if entry.get("live_status") == "is_live":
                 continue
-            page_url = entry.get("webpage_url") or entry.get("url")
             if not page_url:
                 page_url = self._item_url(media_id)
             items.append(
                 MediaItem(
                     media_id=media_id,
-                    title=str(entry.get("title") or media_id),
+                    title=_entry_title(entry, media_id),
                     url=str(page_url),
                     channel=entry.get("channel") or entry.get("uploader") or channel_hint,
                     playlist=entry.get("playlist") or playlist_hint,
@@ -140,7 +190,43 @@ class YtDlpProvider(SubscriptionProvider):
             or data.get("uploader_id") or self.subscription.name
         )
         playlist_hint = data.get("title") if data.get("_type") in ("playlist", "multi_video") else None
-        return self._to_items(entries, channel_hint=channel_hint, playlist_hint=playlist_hint)
+        items = self._to_items(entries, channel_hint=channel_hint, playlist_hint=playlist_hint)
+
+        # A degraded flat dump is recognisable: it lists entries but gives none
+        # of them an id. That is exactly what Bilibili returns for a multi-part
+        # collection (bare URLs). One non-flat request resolves the whole page
+        # with ids *and* real part titles.
+        #
+        # Checking the ids rather than `not items` also covers the case where a
+        # derived id already produced items but no titles: YouTube/SoundCloud
+        # flat listings always carry ids, so this never costs extra requests
+        # there.
+        flat_lost_ids = bool(entries) and not any(
+            isinstance(entry, dict) and (entry.get("id") or entry.get("video_id"))
+            for entry in entries
+        )
+        if flat_lost_ids or (not items and entries):
+            logger.info("Flat listing was incomplete; retrying full dump for %s", self.normalize_url())
+            full = await engine.dump_json(
+                self.normalize_url(), limit=cap, opts=opts,
+                provider=self.provider, flat=False,
+            )
+            full_entries = full.get("entries") or []
+            if not full_entries and full.get("id"):
+                full_entries = [full]
+            full_channel = (
+                full.get("channel") or full.get("uploader")
+                or full.get("uploader_id") or channel_hint
+            )
+            full_playlist = (
+                full.get("title")
+                if full.get("_type") in ("playlist", "multi_video")
+                else playlist_hint
+            )
+            items = self._to_items(
+                full_entries, channel_hint=full_channel, playlist_hint=full_playlist
+            )
+        return items
 
     # ── Download ──────────────────────────────────────────────────────
     async def download(
@@ -302,6 +388,10 @@ class BilibiliProvider(YtDlpProvider):
     )
 
     def _item_url(self, media_id: str) -> str:
+        # A part id looks like `BV1XWa36MEkP_p3`; the page URL needs `?p=3`.
+        base, _, page = media_id.partition("_p")
+        if page.isdigit():
+            return f"https://www.bilibili.com/video/{base}?p={page}"
         return f"https://www.bilibili.com/video/{media_id}"
 
     @classmethod

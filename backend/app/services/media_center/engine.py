@@ -171,13 +171,22 @@ async def dump_json(
     opts=None,
     timeout: int = 180,
     provider: str | None = None,
+    flat: bool = True,
 ) -> dict:
-    """``yt-dlp --flat-playlist --dump-single-json`` with the item's network policy."""
+    """``yt-dlp --dump-single-json`` with the item's network policy.
+
+    ``flat`` keeps the fast path: one request, no per-video lookup. Set it to
+    False only when the flat dump came back without usable ids/titles — some
+    extractors (Bilibili multi-part collections) describe entries with a bare
+    URL there, while a full dump of the same page resolves everything at once.
+    """
     cmd = [
         *ytdlp_cmd(), "--no-warnings", "--no-color", "--ignore-config",
-        "--flat-playlist", "--dump-single-json", "--skip-download",
+        "--dump-single-json", "--skip-download",
         "--extractor-retries", "3",
     ]
+    if flat:
+        cmd.append("--flat-playlist")
     if opts is not None and opts.proxy:
         cmd += ["--proxy", opts.proxy]
     if limit and limit > 0:
