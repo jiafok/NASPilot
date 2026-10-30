@@ -35,6 +35,7 @@ from app.models import (
 from app.services.media_center import settings_store as media_paths
 from app.services.english import metadata as meta
 from app.services.english import taxonomy
+from app.services.english import embedded
 from app.services.english import subtitles
 from app.services.english import vocabulary as vocab
 
@@ -99,6 +100,8 @@ class ScanReport:
     #: unsupported format, empty file). Those lessons get no transcript, so
     #: classification falls back to the default B1 level.
     subtitles_failed: int = 0
+    #: Sidecar subtitles recovered from a track inside the media file.
+    subtitles_extracted: int = 0
     errors: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, object]:
@@ -114,6 +117,7 @@ class ScanReport:
             "vocabulary_terms": self.vocabulary_terms,
             "lessons_skipped": self.lessons_skipped,
             "subtitles_failed": self.subtitles_failed,
+            "subtitles_extracted": self.subtitles_extracted,
             "skipped": self.skipped,
             "errors": self.errors[:20],
         }
@@ -837,6 +841,28 @@ async def _scan_impl(
     report.exists = True
     by_dir = collect_assets(base)
 
+    # Recover subtitles that live *inside* the media file. Many downloads carry
+    # a `mov_text` (MP4) or `subrip` (MKV) track instead of a sidecar, and the
+    # library only reads sidecar files — so those lessons had no transcript even
+    # though the text was already on disk. Extraction is exact and cheap, and
+    # the files it writes are the same shape a downloader produces.
+    #
+    # Only files with no sidecar are probed, which keeps an idle scan cheap:
+    # almost every lesson already has one.
+    for directory, bucket in by_dir.items():
+        for asset in bucket.values():
+            if asset.media is None or asset.subtitle is not None:
+                continue
+            try:
+                produced = await embedded.extract_sidecar(asset.media)
+            except Exception:  # noqa: BLE001 - one bad file must not fail a scan
+                logger.warning("内嵌字幕抽取失败: %s", asset.media, exc_info=True)
+                continue
+            if produced is not None:
+                asset.subtitle = produced
+                asset.subtitle_lang = produced.stem[len(asset.stem) + 1 :] or None
+                report.subtitles_extracted += 1
+
     touched_courses: dict[int, EnglishCourse] = {}
     # Courses whose lessons actually changed. Their classification and word
     # list are recomputed at the end; untouched courses keep the previous
@@ -1145,6 +1171,7 @@ __all__ = [
     "VIDEO_EXTS",
     "ScanReport",
     "collect_assets",
+    "embedded",
     "english_root",
     "is_inside_root",
     "fingerprint",
