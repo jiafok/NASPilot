@@ -63,7 +63,7 @@ class DownloadOptions:
     number_prefix: bool = False
     rate_limit: str | None = None
     proxy: str | None = None        # fully resolved proxy URL (None = direct)
-    sub_langs: str = "en.*"
+    sub_langs: str = "en,en-US,en-GB,zh,zh-CN,zh-Hans,zh-Hant,ai-zh"
     write_subs: bool = True
     write_thumbnail: bool = True
 
@@ -211,6 +211,10 @@ def resolve_options(subscription: SubscriptionLike) -> DownloadOptions:
         rate_limit=(getattr(subscription, "rate_limit", None) or None),
         proxy=resolve_proxy(subscription),
         sub_langs=settings.MEDIA_SUB_LANGS,
+        # Always on: a lesson without its sidecar subtitle and thumbnail is a
+        # lesson the English player cannot use (no transcript to tap, no cover).
+        write_subs=True,
+        write_thumbnail=True,
     )
 
 

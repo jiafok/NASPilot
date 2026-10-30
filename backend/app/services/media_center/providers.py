@@ -251,6 +251,8 @@ class YtDlpProvider(SubscriptionProvider):
 
         last_emit = 0.0
         aborted = False
+        #: Set when the media survived but a subtitle/thumbnail did not.
+        sidecars_lost: str | None = None
 
         async def _on_line(line: str) -> bool | None:
             nonlocal last_emit, aborted
@@ -294,14 +296,24 @@ class YtDlpProvider(SubscriptionProvider):
             hint = engine.network_hint(result.tail, self.provider)
             if hint:
                 reason = f"{hint} — {reason}"
-            return DownloadResult(
-                item=item,
-                status="failed",
-                media_type=options.media_mode,
-                title=item.title,
-                duration=item.duration,
-                error=reason,
+            # A non-zero exit is only fatal when the media itself is missing.
+            # yt-dlp aborts on an optional subtitle/thumbnail error (a 429 while
+            # fetching one translated track, for instance) *after* the video has
+            # downloaded — throwing that away helped nobody.
+            salvaged = engine.pick_output(result.files, audio_only=audio_only)
+            if not salvaged:
+                return DownloadResult(
+                    item=item,
+                    status="failed",
+                    media_type=options.media_mode,
+                    title=item.title,
+                    duration=item.duration,
+                    error=reason,
+                )
+            logger.warning(
+                "media kept despite exit %s for %s: %s", result.rc, item.media_id, reason
             )
+            sidecars_lost = reason
 
         primary = engine.pick_output(result.files, audio_only=audio_only)
         extras: list[str] = []
@@ -317,6 +329,10 @@ class YtDlpProvider(SubscriptionProvider):
                 logger.warning("audio extraction failed for %s: %s", primary, msg)
 
         size = os.path.getsize(primary) if primary and os.path.isfile(primary) else None
+        if sidecars_lost:
+            # Reported as a warning on an otherwise completed download: the
+            # learner should know the lesson has no subtitle to tap.
+            logger.info("completed with a lost sidecar for %s", item.media_id)
         return DownloadResult(
             item=item,
             status="completed",
@@ -326,6 +342,7 @@ class YtDlpProvider(SubscriptionProvider):
             title=item.title,
             duration=item.duration,
             extra_paths=extras,
+            error=sidecars_lost,
         )
 
 

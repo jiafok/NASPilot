@@ -86,7 +86,19 @@ class Settings(BaseSettings):
     #: the on-demand H.264 fallback).
     MEDIA_PREFER_COMPATIBLE_CODECS: bool = True
     MEDIA_AUDIO_QUALITY: str = "0"
-    MEDIA_SUB_LANGS: str = "en.*"
+    #: Subtitles to download, comma separated (yt-dlp `--sub-langs`).
+    #:
+    #: The English library is useless without a transcript, so this is kept
+    #: broad rather than `en.*`: Bilibili serves `zh-Hans` (manual CC) and
+    #: `ai-zh` (its AI track), and a Chinese-sourced listening course is a
+    #: perfectly reasonable thing to study. The scanner prefers English over
+    #: any other language, so a broad download never picks the wrong track.
+    #:
+    #: Exact codes, deliberately not `en.*`: yt-dlp treats each entry as a
+    #: regex, so `en.*` also matches every auto-translated track (en-de,
+    #: en-fr, …). YouTube answers that flood with HTTP 429 and the whole
+    #: download fails. `ai-zh` is Bilibili's AI subtitle track.
+    MEDIA_SUB_LANGS: str = "en,en-US,en-GB,zh,zh-CN,zh-Hans,zh-Hant,ai-zh"
     MEDIA_SCAN_LIMIT: int = 100
     MEDIA_MAX_PER_SYNC: int = 20
     MEDIA_MAX_CONCURRENT: int = 2

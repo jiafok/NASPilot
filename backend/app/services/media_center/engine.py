@@ -133,13 +133,26 @@ def build_download_args(
         args += ["--limit-rate", str(opts.rate_limit)]
 
     if opts.write_subs:
+        # `--write-subs` writes **manually uploaded** captions, which is what
+        # Bilibili CC and most YouTube captions are; `--write-auto-subs` only
+        # writes auto-generated ones. Passing only the auto flag meant the
+        # subtitles that actually exist were never downloaded.
         args += [
-            "--write-auto-sub",
-            "--sub-langs", opts.sub_langs or "en.*",
+            "--write-subs",
+            "--write-auto-subs",
+            "--sub-langs", opts.sub_langs or "en,en-US,en-GB,zh,zh-CN,zh-Hans,zh-Hant,ai-zh",
+            # Bilibili's AI track and many JSON subtitle formats are not SRT.
             "--convert-subs", "srt",
         ]
     if opts.write_thumbnail:
         args += ["--write-thumbnail", "--convert-thumbnails", "jpg"]
+
+    cookies = (settings.MEDIA_COOKIES_FILE or "").strip()
+    if cookies and Path(cookies).is_file():
+        # Bilibili serves most subtitles (and anything above 360p) only to a
+        # logged-in session; the setting existed but was never used, so the
+        # download silently got the anonymous version.
+        args += ["--cookies", cookies]
 
     if effective == "audio":
         args += [
