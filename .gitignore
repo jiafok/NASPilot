@@ -32,6 +32,7 @@ env/
 # Test scripts
 check_*.py
 test_*.py
+!backend/tests/test_mount_pages_plugins.py
 fix_*.py
 run_backup.py
 

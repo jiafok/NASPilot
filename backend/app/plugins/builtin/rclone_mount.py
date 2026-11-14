@@ -31,6 +31,7 @@ import asyncio
 import logging
 import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -323,6 +324,16 @@ class RcloneMountPlugin(PluginBase):
             return mount == data or data in mount.parents
         except OSError:
             return False
+
+    @staticmethod
+    def _dir_writable(path: Path) -> tuple[bool, str]:
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryFile(dir=path):
+                pass
+            return True, ""
+        except OSError as exc:
+            return False, str(exc)
 
     # ── actions ───────────────────────────────────────────────────────
 

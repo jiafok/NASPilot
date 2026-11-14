@@ -278,7 +278,7 @@ class _PagesApi:
                     f"查询 Pages 项目失败 HTTP {resp.status_code}: {resp.text[:300]}"
                 )
             create = await client.post(
-                self._project_url(),
+                f"{self.BASE}/accounts/{self._account}/pages/projects",
                 headers={**self._auth, "Content-Type": "application/json"},
                 json={"name": self._project, "production_branch": "main"},
             )
@@ -293,7 +293,7 @@ class _PagesApi:
     async def upload_token(self) -> str:
         """Short-lived JWT used to authorise asset transfers."""
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
+            resp = await client.get(
                 self._project_url("/upload-token"), headers=self._auth
             )
             payload = resp.json() if resp.content else {}
@@ -383,7 +383,8 @@ class _PagesApi:
             pass
 
     async def create_deployment(
-        self, manifest: dict[str, str], commit_message: str, branch: str
+        self, manifest: dict[str, str], commit_message: str, branch: str,
+        deployment_files: dict[str, bytes] | None = None,
     ) -> dict:
         """Create the deployment from the uploaded manifest."""
         data = {
@@ -396,6 +397,7 @@ class _PagesApi:
                 self._project_url("/deployments"),
                 headers=self._auth,
                 data=data,
+                files={name: (name, content) for name, content in (deployment_files or {}).items()},
             )
             if resp.status_code >= 400:
                 raise RuntimeError(
@@ -548,7 +550,11 @@ class CloudflarePagesPlugin(PluginBase):
             files = await asyncio.to_thread(_collect_files, outdir)
             digests: dict[str, tuple[str, bytes]] = {}
             manifest: dict[str, str] = {}
+            deployment_files: dict[str, bytes] = {}
             for name, data in files:
+                if name in {"/_headers", "/_redirects", "/_routes.json", "/_worker.js"}:
+                    deployment_files[name[1:]] = data
+                    continue
                 digest = _asset_hash(data)
                 manifest[name] = digest
                 # Same content under two names shares one asset — keep the
@@ -573,6 +579,7 @@ class CloudflarePagesPlugin(PluginBase):
                 manifest,
                 commit_message=f"NASPilot 面板 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 branch="main",
+                deployment_files=deployment_files,
             )
 
         deploy_url = str(deployed.get("url") or "")
