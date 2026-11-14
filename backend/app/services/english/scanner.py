@@ -98,7 +98,7 @@ class ScanReport:
     lessons_skipped: int = 0
     #: Subtitles that exist on disk but produced no text (unreadable mount,
     #: unsupported format, empty file). Those lessons get no transcript, so
-    #: classification falls back to the default B1 level.
+    #: classification stays unrated.
     subtitles_failed: int = 0
     #: Sidecar subtitles recovered from a track inside the media file.
     subtitles_extracted: int = 0
@@ -339,6 +339,9 @@ def _is_unchanged(
         return False
     if existing.course_id != course.id or existing.position != position:
         return False
+    _, clean = meta.lesson_position(asset.media.name)
+    if existing.title != (clean[:255] or asset.stem[:255]):
+        return False
     # A subtitle added (or replaced) later must be picked up.
     if (existing.subtitle_path or "") != (str(asset.subtitle) if asset.subtitle else ""):
         return False
@@ -349,10 +352,10 @@ def _is_unchanged(
     features = existing.features if isinstance(existing.features, dict) else {}
     if features.get("v") != taxonomy.TAXONOMY_VERSION:
         return False
-    # A lesson measured from an empty transcript keeps the B1 fallback. The
+    # A lesson measured from an empty transcript stays unrated. The
     # sidecar path, size and mtime of the media file are all unchanged when that
     # happens (an unreadable network mount, a fixed format, a newly readable
-    # file), so nothing else here would ever re-measure it — it would stay B1
+    # file), so nothing else here would ever re-measure it — it would stay unrated
     # forever even after the cause is gone. Force one re-run instead.
     if asset.subtitle is not None and not features.get("words"):
         return False
@@ -457,7 +460,7 @@ async def _upsert_lesson(
     media_type = "video" if ext in VIDEO_EXTS else "audio"
 
     _, clean = meta.lesson_position(asset.media.name)
-    title = f"{title_prefix} {clean}".strip() if title_prefix else clean
+    title = clean
     title = title[:255] or asset.stem[:255]
 
     segments = subtitles.parse_file(asset.subtitle) if asset.subtitle else []
@@ -504,10 +507,9 @@ async def _upsert_lesson(
     if asset.subtitle is not None and not segments:
         # The sidecar exists but yielded no cues. Without a transcript the
         # difficulty signals (sentence length, rarity, speech rate) cannot be
-        # measured, so the lesson silently keeps the B1 fallback. Count it so a
-        # uniformly-B1 library is explainable instead of mysterious.
+        # measured, so the lesson stays unrated. Count these parse failures.
         report.subtitles_failed += 1
-        logger.warning("字幕解析为空，课时将回退为 B1 分级: %s", asset.subtitle)
+        logger.warning("字幕解析为空，课时暂未评级: %s", asset.subtitle)
 
     if not duration:
         # Reuse the cached value so an unchanged file is never probed twice.

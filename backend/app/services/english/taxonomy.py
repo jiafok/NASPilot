@@ -40,7 +40,7 @@ LEVELS: tuple[str, ...] = ("A1", "A2", "B1", "B2", "C1", "C2")
 #: ``lessons.features`` so an incremental scan can tell a row produced by an
 #: older algorithm from a current one and re-measure it — otherwise tuning the
 #: thresholds would silently leave the whole library on the old scale.
-TAXONOMY_VERSION = 3
+TAXONOMY_VERSION = 4
 
 #: CEFR → the coarse label the old UI used.
 LEVEL_TO_DIFFICULTY = {
@@ -173,11 +173,15 @@ def level_index(features: Features) -> int:
 
 
 def level_for(features: Features) -> str:
+    english_chars = sum(len(word) for word in _WORD.findall(features.text))
+    chinese_chars = len(re.findall(r"[\u3400-\u4dbf\u4e00-\u9fff]", features.text))
+    if features.words < 30 or chinese_chars > english_chars:
+        return "未评级"
     return LEVELS[level_index(features)]
 
 
 def difficulty_for(level: str) -> str:
-    return LEVEL_TO_DIFFICULTY.get(level, "intermediate")
+    return LEVEL_TO_DIFFICULTY.get(level, "mixed")
 
 
 # ── topics ───────────────────────────────────────────────────────────────
@@ -426,11 +430,11 @@ def format_for(
 
 @dataclass
 class Taxonomy:
-    level: str = "B1"
+    level: str = "未评级"
     topics: list[str] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
     format: str = "monologue"
-    difficulty: str = "intermediate"
+    difficulty: str = "mixed"
     features: dict[str, float] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, object]:
@@ -498,7 +502,7 @@ def aggregate_level(levels: list[str]) -> str:
         LEVELS.index(lv) for lv in levels if isinstance(lv, str) and lv in LEVELS
     )
     if not indices:
-        return "B1"
+        return "未评级"
     return LEVELS[indices[len(indices) // 2]]
 
 

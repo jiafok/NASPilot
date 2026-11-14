@@ -95,12 +95,24 @@ class ShortTitleTests(unittest.IsolatedAsyncioTestCase):
                 await shorten(PART_1, index=1, answer=answer), "01 初级听力", answer
             )
 
-    async def test_too_long_model_answer_is_truncated_not_discarded(self):
-        # Truncating the model's text beats falling back to the heuristic.
-        short = await shorten(PART_1, index=1, answer="初级听力短句练习")
-        self.assertLessEqual(len(short), 8)
-        self.assertTrue(short.startswith("01 初级"), short)
-        self.assertNotIn("短句练习", short, "must be truncated to the budget")
+    async def test_too_long_answer_is_retried_without_cutting_a_phrase(self):
+        answers = iter(["初级听力短句练习", "初级听力"])
+
+        async def retry(_text: str, _budget: int) -> str:
+            return next(answers)
+
+        short = await titles.short_title(PART_1, index=1, summarizer=retry)
+        self.assertEqual(short, "01 初级听力")
+
+    async def test_unrelated_chinese_answers_are_rejected(self):
+        for answer in ("说话自然", "英语速成", "重命文件"):
+            short = await shorten(PART_1, index=1, answer=answer)
+            self.assertNotIn(answer, short)
+            self.assertLessEqual(len(short), 8)
+
+    async def test_collection_topic_keeps_a_whole_phrase(self):
+        short = await shorten("全新完整版【英语听力训练】初中英语专题 p01", index=1)
+        self.assertEqual(short, "01 英语听力")
 
     async def test_an_english_echo_is_rejected(self):
         # A model that answers in English ignored the instruction; the local
@@ -130,6 +142,12 @@ class ShortTitleTests(unittest.IsolatedAsyncioTestCase):
 class CacheTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         titles.clear_cache()
+
+    async def test_same_part_title_in_different_collections_is_not_shared(self):
+        first = await titles.short_title("初级听力 p01 第一课", summarizer=stub("初级听力"))
+        second = await titles.short_title("中级口语 p01 第一课", summarizer=stub("中级口语"))
+        self.assertEqual(first, "01 初级听力")
+        self.assertEqual(second, "01 中级口语")
 
     async def test_a_model_answer_is_cached(self):
         calls = 0
