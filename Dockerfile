@@ -59,11 +59,11 @@ ARG RCLONE_BASE=https://downloads.rclone.org
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl xz-utils unzip && \
     rm -rf /var/lib/apt/lists/* && \
-    case "${TARGETARCH:-amd64}" in
-        amd64) FF_ARCH=amd64 ; RC_ARCH=amd64 ;;
-        arm64) FF_ARCH=arm64 ; RC_ARCH=arm64 ;;
-        arm)   FF_ARCH=armhf ; RC_ARCH=arm-v7 ;;
-        *)     echo "unsupported TARGETARCH=${TARGETARCH}" >&2 ; exit 1 ;;
+    case "${TARGETARCH:-amd64}" in \
+        amd64) FF_ARCH=amd64 ; RC_ARCH=amd64 ;; \
+        arm64) FF_ARCH=arm64 ; RC_ARCH=arm64 ;; \
+        arm)   FF_ARCH=armhf ; RC_ARCH=arm-v7 ;; \
+        *)     echo "unsupported TARGETARCH=${TARGETARCH}" >&2 ; exit 1 ;; \
     esac && \
     echo "downloading static ffmpeg for ${FF_ARCH}" && \
     curl -fsSL --retry 3 -o /tmp/ff.tar.xz "${FFMPEG_BASE}/ffmpeg-release-${FF_ARCH}-static.tar.xz" && \
