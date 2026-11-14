@@ -21,11 +21,42 @@ services:
     # host 网络 = 直接占用 NAS 的 8082 端口，所以不需要 ports 段
     network_mode: host
 
+    # ── Rclone 挂载（AList/WebDAV）需要的三项能力 ───────────────
+    # 挂载在**容器内**创建，宿主机不装 rclone。容器永远无法凭空造出
+    # 设备节点，所以 /dev/fuse 必须由宿主机透传；FUSE 挂载需要 SYS_ADMIN。
+    # 不需要用这个功能时，这三段可以整块删掉，容器照常运行。
+    devices:
+      - /dev/fuse:/dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+
     volumes:
       # ── 唯一必须的挂载：数据库 + 日志 + 媒体文件 ───────────
       # 媒体在 data/media（容器内 /app/data/media），媒体中心与英语学习
       # 共用这一份，不需要再挂 /Media。
-      - ./data:/app/data
+      #
+      # ★ :rshared 是「宿主机也能看到 AList 挂载」的关键。
+      #   Docker 默认 rprivate，容器内新建的 FUSE 挂载不会传播回宿主机，
+      #   宿主机看到的只是一个空目录。改成 rshared 后才会双向传播。
+      #
+      #   前提：宿主机这一层必须是 shared 挂载。若容器报错
+      #       path /volume1/... is not a shared mount
+      #   在宿主机执行一次（重启后若丢失，可写进计划任务）：
+      #       sudo mount --make-shared /volume1
+      #   不想改宿主机也行 —— 删掉 :rshared，挂载只在容器内可见。
+      #
+      # ★ 为什么不用 ./data 而是写死 /volume1/...：
+      #   容器内的挂载点是 /app/data/alist，宿主机上的对应路径就是这个 bind
+      #   的源目录。写成绝对路径后，宿主机直接看到
+      #       /volume1/docker/naspilot/data/alist/
+      #   既满足「从主机访问 AList 文件」，又因为仍在 data 卷内，
+      #   插件的数据卷校验照常通过，换机器整目录搬走也能自动恢复。
+      #
+      # ★ 「Docker 备份」插件已默认排除 naspilot/data/alist，不会把
+      #   AList 的远程内容打进备份包（否则体积等于整个网盘）。
+      - /volume1/docker/naspilot/data:/app/data:rshared
 
       # ── 可选：容器管理 / 脚本任务 / 访问 NAS 上的其他目录 ───
       - /var/run/docker.sock:/var/run/docker.sock:rw

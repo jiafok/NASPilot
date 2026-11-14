@@ -40,22 +40,30 @@ RUN pip install --no-cache-dir --no-compile --upgrade yt-dlp && \
     true
 
 
-# ── Stage 3: ffmpeg + ffprobe (static binaries) ───────────
+# ── Stage 3: ffmpeg + ffprobe + rclone (static binaries) ──
 # Multi-arch aware: CI builds linux/amd64 + linux/arm64, so the download must
 # follow TARGETARCH (a BuildKit automatic platform arg).
+#
+# rclone is bundled so the Rclone Mount plugin can create the FUSE mount
+# *inside* the container. Nothing needs to be installed on the NAS itself,
+# which is what makes ./data portable between machines.
 FROM --platform=$BUILDPLATFORM python:3.11-slim AS ffmpeg-static
 
 ARG TARGETARCH
 ARG FFMPEG_BASE=https://johnvansickle.com/ffmpeg/releases
+#: Bump deliberately: rclone changes WebDAV/VFS defaults between releases and
+#: an unexpected jump has bitten mounts before.
+ARG RCLONE_VERSION=1.76.0
+ARG RCLONE_BASE=https://downloads.rclone.org
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl xz-utils && \
+    apt-get install -y --no-install-recommends ca-certificates curl xz-utils unzip && \
     rm -rf /var/lib/apt/lists/* && \
-    case "${TARGETARCH:-amd64}" in \
-        amd64) FF_ARCH=amd64 ;; \
-        arm64) FF_ARCH=arm64 ;; \
-        arm)   FF_ARCH=armhf ;; \
-        *)     echo "unsupported TARGETARCH=${TARGETARCH}" >&2 ; exit 1 ;; \
+    case "${TARGETARCH:-amd64}" in
+        amd64) FF_ARCH=amd64 ; RC_ARCH=amd64 ;;
+        arm64) FF_ARCH=arm64 ; RC_ARCH=arm64 ;;
+        arm)   FF_ARCH=armhf ; RC_ARCH=arm-v7 ;;
+        *)     echo "unsupported TARGETARCH=${TARGETARCH}" >&2 ; exit 1 ;;
     esac && \
     echo "downloading static ffmpeg for ${FF_ARCH}" && \
     curl -fsSL --retry 3 -o /tmp/ff.tar.xz "${FFMPEG_BASE}/ffmpeg-release-${FF_ARCH}-static.tar.xz" && \
@@ -63,7 +71,17 @@ RUN apt-get update && \
     tar -xJf /tmp/ff.tar.xz -C /opt/ffmpeg --strip-components=1 && \
     rm -f /tmp/ff.tar.xz && \
     chmod +x /opt/ffmpeg/ffmpeg /opt/ffmpeg/ffprobe && \
-    ls -lh /opt/ffmpeg/ffmpeg /opt/ffmpeg/ffprobe
+    ls -lh /opt/ffmpeg/ffmpeg /opt/ffmpeg/ffprobe && \
+    echo "downloading rclone v${RCLONE_VERSION} for ${RC_ARCH}" && \
+    curl -fsSL --retry 3 -o /tmp/rclone.zip \
+        "${RCLONE_BASE}/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-${RC_ARCH}.zip" && \
+    mkdir -p /opt/rclone && \
+    unzip -q -o /tmp/rclone.zip -d /opt/rclone && \
+    rm -f /tmp/rclone.zip && \
+    mv /opt/rclone/rclone-v*/rclone /opt/rclone/rclone && \
+    rm -rf /opt/rclone/rclone-v*/ && \
+    chmod +x /opt/rclone/rclone && \
+    ls -lh /opt/rclone/rclone
 
 
 # ── Stage 4: Final runtime (trimmed) ──────────────────────
@@ -73,8 +91,15 @@ ARG VERSION=dev
 ARG WITH_NODE=false
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl tzdata && \
+    apt-get install -y --no-install-recommends ca-certificates curl tzdata fuse3 util-linux && \
     rm -rf /var/lib/apt/lists/*
+
+# FUSE: `rclone mount` needs the fusermount3 helper plus permission to open
+# /dev/fuse. The device node itself has to come from the host (see the
+# `devices:` and `cap_add:` entries in the compose files) — a container can
+# never create it. `user_allow_other` is what lets `--allow-other` work, which
+# in turn is what lets the *host* read the mount.
+RUN echo "user_allow_other" > /etc/fuse.conf
 
 # Optional: JS runtime for yt-dlp YouTube signature solving (~280MB).
 # Off by default; enable with --build-arg WITH_NODE=true
@@ -84,8 +109,9 @@ RUN if [ "$WITH_NODE" = "true" ]; then \
         rm -rf /var/lib/apt/lists/* ; \
     fi
 
-# ffmpeg / ffprobe — static, no shared-library dependency chain
+# ffmpeg / ffprobe / rclone — static, no shared-library dependency chain
 COPY --from=ffmpeg-static /opt/ffmpeg/ffmpeg /opt/ffmpeg/ffprobe /usr/local/bin/
+COPY --from=ffmpeg-static /opt/rclone/rclone /usr/local/bin/rclone
 
 # Copy pre-built site-packages (cleaned)
 COPY --from=backend-deps /usr/local/lib/python3.11/site-packages/ /usr/local/lib/python3.11/site-packages/

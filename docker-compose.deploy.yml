@@ -33,6 +33,17 @@ services:
     ports:
       - "${NASPILOT_PORT:-8082}:8082"
 
+    # ── Rclone 挂载（AList/WebDAV）────────────────────────────
+    # 挂载由容器内的 rclone 创建，宿主机不需要装任何东西。
+    # /dev/fuse 必须由宿主机透传（容器无法自己创建设备节点），
+    # FUSE 挂载需要 SYS_ADMIN。不需要该功能时整块删掉即可。
+    devices:
+      - /dev/fuse:/dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+
     volumes:
       # ── 唯一必须的挂载：数据库 + 日志 + 媒体文件 ─────────────
       # 媒体落在 data/media（容器内 /app/data/media），英语学习直接复用，
@@ -48,7 +59,12 @@ services:
       # 想把媒体放到另一块盘（例如 NAS 的 /volume1/media），加一行即可，
       # 并在「系统设置 → 媒体」把根目录改过去：
       # - /volume1/media:/media-external
-      - ${NASPILOT_DATA:-./data}:/app/data
+      #
+      # ★ :rshared —— 让容器内创建的 rclone FUSE 挂载传播回宿主机。
+      #   Docker 默认 rprivate，宿主机只会看到一个空目录。
+      #   宿主机那层若不是 shared 挂载，需先 `mount --make-shared <dir>`；
+      #   不想改宿主机就删掉 :rshared，挂载仅在容器内可见。
+      - ${NASPILOT_DATA:-./data}:/app/data:rshared
 
       # ── 字幕/封面等附属文件与媒体同目录，无需额外挂载 ───────
 

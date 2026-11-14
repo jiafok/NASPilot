@@ -26,12 +26,23 @@ services:
     ports:
       - "8082:8082"
 
+    # ── Rclone 挂载（AList/WebDAV）────────────────────────────
+    # 挂载在容器内创建，本机不需要装 rclone。缺了这两项，插件里
+    # 「挂载」会直接报 /dev/fuse 不存在。
+    devices:
+      - /dev/fuse:/dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+
     volumes:
       # 源码挂载（只读，避免容器改写工作区）
       - ./backend/app:/app/backend/app:ro
       - ./frontend/dist:/app/backend/frontend/dist:ro
-      # 持久化数据（SQLite + 日志）
-      - ./data:/app/data
+      # 持久化数据（SQLite + 日志）。:rshared 让容器内的 rclone
+      # 挂载能传播到宿主机；只做本地验证时可以去掉该后缀。
+      - ./data:/app/data:rshared
       # 媒体下载目录（容器内固定 /Media，其下自动派生 Video/ 与 Audio/）
       - ./data/media:/Media
       # 容器管理
