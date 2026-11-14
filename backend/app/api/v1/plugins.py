@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -86,7 +86,19 @@ async def disable_plugin(plugin_id: int, user: CurrentUser, db: Annotated[AsyncS
 
 
 @router.post("/{plugin_id}/run", summary="Run plugin action")
-async def run_plugin(plugin_id: int, user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db)]):
+async def run_plugin(
+    plugin_id: int,
+    user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    body: dict | None = Body(default=None),
+):
+    """Run a plugin instance's action.
+
+    ``body`` is optional and plugin-specific: ``{"action": "mount"}`` for
+    Rclone Mount, ignored by plugins that only have one job (log cleanup).
+    Passing it through is what lets the UI trigger something other than the
+    default action — without it every "Run Now" click ran ``status``.
+    """
     result = await db.execute(select(Plugin).where(Plugin.id == plugin_id))
     plugin = result.scalar_one_or_none()
     if not plugin:
@@ -106,7 +118,11 @@ async def run_plugin(plugin_id: int, user: CurrentUser, db: Annotated[AsyncSessi
         raise HTTPException(status_code=400, detail="Plugin runtime is not registered")
 
     runtime = plugin_cls(instance.config if instance else None)
-    result_payload = await runtime.run()
+    result_payload = await runtime.run(**(body or {}))
+    # Not every plugin returns a dict; normalise so the notify/history code
+    # below cannot blow up on a bare string or list.
+    if not isinstance(result_payload, dict):
+        result_payload = {"status": "ok", "result": result_payload}
 
     # ── Notify on failure ──
     if result_payload.get("status") in ("error", "failed"):

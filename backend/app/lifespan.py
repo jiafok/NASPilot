@@ -38,6 +38,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Start scheduler
     await start_scheduler()
 
+    # Rebuild state owned by plugins — right now that means the rclone FUSE
+    # mount, which has to come back after every container restart. Run it as a
+    # background task: mounting talks to the network and must never delay the
+    # web UI becoming reachable.
+    import asyncio
+
+    _startup_tasks.add(asyncio.create_task(registry.run_startup_hooks()))
+
     # Media Download Center — re-register per-subscription schedules
     from app.services.media_center.migrate_legacy import migrate_legacy_youtube
     from app.services.media_center.scheduler import sync_all_schedules

@@ -63,6 +63,15 @@ class PluginBase(ABC):
         """Default entry point for ad-hoc plugin actions."""
         return None
 
+    async def on_startup(self) -> None:
+        """Called for every enabled instance when the application boots.
+
+        Default is a no-op; plugins that own long-lived external state (a FUSE
+        mount, a listener) override it to restore that state. Raising is
+        tolerated — one broken plugin must not block the whole boot.
+        """
+        return None
+
     async def notify(self, title: str, message: str, level: str = "info") -> bool:
         """Send a notification through the Notification Center's default channel.
         
@@ -192,6 +201,56 @@ class PluginRegistry:
                     db.add(p)
                     await db.commit()
                     logger.info(f"Created builtin plugin row: {slug}")
+
+    async def run_startup_hooks(self) -> None:
+        """Call ``on_startup`` on every enabled builtin instance.
+
+        Plugins that own external state (the FUSE mount is the reason this
+        exists) need a chance to rebuild it after a container restart. Runs
+        one instance at a time and never lets a failure propagate: a broken
+        mount must not stop the web UI from coming up.
+        """
+        import asyncio
+
+        from sqlalchemy import select
+
+        from app.core.database import async_session_factory
+        from app.models import Plugin, PluginInstance
+
+        try:
+            async with async_session_factory() as db:
+                result = await db.execute(
+                    select(PluginInstance, Plugin)
+                    .join(Plugin, Plugin.id == PluginInstance.plugin_id)
+                    .where(
+                        PluginInstance.enabled.is_(True),
+                        Plugin.enabled.is_(True),
+                    )
+                    .order_by(PluginInstance.id)
+                )
+                rows = result.all()
+        except Exception:
+            logger.exception("Could not load plugin instances for startup hooks")
+            return
+
+        for instance, plugin in rows:
+            plugin_cls = self._metadata.get(plugin.slug)
+            if plugin_cls is None:
+                continue
+            hook = getattr(plugin_cls, "on_startup", None)
+            if hook is None or hook is PluginBase.on_startup:
+                continue  # inherited no-op, nothing to do
+            try:
+                runtime = plugin_cls(instance.config or {})
+                await asyncio.wait_for(runtime.on_startup(), timeout=60)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Plugin startup hook timed out: %s (%s)", plugin.slug, instance.name
+                )
+            except Exception:
+                logger.exception(
+                    "Plugin startup hook failed: %s (%s)", plugin.slug, instance.name
+                )
 
 
 # Global registry instance
