@@ -9,7 +9,15 @@ const FIELDS: PluginField[] = [
   { key: 'backup_dir', label: '备份输出目录', type: 'string', default: '/volumeUSB1/usbshare/docker_backup', required: true, help: '备份文件输出目录（建议 USB 外接存储）' },
   { key: 'containers', label: '指定应用', type: 'array', placeholder: 'v2raya, qbittorrent', help: '逗号分隔的应用名。留空则备份所有含 config/data/conf/db 的应用。' },
   { key: 'keep_days', label: '保留天数', type: 'number', default: 7, help: '保留最近 N 天的备份，自动清理旧文件' },
-  { key: 'max_app_size_gb', label: '单应用上限(GB)', type: 'number', default: 0, help: '应用数据超过此大小则跳过，0=不限' },
+  { key: 'max_app_size_gb', label: '单应用上限(GB)', type: 'number', default: 0, help: '应用数据超过此大小则跳过，0=不限（按排除后的体积计算）' },
+  {
+    key: 'exclude_paths',
+    label: '排除路径',
+    type: 'array',
+    default: 'naspilot/data/alist, naspilot/data/media',
+    placeholder: 'naspilot/data/alist, naspilot/data/media',
+    help: '相对 docker 根目录（或绝对路径）。默认只排除 NASPilot 自己的 rclone 挂载与媒体库 —— 其它容器里的 media/music 目录属于它们自己的真实数据，不会被排除',
+  },
 ];
 
 export default function DockerBackup() {
@@ -34,7 +42,7 @@ export default function DockerBackup() {
       <PluginConfigForm
         slug="docker_backup"
         title="Docker 应用备份"
-        description="备份 /volume1/docker 下每个应用的配置和数据目录（排除 media/downloads/cache/logs）。完全对应 backup_docker_all_core.sh 的行为。"
+        description="备份 /volume1/docker 下每个应用的配置和数据目录（排除 media/downloads/cache/logs，以及 rclone 挂载点）。完全对应 backup_docker_all_core.sh 的行为。"
         fields={FIELDS}
         onRun={handleRun}
         running={running}

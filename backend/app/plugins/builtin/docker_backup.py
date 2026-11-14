@@ -68,12 +68,71 @@ def _normalize_list(value: Any) -> list[str]:
     return []
 
 
-def _dir_size(path: str) -> int:
-    """Calculate total size of a directory tree (excluding excluded subdirs)."""
+def _norm_rel(path: str, root: str) -> str:
+    """Normalise an exclusion entry to a `/`-separated path relative to root."""
+    raw = str(path).strip().replace("\\", "/")
+    if not raw:
+        return ""
+    root_norm = str(root).replace("\\", "/").rstrip("/")
+    # Accept absolute host paths so the UI can show what users already know.
+    if raw.startswith("/") and root_norm and raw.startswith(root_norm + "/"):
+        raw = raw[len(root_norm) + 1:]
+    return "/".join(p for p in raw.split("/") if p and p != ".")
+
+
+def _is_explicitly_excluded(rel_path: str, excluded: list[str]) -> bool:
+    """True when rel_path is, or sits under, an explicitly excluded path."""
+    if not excluded or not rel_path:
+        return False
+    for item in excluded:
+        if rel_path == item or rel_path.startswith(item + "/"):
+            return True
+    return False
+
+
+def _is_mount_point(path: str) -> bool:
+    """True when ``path`` is itself a mount (FUSE, NFS, SMB, ...).
+
+    An rclone mount looks like an ordinary directory, so walking into it
+    copies the whole remote — or blocks for hours while it streams. This is
+    the only reliable check: the mount table knows, directory listings do not.
+    """
+    try:
+        return os.path.ismount(path)
+    except OSError:
+        return False
+
+
+def _is_pruned_dir(name: str, parent: str = "") -> bool:
+    """Should this directory (and everything under it) be skipped entirely?
+
+    Deliberately narrow: only regenerable caches and mount points. A directory
+    merely *named* ``media``/``music``/``movies`` is NOT excluded — inside
+    another container (AList, for instance) that is real data. NASPilot's own
+    heavy paths are excluded by full relative path via ``exclude_paths``.
+    """
+    if _is_excluded_dir(name):
+        return True
+    return bool(parent) and _is_mount_point(parent)
+
+
+def _dir_size(path: str, excluded: list[str] | None = None) -> int:
+    """Total size of a directory tree, skipping pruned dirs, mounts and exclusions."""
+    excluded = excluded or []
     total = 0
     for root, dirs, files in os.walk(path, topdown=True):
-        dirs[:] = [d for d in dirs if not _is_excluded_dir(d)]
+        pruned: list[str] = []
+        for d in dirs:
+            full = os.path.join(root, d)
+            rel = os.path.relpath(full, path).replace("\\", "/")
+            if _is_pruned_dir(d, full) or _is_explicitly_excluded(rel, excluded):
+                continue
+            pruned.append(d)
+        dirs[:] = pruned
         for fname in files:
+            rel_file = os.path.relpath(os.path.join(root, fname), path).replace("\\", "/")
+            if _is_explicitly_excluded(rel_file, excluded):
+                continue
             try:
                 total += os.path.getsize(os.path.join(root, fname))
             except OSError:
@@ -81,14 +140,37 @@ def _dir_size(path: str) -> int:
     return total
 
 
-def _copy_app(src: str, dst: str, app_name: str) -> dict[str, Any]:
-    """Copy an app directory tree, pruning excluded paths. Mirrors rsync logic."""
+def _copy_app(
+    src: str, dst: str, app_name: str, excluded: list[str] | None = None
+) -> dict[str, Any]:
+    """Copy an app directory tree, pruning excluded paths. Mirrors rsync logic.
+
+    Mount points are pruned: an rclone/network mount is a live view of data that
+    lives elsewhere, so copying it either explodes the archive or streams the
+    whole remote over the network.
+    """
+    excluded = excluded or []
     copied_files = 0
+    skipped_mounts: list[str] = []
+    skipped_excluded: list[str] = []
     os.makedirs(dst, exist_ok=True)
 
     for root, dirs, files in os.walk(src, topdown=True):
-        # Prune excluded subdirectories in-place
-        dirs[:] = [d for d in dirs if not _is_excluded_dir(d)]
+        # Prune excluded subdirectories and mount points in-place.
+        pruned: list[str] = []
+        for d in dirs:
+            full = os.path.join(root, d)
+            rel_dir = os.path.relpath(full, src).replace("\\", "/")
+            if _is_mount_point(full):
+                skipped_mounts.append(rel_dir)
+                continue
+            if _is_pruned_dir(d):
+                continue
+            if _is_explicitly_excluded(rel_dir, excluded):
+                skipped_excluded.append(rel_dir)
+                continue
+            pruned.append(d)
+        dirs[:] = pruned
 
         for fname in files:
             src_file = os.path.join(root, fname)
@@ -96,11 +178,12 @@ def _copy_app(src: str, dst: str, app_name: str) -> dict[str, Any]:
             rel = os.path.relpath(src_file, src).replace("\\", "/")
             parts = rel.split("/")
 
-            # Top-level exclusion
-            if _should_skip_root(parts[0]):
-                continue
-            # Any-level exclusion
+            # Any-level cache/tmp/log exclusion. No name-based media check:
+            # another container's `media` folder is its real data.
             if any(_is_excluded_dir(p) for p in parts):
+                continue
+            # User-configured exclusions, e.g. an rclone mount point
+            if _is_explicitly_excluded(rel, excluded):
                 continue
 
             target = os.path.join(dst, rel)
@@ -111,7 +194,12 @@ def _copy_app(src: str, dst: str, app_name: str) -> dict[str, Any]:
             except OSError as e:
                 logger.warning(f"Copy failed: {src_file} — {e}")
 
-    return {"app": app_name, "files": copied_files}
+    return {
+        "app": app_name,
+        "files": copied_files,
+        "skipped_mounts": skipped_mounts,
+        "skipped_excluded": sorted(set(skipped_excluded)),
+    }
 
 
 def _backup_sync(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -122,6 +210,13 @@ def _backup_sync(cfg: dict[str, Any]) -> dict[str, Any]:
     keep_days = int(cfg.get("keep_days", 7))
     containers_filter: list[str] = _normalize_list(cfg.get("containers"))
     max_app_size_gb = float(cfg.get("max_app_size_gb", 0) or 0)
+    # Explicit exclusions: rclone mounts, big media folders, etc.
+    excluded_paths = [
+        p for p in (_norm_rel(v, docker_root) for v in _normalize_list(cfg.get("exclude_paths")))
+        if p
+    ]
+    if excluded_paths:
+        logger.info("Excluding paths: %s", ", ".join(excluded_paths))
 
     if not os.path.isdir(docker_root):
         logger.warning("docker_root not found: %s", docker_root)
@@ -136,6 +231,8 @@ def _backup_sync(cfg: dict[str, Any]) -> dict[str, Any]:
 
     apps: list[dict[str, Any]] = []
     total_files = 0
+    skipped_mounts: list[str] = []
+    skipped_size: list[dict[str, Any]] = []
 
     try:
         for entry in sorted(os.listdir(docker_root)):
@@ -149,9 +246,27 @@ def _backup_sync(cfg: dict[str, Any]) -> dict[str, Any]:
                 continue
 
             # Skip top-level media/excluded dirs entirely
-            if app_name.lower() in EXCLUDED_TOP_DIRS:
+            if _should_skip_root(app_name):
                 logger.info(f"Skipping (excluded): {app_name}")
                 continue
+
+            # Skip the directory itself when it is a mount: backing it up would
+            # copy whatever is mounted over it (rclone remote, NFS share, ...).
+            if _is_mount_point(app_path):
+                logger.info(f"Skipping (mount point): {app_name}")
+                skipped_mounts.append(app_name)
+                continue
+
+            # Exclusion entries are declared relative to docker_root; strip the
+            # app prefix so they match inside this app's own tree.
+            if app_name in excluded_paths:
+                logger.info(f"Skipping (excluded path): {app_name}")
+                continue
+            relative_exclusions = [
+                p[len(app_name) + 1:]
+                for p in excluded_paths
+                if p.startswith(app_name + "/")
+            ]
 
             # Must have at least one config/data/conf/db subdirectory OR
             # contain files directly (for simple backup scenarios)
@@ -168,10 +283,25 @@ def _backup_sync(cfg: dict[str, Any]) -> dict[str, Any]:
             else:
                 logger.info(f"Backing up: {app_name}")
 
+            # Enforce the size cap that the config schema has always advertised.
+            # Measured after pruning, so media/cache/mounts do not inflate it.
+            if max_app_size_gb > 0:
+                size_bytes = _dir_size(app_path, relative_exclusions)
+                size_gb = size_bytes / (1024 ** 3)
+                if size_gb > max_app_size_gb:
+                    logger.info(
+                        "Skipping (size %.1f GB > %.1f GB limit): %s",
+                        size_gb, max_app_size_gb, app_name,
+                    )
+                    skipped_size.append(
+                        {"app": app_name, "size_gb": round(size_gb, 1)}
+                    )
+                    continue
+
             app_dest = os.path.join(tmp_dir, app_name)
             logger.info(f"Collecting: {app_name}")
 
-            result = _copy_app(app_path, app_dest, app_name)
+            result = _copy_app(app_path, app_dest, app_name, relative_exclusions)
 
             # Copy compose / .env files
             for fname in COMPOSE_FILES:
@@ -214,6 +344,8 @@ def _backup_sync(cfg: dict[str, Any]) -> dict[str, Any]:
             "apps_count": len(apps),
             "total_files": total_files,
             "pruned_old": pruned,
+            "skipped_mounts": skipped_mounts,
+            "skipped_size": skipped_size,
             "tag": tag,
         }
 
@@ -239,6 +371,14 @@ class DockerBackupPlugin(PluginBase):
             "keep_days": 7,
             "containers": [],
             "max_app_size_gb": 0,
+            # Paths (relative to docker_root, or absolute) never backed up.
+            # The rclone mount lives inside the naspilot data dir, so its
+            # contents are a remote copy — archiving it is pure waste.
+            # Full paths relative to docker_root. Both are NASPilot-owned and
+            # huge: `alist` is the rclone remote view, `media` is the
+            # re-downloadable library. Other containers are untouched — a
+            # folder named `media` inside them is their own data.
+            "exclude_paths": ["naspilot/data/alist", "naspilot/data/media"],
         }
 
     def get_config_schema(self) -> dict[str, Any]:
@@ -249,7 +389,8 @@ class DockerBackupPlugin(PluginBase):
                 "backup_dir": {"type": "string", "title": "备份输出目录"},
                 "keep_days": {"type": "integer", "title": "保留天数"},
                 "containers": {"type": "array", "items": {"type": "string"}, "title": "只备份指定容器（空=全部）"},
-                "max_app_size_gb": {"type": "number", "title": "单个 App 数据上限(GB)，0=不限"},
+                "max_app_size_gb": {"type": "number", "title": "单个 App 数据上限(GB)，超限跳过，0=不限"},
+                "exclude_paths": {"type": "array", "items": {"type": "string"}, "title": "排除路径（相对 docker 根目录或绝对路径）；默认仅排除 naspilot 自己的 alist 挂载与媒体库"},
             },
         }
 
