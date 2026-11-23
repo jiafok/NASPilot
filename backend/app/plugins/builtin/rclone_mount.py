@@ -28,6 +28,7 @@ What the compose file must provide
 from __future__ import annotations
 
 import asyncio
+import errno
 import logging
 import os
 import shutil
@@ -45,6 +46,12 @@ FUSE_DEVICE = "/dev/fuse"
 
 #: Names rclone's CLI has used for the unmount helper across fuse2/fuse3.
 UNMOUNT_HELPERS = ("fusermount3", "fusermount")
+
+#: errno values that mean the FUSE daemon behind a path has exited. The
+#: kernel keeps the entry in /proc/mounts but every syscall on the path
+#: fails — the classic "Transport endpoint is not connected" (ENOTCONN).
+#: ENOTDIR is deliberately excluded: it just means "mount point is a file".
+STALE_ERRNOS = (errno.ENOTCONN, errno.ESTALE, errno.EIO)
 
 ACTIONS = ("status", "mount", "unmount", "restart", "ensure")
 
@@ -257,39 +264,61 @@ class RcloneMountPlugin(PluginBase):
 
     # ── probes ────────────────────────────────────────────────────────
 
-    async def _is_mounted(self, mount_point: str) -> bool:
-        """True when ``mount_point`` is a live mount, not just an empty dir."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "mountpoint", "-q", mount_point,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await asyncio.wait_for(proc.wait(), timeout=5)
-            return proc.returncode == 0
-        except (FileNotFoundError, asyncio.TimeoutError, ProcessLookupError):
-            return False
-
     @staticmethod
-    def _mount_source(mount_point: str) -> str:
-        """Source field from /proc/mounts for the exact mount point.
+    def _mount_entries(mount_point: str) -> list[str]:
+        """Source fields of every /proc/mounts entry mounted *exactly* here.
 
-        Compares resolved paths: a configured relative mount point otherwise
-        never matches the absolute entry the kernel reports.
+        A dead FUSE mount is still listed by the kernel even though ``stat``
+        on the path fails, so ``mountpoint -q`` says "not a mountpoint" while
+        the directory is in fact occupied. /proc/mounts is the only way to
+        tell "never mounted" apart from "mounted but broken".
+
+        Resolved paths are compared: a configured relative mount point would
+        otherwise never match the absolute entry the kernel reports.
         """
         try:
             target = os.path.realpath(mount_point)
         except OSError:
             target = mount_point
+        found: list[str] = []
         try:
             with open("/proc/mounts", "r", encoding="utf-8", errors="replace") as fh:
                 for line in fh:
                     parts = line.split()
                     if len(parts) >= 3 and os.path.realpath(parts[1]) == target:
-                        return parts[0]
+                        found.append(parts[0])
         except OSError:
             pass
-        return ""
+        return found
+
+    @staticmethod
+    def _is_connected(path_text: str) -> bool:
+        """True when the path can be stat'ed, i.e. the FUSE daemon is alive."""
+        try:
+            os.stat(path_text)
+            return True
+        except OSError:
+            return False
+
+    async def _mount_state(self, mount_point: str) -> tuple[str, str]:
+        """Classify the mount point as ``mounted``, ``stale`` or ``unmounted``.
+
+        ``mountpoint -q`` stat()s the path, so a mount whose rclone process
+        died makes it fail with ENOTCONN and the plugin wrongly concluded
+        "未挂载" — then tried to mount into the corpse, which the kernel
+        answers with "Transport endpoint is not connected". ``stale`` is that
+        third state, and the only way out is to unmount before mounting again.
+        """
+        entries = self._mount_entries(mount_point)
+        if not entries:
+            return "unmounted", ""
+        state = "mounted" if self._is_connected(mount_point) else "stale"
+        return state, entries[0]
+
+    async def _is_mounted(self, mount_point: str) -> bool:
+        """True only for a *live* mount — a dead FUSE mount is not usable."""
+        state, _source = await self._mount_state(mount_point)
+        return state == "mounted"
 
     def _preflight(self, cfg: dict[str, Any]) -> list[str]:
         """Environment problems that would make `rclone mount` fail."""
@@ -326,14 +355,15 @@ class RcloneMountPlugin(PluginBase):
             return False
 
     @staticmethod
-    def _dir_writable(path: Path) -> tuple[bool, str]:
+    def _dir_writable(path: Path) -> tuple[bool, str, int]:
+        """Probe writability and keep errno: ENOTCONN identifies a corpse."""
         try:
             path.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryFile(dir=path):
                 pass
-            return True, ""
+            return True, "", 0
         except OSError as exc:
-            return False, str(exc)
+            return False, str(exc), exc.errno or 0
 
     # ── actions ───────────────────────────────────────────────────────
 
@@ -375,8 +405,8 @@ class RcloneMountPlugin(PluginBase):
 
     async def _status(self, cfg: dict[str, Any]) -> dict[str, Any]:
         mount_point = cfg["mount_point"]
-        mounted = await self._is_mounted(mount_point)
-        source = self._mount_source(mount_point) if mounted else ""
+        state, source = await self._mount_state(mount_point)
+        mounted = state == "mounted"
 
         entry_count = 0
         cache_bytes = 0
@@ -395,10 +425,17 @@ class RcloneMountPlugin(PluginBase):
                             pass
 
         problems = self._preflight(cfg)
+        if state == "stale":
+            problems.append(
+                f"{mount_point} 是失效的 FUSE 挂载（rclone 进程已退出，"
+                "目录不可访问）—— 执行「重新挂载」或「卸载」即可自动清理"
+            )
         return {
             "status": "ok",
             "action": "status",
             "mounted": mounted,
+            "mount_state": state,
+            "stale_mount": state == "stale",
             "mount_point": mount_point,
             "remote": self._remote_spec(cfg),
             "mount_source": source,
@@ -425,6 +462,90 @@ class RcloneMountPlugin(PluginBase):
         except (FileNotFoundError, asyncio.TimeoutError, ProcessLookupError):
             return ""
 
+    async def _force_unmount(self, mount_point: str) -> tuple[bool, str]:
+        """Lazily drop a mount, then verify against /proc/mounts.
+
+        ``-z`` / ``-l`` are lazy on purpose: a stale FUSE mount cannot be
+        unmounted normally because the kernel first has to talk to the (dead)
+        daemon and fails. ``umount -l`` is the fallback for mounts this
+        container did not create — with ``:rshared`` the mount propagates to
+        the host, so after a container recreate the entry lives in the host's
+        namespace with no rclone process behind it.
+        """
+        notes: list[str] = []
+
+        helper = next((h for h in UNMOUNT_HELPERS if shutil.which(h)), None)
+        if helper is not None:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    helper, "-uz", mount_point,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=20)
+                if proc.returncode != 0:
+                    notes.append(
+                        f"{helper} -uz: "
+                        f"{stderr.decode(errors='replace').strip()[:200]}"
+                    )
+            except (FileNotFoundError, asyncio.TimeoutError, ProcessLookupError) as exc:
+                notes.append(f"{helper}: {exc}")
+            await asyncio.sleep(0.3)
+
+        if self._mount_entries(mount_point) and shutil.which("umount"):
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "umount", "-l", mount_point,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=20)
+                if proc.returncode != 0:
+                    notes.append(
+                        f"umount -l: "
+                        f"{stderr.decode(errors='replace').strip()[:200]}"
+                    )
+            except (FileNotFoundError, asyncio.TimeoutError, ProcessLookupError) as exc:
+                notes.append(f"umount: {exc}")
+            await asyncio.sleep(0.3)
+
+        if self._mount_entries(mount_point):
+            logger.warning(
+                "Rclone 强制卸载失败: %s (%s)", mount_point, "; ".join(notes)
+            )
+            return False, "; ".join(notes)
+
+        logger.info("Rclone 已清除失效挂载: %s", mount_point)
+        return True, ""
+
+    @staticmethod
+    def _stale_error(
+        mount_point: str, source: str, detail: str
+    ) -> dict[str, Any]:
+        """Explain a dead FUSE mount the in-container cleanup could not drop.
+
+        Usually the mount was created by the *host* namespace (a ``:rshared``
+        bind propagates it out and it outlives the container), so the
+        container may lack the authority to remove it.
+        """
+        suffix = f"：{detail}" if detail else ""
+        return {
+            "status": "error",
+            "action": "mount",
+            "mounted": False,
+            "stale_mount": True,
+            "mount_point": mount_point,
+            "mount_source": source,
+            "error": (
+                "挂载点是失效的 FUSE 挂载（rclone 进程已退出，目录已不可访问）："
+                f"{mount_point}；自动清理失败{suffix}"
+            ),
+            "hint": (
+                "在 NAS 宿主机执行 sudo umount -l <宿主机 data 目录>/alist，"
+                "或重建容器（docker compose up -d --force-recreate）后重新挂载"
+            ),
+        }
+
     async def _mount(self, cfg: dict[str, Any]) -> dict[str, Any]:
         mount_point = cfg["mount_point"]
 
@@ -439,7 +560,10 @@ class RcloneMountPlugin(PluginBase):
                 "mount_point": mount_point,
             }
 
-        if await self._is_mounted(mount_point):
+        state, source = await self._mount_state(mount_point)
+        recovered_from = ""
+
+        if state == "mounted":
             logger.info("Rclone 挂载：%s 已挂载，跳过", mount_point)
             return {
                 "status": "ok",
@@ -450,7 +574,30 @@ class RcloneMountPlugin(PluginBase):
                 "remote": self._remote_spec(cfg),
             }
 
-        ok, err = self._dir_writable(Path(mount_point))
+        if state == "stale":
+            # The rclone daemon is gone (container recreated, OOM, network
+            # drop) but the kernel still holds the FUSE mount: every access
+            # fails with ENOTCONN — exactly the "挂载点不可写: [Errno 107]"
+            # this plugin used to report, with no way out.
+            logger.warning(
+                "Rclone 挂载：%s 是失效挂载（source=%s），先卸载再重建",
+                mount_point, source or "?",
+            )
+            removed, detail = await self._force_unmount(mount_point)
+            if not removed:
+                return self._stale_error(mount_point, source, detail)
+            recovered_from = "stale"
+
+        ok, err, err_no = self._dir_writable(Path(mount_point))
+        if not ok and err_no in STALE_ERRNOS:
+            # /proc/mounts did not match but the directory is still a corpse
+            # (e.g. the entry was renamed by the host). Clean and retry once.
+            removed, detail = await self._force_unmount(mount_point)
+            if removed:
+                recovered_from = recovered_from or "stale"
+                ok, err, err_no = self._dir_writable(Path(mount_point))
+            if not ok:
+                return self._stale_error(mount_point, "", detail)
         if not ok:
             return {
                 "status": "error",
@@ -511,6 +658,7 @@ class RcloneMountPlugin(PluginBase):
                 "status": "ok",
                 "action": "mount",
                 "mounted": True,
+                "recovered_from": recovered_from,
                 "mount_point": mount_point,
                 "remote": self._remote_spec(cfg),
                 "cache_size": cfg["cache_size"],
@@ -534,7 +682,8 @@ class RcloneMountPlugin(PluginBase):
 
     async def _unmount(self, cfg: dict[str, Any]) -> dict[str, Any]:
         mount_point = cfg["mount_point"]
-        if not await self._is_mounted(mount_point):
+        state, source = await self._mount_state(mount_point)
+        if state == "unmounted":
             return {
                 "status": "ok",
                 "action": "unmount",
@@ -543,39 +692,31 @@ class RcloneMountPlugin(PluginBase):
                 "mount_point": mount_point,
             }
 
-        helper = next((h for h in UNMOUNT_HELPERS if shutil.which(h)), None)
-        if helper is None:
+        # Both "mounted" and "stale" go through _force_unmount: a dead FUSE
+        # mount still appears in /proc/mounts, so it must be cleared before
+        # any re-mount can succeed.
+        removed, detail = await self._force_unmount(mount_point)
+        if removed:
+            logger.info("Rclone 已卸载: %s (%s)", mount_point, state)
             return {
-                "status": "error",
+                "status": "ok",
                 "action": "unmount",
-                "error": "找不到 fusermount3/fusermount，无法卸载",
+                "unmounted": True,
+                "recovered_from": state if state == "stale" else "",
+                "mount_source": source,
                 "mount_point": mount_point,
             }
 
-        # -z: lazy unmount. A busy VFS mount otherwise fails with EBUSY, and
-        # the user has no shell inside the container to go find the culprit.
-        proc = await asyncio.create_subprocess_exec(
-            helper, "-uz", mount_point,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=20)
-        await asyncio.sleep(0.5)  # the kernel needs a moment to drop the mount
-        unmounted = not await self._is_mounted(mount_point)
-
-        if unmounted:
-            logger.info("Rclone 已卸载: %s", mount_point)
-        else:
-            logger.warning(
-                "Rclone 卸载失败: %s", stderr.decode(errors="replace").strip()[:300]
-            )
-
+        logger.warning("Rclone 卸载失败: %s (%s)", mount_point, detail[:300])
         return {
-            "status": "ok" if unmounted else "error",
+            "status": "error",
             "action": "unmount",
-            "unmounted": unmounted,
+            "unmounted": False,
+            "stale_mount": state == "stale",
             "mount_point": mount_point,
-            "stderr": stderr.decode(errors="replace").strip()[:500] if not unmounted else "",
+            "mount_source": source,
+            "error": f"卸载失败（{state}）: {detail[:300]}",
+            "stderr": detail[:500],
         }
 
     @staticmethod

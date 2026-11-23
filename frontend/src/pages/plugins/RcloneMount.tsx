@@ -163,6 +163,7 @@ export default function RcloneMount() {
   };
 
   const mounted: boolean = !!status?.mounted;
+  const stale: boolean = !!status?.stale_mount;
   const problems: string[] = Array.isArray(status?.problems) ? status.problems : [];
 
   return (
@@ -178,8 +179,8 @@ export default function RcloneMount() {
             title="挂载控制"
             style={{ marginBottom: 16 }}
             extra={
-              <Tag color={mounted ? 'green' : 'default'}>
-                {mounted ? '已挂载' : '未挂载'}
+              <Tag color={stale ? 'red' : mounted ? 'green' : 'default'}>
+                {stale ? '挂载已失效' : mounted ? '已挂载' : '未挂载'}
               </Tag>
             }
           >
@@ -199,6 +200,23 @@ export default function RcloneMount() {
               ))}
             </Space>
 
+            {stale && (
+              <Alert
+                type="error"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message="挂载点已失效（Transport endpoint is not connected）"
+                description={
+                  <span>
+                    rclone 进程已经退出，但内核仍保留着挂载项，所以目录不可读写。
+                    点「重新挂载」会自动卸载残留的挂载后重建；如果仍然失败，
+                    请在 NAS 宿主机执行 <Text code>sudo umount -l &lt;data目录&gt;/alist</Text>，
+                    或 <Text code>docker compose up -d --force-recreate</Text>。
+                  </span>
+                }
+              />
+            )}
+
             {problems.length > 0 && (
               <Alert
                 type="warning"
@@ -216,6 +234,15 @@ export default function RcloneMount() {
             <Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }} bordered>
               <Descriptions.Item label="挂载点">
                 <Text code copyable>{status?.mount_point || '-'}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="状态">
+                {stale ? (
+                  <Tag color="red">失效（需重新挂载）</Tag>
+                ) : mounted ? (
+                  <Tag color="green">正常</Tag>
+                ) : (
+                  <Tag>未挂载</Tag>
+                )}
               </Descriptions.Item>
               <Descriptions.Item label="远程">{status?.remote || '-'}</Descriptions.Item>
               <Descriptions.Item label="挂载源">{status?.mount_source || '-'}</Descriptions.Item>

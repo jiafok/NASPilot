@@ -1,3 +1,4 @@
+import errno
 import json
 import tempfile
 import unittest
@@ -29,10 +30,103 @@ class RcloneMountTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "file"
             path.write_text("keep", encoding="utf-8")
-            writable, error = RcloneMountPlugin._dir_writable(path)
+            writable, error, err_no = RcloneMountPlugin._dir_writable(path)
             self.assertFalse(writable)
             self.assertTrue(error)
+            self.assertNotEqual(err_no, errno.ENOTCONN)
             self.assertEqual(path.read_text(encoding="utf-8"), "keep")
+
+    async def test_dead_fuse_mount_is_stale_not_unmounted(self):
+        """A kernel mount whose rclone process died must not read as "absent".
+
+        `mountpoint -q` stat()s the path, so it fails with ENOTCONN and the
+        plugin used to treat the corpse as an ordinary empty directory.
+        """
+        plugin = RcloneMountPlugin({"mount_point": "/app/data/alist"})
+        with patch.object(plugin, "_mount_entries", return_value=["alist:"]), patch.object(
+            plugin, "_is_connected", return_value=False
+        ):
+            self.assertEqual(await plugin._mount_state("/app/data/alist"), ("stale", "alist:"))
+            self.assertFalse(await plugin._is_mounted("/app/data/alist"))
+
+        with patch.object(plugin, "_mount_entries", return_value=["alist:"]), patch.object(
+            plugin, "_is_connected", return_value=True
+        ):
+            self.assertEqual(await plugin._mount_state("/app/data/alist"), ("mounted", "alist:"))
+            self.assertTrue(await plugin._is_mounted("/app/data/alist"))
+
+        with patch.object(plugin, "_mount_entries", return_value=[]):
+            self.assertEqual(await plugin._mount_state("/app/data/alist"), ("unmounted", ""))
+            self.assertFalse(await plugin._is_mounted("/app/data/alist"))
+
+    async def test_stale_mount_is_unmounted_then_remounted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            mount = Path(directory) / "alist"
+            mount.mkdir()
+            plugin = RcloneMountPlugin({"mount_point": str(mount)})
+            plugin._preflight = MagicMock(return_value=[])
+            plugin._force_unmount = AsyncMock(return_value=(True, ""))
+            plugin._write_config = AsyncMock(side_effect=RuntimeError("config reached"))
+            with patch.object(plugin, "_mount_state", AsyncMock(return_value=("stale", "alist:"))):
+                result = await plugin.run(action="mount")
+
+            plugin._force_unmount.assert_awaited_once_with(str(mount))
+            plugin._write_config.assert_awaited_once()
+            self.assertEqual(result["error"], "config reached")
+
+    async def test_stale_mount_reports_actionable_error_when_cleanup_fails(self):
+        plugin = RcloneMountPlugin({"mount_point": "/app/data/alist"})
+        plugin._preflight = MagicMock(return_value=[])
+        plugin._force_unmount = AsyncMock(return_value=(False, "umount -l: Device or resource busy"))
+        with patch.object(plugin, "_mount_state", AsyncMock(return_value=("stale", "alist:"))):
+            result = await plugin.run(action="mount")
+
+        self.assertEqual(result["status"], "error")
+        self.assertTrue(result["stale_mount"])
+        self.assertIn("umount -l", result["error"])
+        self.assertIn("umount -l", result["hint"])
+
+    async def test_enotconn_writability_triggers_forced_cleanup(self):
+        """ENOTCONN from the probe is proof of a corpse even if /proc/mounts missed."""
+        plugin = RcloneMountPlugin({"mount_point": "/app/data/alist"})
+        plugin._preflight = MagicMock(return_value=[])
+        plugin._force_unmount = AsyncMock(return_value=(True, ""))
+        probes = iter(
+            [
+                (False, "[Errno 107] Transport endpoint is not connected", errno.ENOTCONN),
+                (True, "", 0),
+            ]
+        )
+        plugin._dir_writable = MagicMock(side_effect=lambda _path: next(probes))
+        plugin._write_config = AsyncMock(side_effect=RuntimeError("config reached"))
+        with patch.object(plugin, "_mount_state", AsyncMock(return_value=("unmounted", ""))):
+            await plugin.run(action="mount")
+
+        plugin._force_unmount.assert_awaited_once()
+        self.assertEqual(plugin._dir_writable.call_count, 2)
+
+    async def test_status_flags_stale_mount(self):
+        plugin = RcloneMountPlugin({"mount_point": "/app/data/alist"})
+        plugin._preflight = MagicMock(return_value=[])
+        with patch.object(plugin, "_mount_state", AsyncMock(return_value=("stale", "alist:"))):
+            result = await plugin.run(action="status")
+
+        self.assertFalse(result["mounted"])
+        self.assertTrue(result["stale_mount"])
+        self.assertEqual(result["mount_state"], "stale")
+        self.assertFalse(result["ready"])
+        self.assertTrue(any("失效的 FUSE 挂载" in p for p in result["problems"]))
+
+    async def test_unmount_clears_a_stale_mount(self):
+        plugin = RcloneMountPlugin({"mount_point": "/app/data/alist"})
+        plugin._force_unmount = AsyncMock(return_value=(True, ""))
+        with patch.object(plugin, "_mount_state", AsyncMock(return_value=("stale", "alist:"))):
+            result = await plugin.run(action="unmount")
+
+        plugin._force_unmount.assert_awaited_once_with("/app/data/alist")
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["unmounted"])
+        self.assertEqual(result["recovered_from"], "stale")
 
 
 class CloudflarePagesTests(unittest.IsolatedAsyncioTestCase):
