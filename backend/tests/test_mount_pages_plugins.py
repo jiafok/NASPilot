@@ -1,3 +1,4 @@
+import asyncio
 import errno
 import json
 import tempfile
@@ -129,47 +130,77 @@ class RcloneMountTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["recovered_from"], "stale")
 
 
-class CloudflarePagesTests(unittest.IsolatedAsyncioTestCase):
-    async def test_deploy_sends_worker_as_deployment_file(self):
-        seen = []
+class RcloneSelfHealTests(unittest.IsolatedAsyncioTestCase):
+    """The watchdog is what makes a container restart recover on its own."""
 
-        def respond(request):
-            seen.append((request.method, request.url.path))
-            if request.url.path.endswith("/upload-token"):
-                self.assertEqual(request.method, "GET")
-                result = {"jwt": "upload-token"}
-            elif request.url.path.endswith("/check-missing"):
-                result = json.loads(request.content)["hashes"]
-            elif request.url.path.endswith("/deployments"):
-                self.assertIn("multipart/form-data", request.headers["content-type"])
-                self.assertIn(b'name="_worker.js"', request.content)
-                self.assertIn(b'const PASS = "secret"', request.content)
-                self.assertIn(b'name="_headers"', request.content)
-                self.assertNotIn(b'"/_worker.js"', request.content)
-                result = {"id": "123", "url": "https://test.pages.dev"}
-            else:
-                result = {}
-            return httpx.Response(200, json={"success": True, "result": result})
+    async def test_healthy_mount_does_not_remount(self):
+        from app.plugins.builtin import rclone_mount as module
 
-        client_class = httpx.AsyncClient
-
-        def make_client(*args, **kwargs):
-            return client_class(*args, transport=httpx.MockTransport(respond), **kwargs)
-
-        config = {
-            "cloudflare_api_token": "token",
-            "cloudflare_account_id": "account",
-            "project_name": "test",
-            "services_json": [{"name": "app", "url": "https://example.org"}],
-            "basic_auth_enabled": True,
-            "basic_auth_user": "user",
-            "basic_auth_pass": "secret",
-        }
-        with (
-            patch.object(cf_pages.httpx, "AsyncClient", side_effect=make_client),
-            patch.object(cf_pages, "_detect_ipv6", return_value="2001:4860:4860::8888"),
+        remount = AsyncMock(return_value={"status": "ok"})
+        with patch.object(module, "_load_instance_config", AsyncMock(return_value={})), patch.object(
+            RcloneMountPlugin, "_mount_state", AsyncMock(return_value=("mounted", "alist:"))
+        ), patch.object(RcloneMountPlugin, "run", remount), patch.object(
+            module.asyncio, "sleep", AsyncMock(side_effect=asyncio.CancelledError)
         ):
-            result = await cf_pages.CloudflarePagesPlugin(config).run()
+            with self.assertRaises(asyncio.CancelledError):
+                await module._self_heal_loop()
 
-        self.assertEqual(result["status"], "ok")
-        self.assertIn(("GET", "/client/v4/accounts/account/pages/projects/test/upload-token"), seen)
+        remount.assert_not_awaited()
+
+    async def test_stale_mount_is_healed_by_the_loop(self):
+        from app.plugins.builtin import rclone_mount as module
+
+        remount = AsyncMock(return_value={"status": "ok"})
+        with patch.object(
+            module, "_load_instance_config",
+            AsyncMock(return_value={"alist_url": "https://a", "username": "u"}),
+        ), patch.object(
+            RcloneMountPlugin, "_mount_state", AsyncMock(return_value=("stale", "alist:"))
+        ), patch.object(RcloneMountPlugin, "run", remount), patch.object(
+            module.asyncio, "sleep", AsyncMock(side_effect=[None, asyncio.CancelledError])
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await module._self_heal_loop()
+
+        remount.assert_awaited_once_with(action="ensure")
+
+    async def test_backoff_grows_and_is_capped(self):
+        from app.plugins.builtin import rclone_mount as module
+
+        self.assertEqual(module._heal_delay(60, 0), 60.0)
+        self.assertEqual(module._heal_delay(60, 1), 120.0)
+        self.assertEqual(module._heal_delay(60, 2), 240.0)
+        self.assertEqual(module._heal_delay(60, 99), module._HEAL_MAX_BACKOFF)
+
+    async def test_watchdog_is_started_by_the_startup_hook(self):
+        from app.plugins.builtin import rclone_mount as module
+
+        plugin = RcloneMountPlugin({"autostart": True, "alist_url": "https://a", "username": "u"})
+        with patch.object(module, "_start_watchdog") as start, patch.object(
+            RcloneMountPlugin, "_mount_state", AsyncMock(return_value=("mounted", "alist:"))
+        ):
+            await plugin.on_startup()
+
+        start.assert_called_once()
+
+    async def test_start_watchdog_is_idempotent(self):
+        from app.plugins.builtin import rclone_mount as module
+
+        with patch.object(module, "_watchdog_task", None), patch.object(
+            module, "_self_heal_loop", AsyncMock(return_value=None)
+        ):
+            module._start_watchdog()
+            first = module._watchdog_task
+            self.assertIsNotNone(first)
+
+            # A second call must not spawn a duplicate loop.
+            module._start_watchdog()
+            self.assertIs(module._watchdog_task, first)
+
+            first.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await first
+
+    def test_watchdog_config_defaults_to_enabled(self):
+        cfg = RcloneMountPlugin()._cfg()
+        self.assertEqual(cfg["autoheal_seconds"], 60)

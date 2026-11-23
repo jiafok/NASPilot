@@ -46,6 +46,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     _startup_tasks.add(asyncio.create_task(registry.run_startup_hooks()))
 
+    # Keep the FUSE mount alive for the whole process lifetime. The startup
+    # hook above only fires when an enabled plugin instance already exists, so
+    # an instance created later (or a boot-time mount that failed because the
+    # network was not up yet) needs a watchdog that re-reads the config.
+    from app.plugins.builtin.rclone_mount import _start_watchdog
+
+    _start_watchdog()
+
     # Media Download Center — re-register per-subscription schedules
     from app.services.media_center.migrate_legacy import migrate_legacy_youtube
     from app.services.media_center.scheduler import sync_all_schedules

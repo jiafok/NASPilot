@@ -119,6 +119,7 @@ class RcloneMountPlugin(PluginBase):
             "umask": "002",
             "extra_args": "",
             "autostart": True,
+            "autoheal_seconds": 60,   # 0 = watchdog off
         }
 
     def get_config_schema(self) -> dict[str, Any]:
@@ -144,6 +145,10 @@ class RcloneMountPlugin(PluginBase):
                 "umask": {"type": "string", "title": "文件权限掩码"},
                 "extra_args": {"type": "string", "title": "额外 rclone 参数（空格分隔）"},
                 "autostart": {"type": "boolean", "title": "容器启动时自动挂载"},
+                "autoheal_seconds": {
+                    "type": "integer",
+                    "title": "自愈检查间隔（秒，0=关闭）",
+                },
             },
         }
 
@@ -162,6 +167,11 @@ class RcloneMountPlugin(PluginBase):
         config, ``<DATA_DIR>/rclone/rclone.conf`` carries the credentials, and
         this hook turns them back into a live mount without user action.
         """
+        # A single attempt is not enough: at boot the network is often not
+        # ready yet, and a failed/half-formed mount used to stay broken
+        # until someone pressed 「重新挂载」 by hand.
+        _start_watchdog()
+
         cfg = self._cfg()
         if not cfg["autostart"]:
             logger.info("Rclone 挂载：autostart 已关闭，跳过自动挂载")
@@ -445,6 +455,9 @@ class RcloneMountPlugin(PluginBase):
             "config_exists": Path(cfg["config_file"]).is_file(),
             "rclone_version": await self._version(),
             "fuse_device": os.path.exists(FUSE_DEVICE),
+            "self_heal_seconds": int(cfg.get("autoheal_seconds") or 0),
+            "watchdog_running": _watchdog_task is not None
+            and not _watchdog_task.done(),
             "problems": problems,
             "ready": not problems,
         }
@@ -728,3 +741,133 @@ class RcloneMountPlugin(PluginBase):
                 return "".join(fh.readlines()[-lines:]).strip()
         except OSError:
             return ""
+# ── self-heal watchdog ────────────────────────────────────────────────
+#: Strong reference: the task is started from ``on_startup``, whose runtime
+#: instance is thrown away by the startup-hook runner right afterwards. A bare
+#: ``create_task`` would be garbage-collected and silently stop healing.
+_watchdog_task: asyncio.Task[None] | None = None
+
+#: Longest backoff between failed heal attempts, so an unreachable AList does
+#: not produce one mount attempt per minute forever.
+_HEAL_MAX_BACKOFF = 900.0
+
+
+async def _load_instance_config() -> dict[str, Any] | None:
+    """Read the live config from the DB.
+
+    The watchdog must see the *current* settings, not the copy captured when
+    the container started: the user can change the remote or turn the feature
+    off while it runs.
+    """
+    from sqlalchemy import select
+
+    from app.core.database import async_session_factory
+    from app.models import Plugin, PluginInstance
+
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(PluginInstance.config)
+            .join(Plugin, Plugin.id == PluginInstance.plugin_id)
+            .where(
+                Plugin.slug == "rclone_mount",
+                PluginInstance.enabled.is_(True),
+                Plugin.enabled.is_(True),
+            )
+            .order_by(PluginInstance.id)
+            .limit(1)
+        )
+        row = result.first()
+        if row is None:
+            return None
+        return dict(row[0] or {})
+
+
+def _heal_delay(base: int, failures: int) -> float:
+    """Wait ``base`` seconds normally, backing off after repeated failures."""
+    if failures <= 0:
+        return float(base)
+    return min(float(base) * (2 ** min(failures, 4)), _HEAL_MAX_BACKOFF)
+
+
+async def _self_heal_loop() -> None:
+    """Keep the FUSE mount alive without any user action.
+
+    Sleeps first so the startup hook (which mounts synchronously) always wins
+    the race — two concurrent ``rclone mount`` calls on the same mount point
+    would fight each other. Every tick re-reads the config, so disabling the
+    feature or changing the mount point takes effect without a restart.
+    """
+    failures = 0
+    delay = 60.0
+    logger.info("Rclone 挂载：自愈守护已启动")
+
+    while True:
+        await asyncio.sleep(delay)
+        try:
+            raw_cfg = await _load_instance_config()
+            if raw_cfg is None:
+                failures = 0
+                delay = 300.0
+                continue
+
+            plugin = RcloneMountPlugin(raw_cfg)
+            cfg = plugin._cfg()
+            base = int(cfg.get("autoheal_seconds") or 0)
+
+            # Nothing to heal when the feature is off or the remote is unset.
+            # Poll slowly instead of every minute so a later change is still
+            # picked up without a restart.
+            if (
+                not cfg.get("autostart")
+                or base <= 0
+                or not plugin._remote_configured(cfg)
+            ):
+                failures = 0
+                delay = 300.0
+                continue
+
+            state, _source = await plugin._mount_state(cfg["mount_point"])
+            if state == "mounted":
+                if failures:
+                    logger.info(
+                        "Rclone 挂载：已恢复，%s 重新可用", cfg["mount_point"]
+                    )
+                failures = 0
+                delay = float(base)
+                continue
+
+            result = await plugin.run(action="ensure")
+            if result.get("status") == "ok":
+                logger.info(
+                    "Rclone 挂载：检测到 %s，已自动重新挂载 %s",
+                    state, cfg["mount_point"],
+                )
+                failures = 0
+                delay = float(base)
+            else:
+                failures += 1
+                delay = _heal_delay(base, failures)
+                logger.warning(
+                    "Rclone 挂载：自动重挂失败（第 %d 次，%ds 后重试）— %s",
+                    failures, int(delay), str(result.get("error"))[:300],
+                )
+        except asyncio.CancelledError:
+            logger.info("Rclone 挂载：自愈守护已停止")
+            raise
+        except Exception:  # noqa: BLE001 — the loop must never die
+            failures += 1
+            delay = _heal_delay(60.0, failures)
+            logger.exception("Rclone 挂载：自愈守护异常")
+
+
+def _start_watchdog() -> None:
+    """Start the self-heal loop once per process."""
+    global _watchdog_task
+    if _watchdog_task is not None and not _watchdog_task.done():
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No event loop (e.g. a sync unit test) — nothing to start.
+        return
+    _watchdog_task = loop.create_task(_self_heal_loop(), name="rclone-mount-selfheal")

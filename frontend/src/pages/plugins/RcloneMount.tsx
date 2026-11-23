@@ -77,6 +77,13 @@ const FIELDS: PluginField[] = [
     help: '开启后重建容器会自动恢复挂载，换机器部署只需带走过 data 卷',
   },
   {
+    key: 'autoheal_seconds',
+    label: '自愈检查间隔（秒）',
+    type: 'number',
+    default: 60,
+    help: '重启后自动重建挂载的检查周期，0 = 关闭。挂载失效（Transport endpoint is not connected）时会在下个周期自动清理并重新挂载',
+  },
+  {
     key: 'manage_config',
     label: '由插件生成 rclone.conf',
     type: 'boolean',
@@ -209,9 +216,9 @@ export default function RcloneMount() {
                 description={
                   <span>
                     rclone 进程已经退出，但内核仍保留着挂载项，所以目录不可读写。
-                    点「重新挂载」会自动卸载残留的挂载后重建；如果仍然失败，
-                    请在 NAS 宿主机执行 <Text code>sudo umount -l &lt;data目录&gt;/alist</Text>，
-                    或 <Text code>docker compose up -d --force-recreate</Text>。
+                    自愈守护会在下一个检查周期（{status?.self_heal_seconds || 60} 秒内）自动清理并重新挂载；
+                    也可以立即点「重新挂载」。若持续失败，请在 NAS 宿主机执行{' '}
+                    <Text code>sudo umount -l &lt;data目录&gt;/alist</Text>。
                   </span>
                 }
               />
@@ -260,6 +267,17 @@ export default function RcloneMount() {
               </Descriptions.Item>
               <Descriptions.Item label="/dev/fuse">
                 {status?.fuse_device ? <Tag color="green">可用</Tag> : <Tag color="red">缺失</Tag>}
+              </Descriptions.Item>
+              <Descriptions.Item label="自愈守护">
+                {status?.self_heal_seconds > 0 ? (
+                  <Tag color={status?.watchdog_running ? 'green' : 'orange'}>
+                    {status?.watchdog_running
+                      ? `运行中 · 每 ${status.self_heal_seconds}s`
+                      : '未运行'}
+                  </Tag>
+                ) : (
+                  <Tag>已关闭</Tag>
+                )}
               </Descriptions.Item>
             </Descriptions>
 
